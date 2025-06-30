@@ -88,7 +88,10 @@ class TaskStatus(BaseModel):
         if self.status == TaskStatusType.SUCCESS:
             return "Task completed successfully."
 
-        return f"Task status: {self.status}. Errors: {'\n *'.join(self.errors)}.\nDiagnostics: {'\n *'.join(self.diagnostics)}"
+        error_str = "\n".join(self.errors)
+        diagnostic_str = "\n".join(self.diagnostics)
+
+        return f"Task status: {self.status}. Errors: {error_str}.\n Diagnostics: {diagnostic_str}"
 
 
 def default_completion_callback(messages: list[LLMMessage], *, ctx: Any = None) -> TaskStatus:

@@ -1,6 +1,5 @@
 """Evaluation tests for calculator tool."""
 
-import pytest
 
 from tidyllm.evaluation import evaluation_test
 from tidyllm.tools.calculator.lib import CalculatorResult
