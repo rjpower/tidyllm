@@ -1,0 +1,59 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Development files
+.git/
+.gitignore
+.pytest_cache/
+.coverage
+.env
+.DS_Store
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Test files
+tests/
+**/test_*.py
+**/*_test.py
+
+# Documentation that's not needed in DXT
+docs/
+*.md
+!README.md
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Lock files and development dependencies
+uv.lock
+package-lock.json
+yarn.lock
+
+# Example files
+dxt-examples/
+
+# Our custom packaging script (not needed in DXT)
+scripts/package-dxt.py
+
+# Development tools and logs
+.aider.*
+.claude/
+.copier-answers.yml
+.cursor/
+.ruff_cache/
+logs/
+devtools/
+LICENSE
+claude_desktop_config.example.json
+
+# DXT ignore file itself
+.dxtignore

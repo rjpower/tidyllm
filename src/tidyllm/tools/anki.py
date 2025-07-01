@@ -149,13 +149,6 @@ class AnkiListResult(BaseModel):
     count: int
 
 
-class AnkiDecksResult(BaseModel):
-    """Result of listing Anki decks (alias for compatibility)."""
-
-    decks: list[dict[str, Any]]
-    count: int
-
-
 @register
 def anki_query(args: AnkiQueryArgs) -> AnkiQueryResult:
     """Search for notes in Anki database by query text.
@@ -312,23 +305,23 @@ def anki_list() -> AnkiListResult:
         # Get all decks first
         cursor.execute("SELECT id, name FROM decks")
         deck_rows = cursor.fetchall()
-        
+
         decks = []
         for deck_row in deck_rows:
             deck_id = deck_row["id"]
             deck_name = deck_row["name"].replace('\x1f', '::')  # Replace hierarchy separator with ::
-            
+
             # Count cards for this deck
             cursor.execute("SELECT COUNT(*) as card_count FROM cards WHERE did = ?", (deck_id,))
             card_count_row = cursor.fetchone()
             card_count = card_count_row["card_count"] if card_count_row else 0
-            
+
             decks.append({
                 "name": deck_name,
                 "card_count": card_count,
                 "deck_id": deck_id,
             })
-        
+
         decks.sort(key=lambda x: x["name"].lower())
         return AnkiListResult(decks=decks, count=len(decks))
 
@@ -339,50 +332,5 @@ def anki_list() -> AnkiListResult:
         conn.close()
 
 
-@register
-def anki_decks() -> AnkiDecksResult:
-    """List all available Anki decks with their card counts (alias for anki_list).
-
-    Example usage: anki_decks()
-    """
-    ctx = get_tool_context()
-    anki_db = ctx.find_anki_db()
-    if not anki_db:
-        return AnkiDecksResult(decks=[], count=0)
-
-    conn = setup_anki_connection(anki_db)
-    cursor = conn.cursor()
-
-    try:
-        # Get all decks with card counts using proper collation
-        cursor.execute("""
-            SELECT d.name as deck_name, 
-                   COUNT(c.id) as card_count,
-                   d.id as deck_id
-            FROM decks d
-            LEFT JOIN cards c ON c.did = d.id
-            GROUP BY d.id, d.name
-            ORDER BY d.name COLLATE unicase
-        """)
-        rows = cursor.fetchall()
-
-        decks = []
-        for row in rows:
-            deck_name = row["deck_name"].replace('\x1f', '::')  # Replace hierarchy separator with ::
-            decks.append({
-                "name": deck_name,
-                "card_count": row["card_count"],
-                "deck_id": row["deck_id"],
-            })
-
-        return AnkiDecksResult(decks=decks, count=len(decks))
-
-    except Exception as e:
-        print(f"Error: {e}")
-        return AnkiDecksResult(decks=[], count=0)
-    finally:
-        conn.close()
-
-
 if __name__ == "__main__":
-    simple_cli_main([anki_decks, anki_list, anki_query, anki_create], default_function="anki_decks")
+    simple_cli_main([anki_list, anki_query, anki_create], default_function="anki_list")
