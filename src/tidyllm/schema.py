@@ -66,19 +66,7 @@ class FunctionDescription:
         self.function = func
         self.name = func.__name__
 
-        # Check if function takes context and extract context type
-        sig = inspect.signature(func)
-        self.takes_ctx = "ctx" in sig.parameters
-
-        # Extract context type from type hints if available
-        self.context_type: type | None = None
-        if self.takes_ctx:
-            try:
-                hints = get_type_hints(func)
-                self.context_type = hints.get("ctx")
-            except (NameError, AttributeError):
-                # Fallback if type hints can't be resolved
-                self.context_type = None
+        # With contextvar approach, all context handling is automatic
 
         self.is_async = inspect.iscoroutinefunction(func)
 
@@ -102,12 +90,12 @@ class FunctionDescription:
         sig = inspect.signature(func)
         hints = get_type_hints(func)
 
-        # Get non-context parameters
-        non_ctx_params = {name: param for name, param in sig.parameters.items() if name != "ctx"}
+        # Get all parameters (no context filtering needed with contextvar approach)
+        all_params = sig.parameters
 
-        if len(non_ctx_params) == 1:
+        if len(all_params) == 1:
             # Single parameter - check if it's already a Pydantic model
-            param_name, param = next(iter(non_ctx_params.items()))
+            param_name, param = next(iter(all_params.items()))
             param_type = hints.get(param_name, Any)
 
             if inspect.isclass(param_type) and issubclass(param_type, BaseModel):
@@ -117,7 +105,7 @@ class FunctionDescription:
         # Create dynamic model for multiple parameters or single non-model parameter
         field_definitions = {}
 
-        for param_name, param in non_ctx_params.items():
+        for param_name, param in all_params.items():
             param_type = hints.get(param_name, Any)
 
             if param.default is not inspect.Parameter.empty:
@@ -146,10 +134,10 @@ class FunctionDescription:
         # Check if original function has single Pydantic model parameter
         sig = inspect.signature(self.function)
         hints = get_type_hints(self.function)
-        non_ctx_params = {name: param for name, param in sig.parameters.items() if name != "ctx"}
+        all_params = sig.parameters
 
-        if len(non_ctx_params) == 1:
-            param_name, param = next(iter(non_ctx_params.items()))
+        if len(all_params) == 1:
+            param_name, param = next(iter(all_params.items()))
             param_type = hints.get(param_name, Any)
 
             if inspect.isclass(param_type) and issubclass(param_type, BaseModel):
@@ -159,24 +147,6 @@ class FunctionDescription:
         # Multiple parameters or single primitive - return field values
         return validated_model.model_dump()
 
-    def call_with_json_args(self, json_args: dict, context: Any = None) -> Any:
-        """Call the function with JSON arguments after validation.
-
-        Args:
-            json_args: Raw JSON arguments
-            context: Optional context object for injection
-
-        Returns:
-            Function result
-        """
-        # Validate and parse arguments
-        parsed_args = self.validate_and_parse_args(json_args)
-
-        # Add context if function expects it
-        if self.takes_ctx:
-            parsed_args["ctx"] = context
-
-        return self.call(**parsed_args)
 
     def call(self, *args, **kwargs) -> Any:
         """Call the function directly with args/kwargs, handling async properly.

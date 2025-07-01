@@ -8,9 +8,9 @@ from typing import Any
 import genanki
 from pydantic import BaseModel, Field
 
+from tidyllm.context import get_tool_context
 from tidyllm.multi_cli import simple_cli_main
 from tidyllm.registry import register
-from tidyllm.tools.context import ToolContext
 
 # Anki model for vocabulary cards
 VOCAB_MODEL_ID = 1607392319  # Fixed ID for consistent model
@@ -127,8 +127,9 @@ class AnkiCreateResult(BaseModel):
 
 
 @register
-def anki_read(args: AnkiReadArgs, *, ctx: ToolContext) -> AnkiReadResult:
+def anki_read(args: AnkiReadArgs) -> AnkiReadResult:
     """Read vocabulary items from Anki database."""
+    ctx = get_tool_context()
     anki_db = ctx.find_anki_db()
     if not anki_db:
         return AnkiReadResult(
@@ -206,7 +207,7 @@ def anki_read(args: AnkiReadArgs, *, ctx: ToolContext) -> AnkiReadResult:
 
 
 @register
-def anki_create(args: AnkiCreateArgs, *, ctx: ToolContext) -> AnkiCreateResult:
+def anki_create(args: AnkiCreateArgs) -> AnkiCreateResult:
     """Create Anki flashcards using genanki."""
     # Generate deck ID from name
     deck_id = abs(hash(args.deck_name)) % (10 ** 10)

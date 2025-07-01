@@ -8,6 +8,7 @@ from tidyllm.multi_cli import simple_cli_main
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.db import init_database, row_to_dict
+from tidyllm.context import get_tool_context
 
 
 # Query Database Tool
@@ -26,8 +27,9 @@ class DBQueryResult(BaseModel):
 
 
 @register
-def db_query(args: DBQueryArgs, *, ctx: ToolContext) -> DBQueryResult:
+def db_query(args: DBQueryArgs) -> DBQueryResult:
     """Execute SELECT queries safely."""
+    ctx = get_tool_context()
     init_database(ctx)
     
     conn = ctx.get_db_connection()
@@ -70,8 +72,9 @@ class DBExecuteResult(BaseModel):
 
 
 @register
-def db_execute(args: DBExecuteArgs, *, ctx: ToolContext) -> DBExecuteResult:
+def db_execute(args: DBExecuteArgs) -> DBExecuteResult:
     """Execute INSERT, UPDATE, DELETE statements safely."""
+    ctx = get_tool_context()
     init_database(ctx)
     
     conn = ctx.get_db_connection()
@@ -114,8 +117,9 @@ class DBListTablesResult(BaseModel):
 
 
 @register
-def db_list_tables(args: DBListTablesArgs, *, ctx: ToolContext) -> DBListTablesResult:
+def db_list_tables(args: DBListTablesArgs) -> DBListTablesResult:
     """List all tables in the database."""
+    ctx = get_tool_context()
     init_database(ctx)
     
     conn = ctx.get_db_connection()
@@ -145,13 +149,14 @@ class DBSchemaArgs(BaseModel):
 class DBSchemaResult(BaseModel):
     """Result of getting schema."""
     success: bool
-    schema: dict[str, list[dict[str, str]]] = Field(default_factory=dict)
+    db_schema: dict[str, list[dict[str, str]]] = Field(default_factory=dict)
     error: str | None = None
 
 
 @register
-def db_schema(args: DBSchemaArgs, *, ctx: ToolContext) -> DBSchemaResult:
+def db_schema(args: DBSchemaArgs) -> DBSchemaResult:
     """Get database schema information."""
+    ctx = get_tool_context()
     init_database(ctx)
     
     conn = ctx.get_db_connection()
@@ -187,7 +192,7 @@ def db_schema(args: DBSchemaArgs, *, ctx: ToolContext) -> DBSchemaResult:
                     for col in columns
                 ]
             
-        return DBSchemaResult(success=True, schema=schema)
+        return DBSchemaResult(success=True, db_schema=schema)
         
     except Exception as e:
         return DBSchemaResult(success=False, error=f"Database error: {str(e)}")

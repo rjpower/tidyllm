@@ -150,7 +150,6 @@ class TestFunctionDescription:
         func_desc = FunctionDescription(simple_function)
 
         assert func_desc.name == "simple_function"
-        assert not func_desc.takes_ctx
         assert not func_desc.is_async
         assert func_desc.args_model is not None
 
@@ -159,7 +158,6 @@ class TestFunctionDescription:
         func_desc = FunctionDescription(multi_param_function)
 
         assert func_desc.name == "multi_param_function"
-        assert not func_desc.takes_ctx
         assert func_desc.args_model is not None
 
     def test_function_description_creation_single_primitive(self):
@@ -167,7 +165,6 @@ class TestFunctionDescription:
         func_desc = FunctionDescription(single_primitive_function)
 
         assert func_desc.name == "single_primitive_function"
-        assert not func_desc.takes_ctx
         assert func_desc.args_model is not None
 
     def test_validate_and_parse_args_pydantic_model(self):
@@ -207,24 +204,35 @@ class TestFunctionDescription:
         assert isinstance(result, dict)
         assert result["message"] == "hello"
 
-    def test_call_with_json_args_pydantic_model(self):
-        """Test calling function with JSON args for Pydantic model."""
+    def test_call_pydantic_model(self):
+        """Test calling function with parsed args for Pydantic model."""
         func_desc = FunctionDescription(simple_function)
         json_args = {"name": "test", "count": 10}
 
-        result = func_desc.call_with_json_args(json_args)
+        parsed_args = func_desc.validate_and_parse_args(json_args)
+        result = func_desc.call(**parsed_args)
         assert result["name"] == "test"
         assert result["count"] == 10
 
-    def test_call_with_json_args_multi_param(self):
-        """Test calling function with JSON args for multi-parameter function."""
+    def test_call_multi_param(self):
+        """Test calling function with parsed args for multi-parameter function."""
         func_desc = FunctionDescription(multi_param_function)
         json_args = {"name": "test", "count": 5, "tags": ["a", "b"]}
 
-        result = func_desc.call_with_json_args(json_args)
+        parsed_args = func_desc.validate_and_parse_args(json_args)
+        result = func_desc.call(**parsed_args)
         assert result["name"] == "test"
         assert result["count"] == 5
         assert result["tags"] == ["a", "b"]
+
+    def test_call_single_primitive(self):
+        """Test calling function with parsed args for single primitive parameter."""
+        func_desc = FunctionDescription(single_primitive_function)
+        json_args = {"message": "hello world"}
+
+        parsed_args = func_desc.validate_and_parse_args(json_args)
+        result = func_desc.call(**parsed_args)
+        assert result["processed"] == "hello world"
 
 
 def create_test_schema(func, doc_override=None):

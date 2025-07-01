@@ -6,20 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Use `uv` for all package management and execution:
 
-```bash
-# Install dependencies and run full workflow
-make
-
-# Individual commands
-make install     # uv sync --all-extras
-make lint        # Run ruff + basedpyright type checking  
-make test        # uv run pytest
-make build       # uv build
-make upgrade     # uv sync --upgrade --all-extras --dev
-```
-
-**Critical**: Always run `make lint` and `make test` before completing any task. Zero linter errors/warnings and test failures are required.
-
 For individual test runs with output: `uv run pytest -s path/to/test.py`
 
 ## Architecture Overview

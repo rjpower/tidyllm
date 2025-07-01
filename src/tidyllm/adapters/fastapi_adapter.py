@@ -6,10 +6,12 @@ from fastapi import FastAPI, HTTPException
 
 from tidyllm.library import FunctionLibrary
 from tidyllm.models import ToolError
+from tidyllm.context import set_tool_context
+from tidyllm.tools.context import ToolContext
 
 
 def create_fastapi_app(
-    function_library: FunctionLibrary | None = None,
+    context: ToolContext | None = None,
     title: str = "TidyLLM Tools API",
     description: str = "API for TidyLLM registered tools",
     version: str = "1.0.0",
@@ -21,7 +23,7 @@ def create_fastapi_app(
     directly, with FastAPI automatically generating the OpenAPI schema.
 
     Args:
-        function_library: Optional FunctionLibrary instance to use for tool execution
+        context: Optional ToolContext for tools execution
         title: API title
         description: API description
         version: API version
@@ -30,28 +32,34 @@ def create_fastapi_app(
         Configured FastAPI application with individual tool endpoints
 
     Example:
-        from tidyllm.adapters.fastapi import create_fastapi_app
-        from tidyllm import FunctionLibrary
+        from tidyllm.adapters.fastapi_adapter import create_fastapi_app
+        from tidyllm.tools.context import ToolContext
 
-        # Create library with context
-        library = FunctionLibrary(context={"project_root": Path("/tmp")})
-
-        # Create FastAPI app
-        app = create_fastapi_app(library)
+        # Create with context
+        context = ToolContext()
+        app = create_fastapi_app(context)
 
         # Run with: uvicorn module:app --reload
         # Tools will be available at /tools/{tool_name}
     """
     app = FastAPI(title=title, description=description, version=version)
 
-    # Use provided library or create a default one
-    if function_library is None:
-        function_library = FunctionLibrary()
+    # Use provided context or create default
+    if context is None:
+        from tidyllm.tools.config import Config
+        context = ToolContext(config=Config())
+    
+    # Store context for use in endpoints
+    app._tidyllm_context = context
+
+    # Get tools from registry
+    from tidyllm.registry import REGISTRY
+    function_descriptions = REGISTRY.functions
 
     @app.get("/", summary="API Information")
     async def root():
         """Get basic API information."""
-        tool_names = [desc.name for desc in function_library.function_descriptions]
+        tool_names = [desc.name for desc in function_descriptions]
         return {
             "title": title,
             "description": description,
@@ -65,17 +73,17 @@ def create_fastapi_app(
         """Simple health check endpoint."""
         return {
             "status": "healthy",
-            "available_tools": len(function_library.function_descriptions)
+            "available_tools": len(function_descriptions)
         }
 
     # Create individual endpoints for each tool
-    for tool_desc in function_library.function_descriptions:
-        _create_tool_endpoint(app, tool_desc, function_library)
+    for tool_desc in function_descriptions:
+        _create_tool_endpoint(app, tool_desc)
 
     return app
 
 
-def _create_tool_endpoint(app: FastAPI, tool_desc, function_library: FunctionLibrary):
+def _create_tool_endpoint(app: FastAPI, tool_desc):
     """Create a FastAPI endpoint for a specific tool.""" 
     from inspect import Parameter, Signature
     
@@ -87,20 +95,12 @@ def _create_tool_endpoint(app: FastAPI, tool_desc, function_library: FunctionLib
         async def tool_endpoint(args):
             """Execute the tool with the provided arguments."""
             try:
-                # Convert Pydantic model to dict for function call
-                result = function_library.call(tool_name, args.model_dump())
-
-                # Check if the result is a ToolError
-                if isinstance(result, ToolError):
-                    raise HTTPException(
-                        status_code=400,
-                        detail={
-                            "error": result.error,
-                            "details": result.details
-                        }
-                    )
-
-                return result
+                # Set context for this request
+                with set_tool_context(app._tidyllm_context):
+                    # Validate and execute tool directly
+                    parsed_args = tool_desc.validate_and_parse_args(args.model_dump())
+                    result = tool_desc.call(**parsed_args)
+                    return result
 
             except Exception as e:
                 if isinstance(e, HTTPException):
@@ -135,7 +135,7 @@ def _create_tool_endpoint(app: FastAPI, tool_desc, function_library: FunctionLib
 
 # Convenience function for common use case
 def create_portkit_api(
-    context: dict[str, Any] | None = None,
+    context: ToolContext | None = None,
     title: str = "PortKit Tools API",
     description: str = "API for PortKit TinyAgent tools",
 ) -> FastAPI:
@@ -143,7 +143,7 @@ def create_portkit_api(
     Create a FastAPI app specifically for PortKit tools.
 
     Args:
-        context: Context dictionary for tools (e.g., {"project_root": Path("/tmp")})
+        context: ToolContext for tools execution
         title: API title
         description: API description
 
@@ -151,30 +151,17 @@ def create_portkit_api(
         Configured FastAPI application with PortKit tools
 
     Example:
-        from pathlib import Path
         from tidyllm.adapters.fastapi_adapter import create_portkit_api
+        from tidyllm.tools.context import ToolContext
 
-        app = create_portkit_api(context={"project_root": Path("/my/project")})
+        context = ToolContext()
+        app = create_portkit_api(context=context)
     """
-    def get_portkit_tools():
-        """Get all registered PortKit tools as FunctionDescription objects."""
-        from pathlib import Path
+    # Import all tools to ensure they're registered
+    import tidyllm.tools.anki  # noqa: F401
+    import tidyllm.tools.manage_db  # noqa: F401
+    import tidyllm.tools.notes  # noqa: F401
+    import tidyllm.tools.transcribe  # noqa: F401
+    import tidyllm.tools.vocab_table  # noqa: F401
 
-        from tidyllm.discover import discover_tools_in_directory
-
-        tools_dir = Path(__file__).parent.parent.parent / "tools"
-        return discover_tools_in_directory(
-            tools_dir, 
-            recursive=True,
-        )
-
-    # Discover PortKit tools
-    portkit_tools = get_portkit_tools()
-
-    # Create function library with PortKit tools
-    library = FunctionLibrary(
-        functions=portkit_tools,
-        context=context or {}
-    )
-
-    return create_fastapi_app(library, title=title, description=description)
+    return create_fastapi_app(context=context, title=title, description=description)

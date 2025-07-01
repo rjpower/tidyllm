@@ -7,7 +7,12 @@ import pytest
 
 from tidyllm.tools.config import Config
 from tidyllm.tools.context import ToolContext
-from tidyllm.tools.manage_db import DBArgs, manage_db
+from tidyllm.tools.manage_db import (
+    DBListTablesArgs, db_list_tables,
+    DBQueryArgs, db_query,
+    DBExecuteArgs, db_execute,
+    DBSchemaArgs, db_schema
+)
 
 
 @pytest.fixture
@@ -24,28 +29,27 @@ def test_context():
 
 def test_list_tables_empty(test_context):
     """Test listing tables in empty database."""
-    args = DBArgs(operation="list_tables")
-    result = manage_db(args, ctx=test_context)
+    args = DBListTablesArgs()
+    result = db_list_tables(args, ctx=test_context)
     
     assert result.success is True
     assert result.tables is not None
-    # Should have system tables like sqlite_master
+    # Should have zero tables in empty database
     assert len(result.tables) >= 0
 
 
 def test_list_tables_with_data(test_context):
     """Test listing tables after creating some."""
     # Create a table first
-    create_args = DBArgs(
-        operation="execute",
+    create_args = DBExecuteArgs(
         sql="CREATE TABLE test_table (id INTEGER PRIMARY KEY, name TEXT)"
     )
-    result = manage_db(create_args, ctx=test_context)
+    result = db_execute(create_args, ctx=test_context)
     assert result.success is True
     
     # Now list tables
-    list_args = DBArgs(operation="list_tables")
-    result = manage_db(list_args, ctx=test_context)
+    list_args = DBListTablesArgs()
+    result = db_list_tables(list_args, ctx=test_context)
     
     assert result.success is True
     assert result.tables is not None
@@ -55,15 +59,14 @@ def test_list_tables_with_data(test_context):
 def test_schema_operation(test_context):
     """Test getting database schema."""
     # Create a test table
-    create_args = DBArgs(
-        operation="execute",
+    create_args = DBExecuteArgs(
         sql="CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT)"
     )
-    manage_db(create_args, ctx=test_context)
+    db_execute(create_args, ctx=test_context)
     
     # Get schema
-    schema_args = DBArgs(operation="schema")
-    result = manage_db(schema_args, ctx=test_context)
+    schema_args = DBSchemaArgs()
+    result = db_schema(schema_args, ctx=test_context)
     
     assert result.success is True
     assert result.db_schema is not None
@@ -82,19 +85,17 @@ def test_schema_operation(test_context):
 def test_execute_insert(test_context):
     """Test executing insert statement."""
     # Create table
-    create_args = DBArgs(
-        operation="execute",
+    create_args = DBExecuteArgs(
         sql="CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)"
     )
-    result = manage_db(create_args, ctx=test_context)
+    result = db_execute(create_args, ctx=test_context)
     assert result.success is True
     
     # Insert data
-    insert_args = DBArgs(
-        operation="execute",
+    insert_args = DBExecuteArgs(
         sql="INSERT INTO test (value) VALUES ('hello')"
     )
-    result = manage_db(insert_args, ctx=test_context)
+    result = db_execute(insert_args, ctx=test_context)
     
     assert result.success is True
     assert result.affected_count == 1
@@ -103,20 +104,18 @@ def test_execute_insert(test_context):
 def test_query_select(test_context):
     """Test executing select query."""
     # Setup data
-    setup_sql = """
-    CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT);
-    INSERT INTO test (value) VALUES ('hello'), ('world');
-    """
-    for sql in setup_sql.strip().split(';'):
-        if sql.strip():
-            manage_db(DBArgs(operation="execute", sql=sql), ctx=test_context)
+    setup_sqls = [
+        "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)",
+        "INSERT INTO test (value) VALUES ('hello'), ('world')"
+    ]
+    for sql in setup_sqls:
+        db_execute(DBExecuteArgs(sql=sql), ctx=test_context)
     
     # Query data
-    query_args = DBArgs(
-        operation="query",
+    query_args = DBQueryArgs(
         sql="SELECT * FROM test ORDER BY id"
     )
-    result = manage_db(query_args, ctx=test_context)
+    result = db_query(query_args, ctx=test_context)
     
     assert result.success is True
     assert result.rows is not None
@@ -128,16 +127,19 @@ def test_query_select(test_context):
 def test_query_with_params(test_context):
     """Test query with parameters."""
     # Setup
-    manage_db(DBArgs(operation="execute", sql="CREATE TABLE test (id INTEGER, name TEXT)"), ctx=test_context)
-    manage_db(DBArgs(operation="execute", sql="INSERT INTO test VALUES (1, 'alice'), (2, 'bob')"), ctx=test_context)
+    db_execute(DBExecuteArgs(sql="CREATE TABLE test (id INTEGER, name TEXT)"), ctx=test_context)
+    db_execute(DBExecuteArgs(sql="INSERT INTO test VALUES (1, 'alice'), (2, 'bob')"), ctx=test_context)
     
     # Query with params
-    query_args = DBArgs(
-        operation="query",
+    query_args = DBQueryArgs(
         sql="SELECT * FROM test WHERE name = ?",
-        params={"1": "alice"}  # Note: params are passed as dict but need to be list for sqlite
+        params={"1": "alice"}  # Note: params are passed as dict but converted to list
     )
-    manage_db(query_args, ctx=test_context)
+    result = db_query(query_args, ctx=test_context)
+    
+    assert result.success is True
+    assert len(result.rows) == 1
+    assert result.rows[0]["name"] == "alice"
 
 
 def test_dangerous_operations_blocked(test_context):
@@ -149,8 +151,8 @@ def test_dangerous_operations_blocked(test_context):
     ]
     
     for sql in dangerous_operations:
-        args = DBArgs(operation="execute", sql=sql)
-        result = manage_db(args, ctx=test_context)
+        args = DBExecuteArgs(sql=sql)
+        result = db_execute(args, ctx=test_context)
         
         assert result.success is False
         assert "dangerous" in result.error.lower() or "not allowed" in result.error.lower()
@@ -158,47 +160,21 @@ def test_dangerous_operations_blocked(test_context):
 
 def test_non_select_in_query_operation(test_context):
     """Test that non-SELECT statements are blocked in query operation."""
-    args = DBArgs(
-        operation="query",
+    args = DBQueryArgs(
         sql="INSERT INTO test VALUES (1, 'hack')"
     )
-    result = manage_db(args, ctx=test_context)
+    result = db_query(args, ctx=test_context)
     
     assert result.success is False
     assert "select" in result.error.lower()
 
 
-def test_missing_sql(test_context):
-    """Test operations with missing SQL."""
-    # Query without SQL
-    query_args = DBArgs(operation="query")
-    result = manage_db(query_args, ctx=test_context)
-    assert result.success is False
-    assert "required" in result.error.lower()
-    
-    # Execute without SQL
-    execute_args = DBArgs(operation="execute")
-    result = manage_db(execute_args, ctx=test_context)
-    assert result.success is False
-    assert "required" in result.error.lower()
-
-
-def test_invalid_operation():
-    """Test invalid operation at Pydantic validation level."""
-    with pytest.raises(ValueError, match="Input should be"):
-        DBArgs(
-            operation="invalid",  # type: ignore
-            sql="SELECT 1"
-        )
-
-
 def test_sql_error_handling(test_context):
     """Test handling of SQL errors."""
-    args = DBArgs(
-        operation="query",
+    args = DBQueryArgs(
         sql="SELECT * FROM nonexistent_table"
     )
-    result = manage_db(args, ctx=test_context)
+    result = db_query(args, ctx=test_context)
     
     assert result.success is False
     assert result.error is not None
@@ -207,10 +183,28 @@ def test_sql_error_handling(test_context):
 
 def test_empty_database_schema(test_context):
     """Test schema operation on empty database."""
-    args = DBArgs(operation="schema")
-    result = manage_db(args, ctx=test_context)
+    args = DBSchemaArgs()
+    result = db_schema(args, ctx=test_context)
     
     assert result.success is True
     assert result.db_schema is not None
-    # Empty database might still have system tables
+    # Empty database should have empty schema dict
     assert isinstance(result.db_schema, dict)
+
+
+def test_specific_table_schema(test_context):
+    """Test getting schema for specific table."""
+    # Create a test table
+    create_args = DBExecuteArgs(
+        sql="CREATE TABLE specific_test (id INTEGER PRIMARY KEY, data TEXT)"
+    )
+    db_execute(create_args, ctx=test_context)
+    
+    # Get schema for specific table
+    schema_args = DBSchemaArgs(table="specific_test")
+    result = db_schema(schema_args, ctx=test_context)
+    
+    assert result.success is True
+    assert result.db_schema is not None
+    assert "specific_test" in result.db_schema
+    assert len(result.db_schema) == 1  # Only the requested table

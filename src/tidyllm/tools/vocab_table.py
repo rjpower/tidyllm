@@ -2,9 +2,9 @@
 
 from pydantic import BaseModel, Field
 
+from tidyllm.context import get_tool_context
 from tidyllm.multi_cli import simple_cli_main
 from tidyllm.registry import register
-from tidyllm.tools.context import ToolContext
 from tidyllm.tools.db import init_database, json_decode, json_encode, row_to_dict
 
 
@@ -35,8 +35,9 @@ class VocabAddResult(BaseModel):
 
 
 @register
-def vocab_add(args: VocabAddArgs, *, ctx: ToolContext) -> VocabAddResult:
+def vocab_add(args: VocabAddArgs) -> VocabAddResult:
     """Add a new vocabulary word to the database."""
+    ctx = get_tool_context()
     init_database(ctx)
     
     conn = ctx.get_db_connection()
@@ -80,8 +81,9 @@ class VocabSearchResult(BaseModel):
 
 
 @register
-def vocab_search(args: VocabSearchArgs, *, ctx: ToolContext) -> VocabSearchResult:
+def vocab_search(args: VocabSearchArgs) -> VocabSearchResult:
     """Search vocabulary words in the database."""
+    ctx = get_tool_context()
     init_database(ctx)
     
     conn = ctx.get_db_connection()
@@ -147,8 +149,9 @@ class VocabUpdateResult(BaseModel):
 
 
 @register
-def vocab_update(args: VocabUpdateArgs, *, ctx: ToolContext) -> VocabUpdateResult:
+def vocab_update(args: VocabUpdateArgs) -> VocabUpdateResult:
     """Update an existing vocabulary word."""
+    ctx = get_tool_context()
     init_database(ctx)
     
     conn = ctx.get_db_connection()
@@ -204,8 +207,9 @@ class VocabDeleteResult(BaseModel):
 
 
 @register
-def vocab_delete(args: VocabDeleteArgs, *, ctx: ToolContext) -> VocabDeleteResult:
+def vocab_delete(args: VocabDeleteArgs) -> VocabDeleteResult:
     """Delete a vocabulary word from the database."""
+    ctx = get_tool_context()
     init_database(ctx)
     
     conn = ctx.get_db_connection()

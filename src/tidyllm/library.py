@@ -106,37 +106,9 @@ class FunctionLibrary:
             logger.error(error)
             return ToolError(error=error)
 
-        # Check if tool needs context
-        needs_context = func_desc.takes_ctx
-
-        if needs_context:
-            # Validate context satisfies tool requirements
-            context_type = func_desc.context_type
-            if context_type:
-                if hasattr(context_type, "__annotations__"):
-                    for attr_name in context_type.__annotations__:
-                        if not hasattr(self.context, attr_name):
-                            error = f"Context missing required attribute: {attr_name}"
-                            logger.error(error, stack_info=True)
-                            return ToolError(error=error)
-
         try:
-            if needs_context:
-                # Convert dict context to object with attributes
-                if isinstance(self.context, dict):
-
-                    class ContextObject:
-                        def __init__(self, data):
-                            for key, value in data.items():
-                                setattr(self, key, value)
-
-                    context_obj = ContextObject(self.context)
-                else:
-                    context_obj = self.context
-
-                result = func_desc.function(**call_kwargs, ctx=context_obj)
-            else:
-                result = func_desc.function(**call_kwargs)
+            # All tools now use contextvars for context access
+            result = func_desc.function(**call_kwargs)
 
             # Handle async functions - they need to be awaited by the caller
             if func_desc.is_async:
@@ -164,21 +136,11 @@ class FunctionLibrary:
         ]
 
     def validate_context(self, tool_name: str) -> bool:
-        """Check if context satisfies tool requirements."""
-        func_desc = self._function_descriptions.get(tool_name)
-        if not func_desc:
-            return False
-
-        context_type = func_desc.context_type
-        if not context_type:
-            return True
-
-        # For Protocol types, check annotations instead of dir()
-        if hasattr(context_type, "__annotations__"):
-            for attr_name in context_type.__annotations__:
-                if not hasattr(self.context, attr_name):
-                    return False
-
+        """Check if context satisfies tool requirements.
+        
+        Note: With contextvar approach, context validation is no longer needed
+        at the library level. Tools access context directly via get_tool_context().
+        """
         return True
 
     def call_with_json_response(self, name: str, args: dict, id: str) -> str:

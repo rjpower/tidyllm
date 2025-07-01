@@ -1,6 +1,5 @@
 """Global registry for tools."""
 
-import inspect
 import logging
 from collections import OrderedDict
 from collections.abc import Callable
@@ -30,6 +29,7 @@ class Registry:
 
     def __init__(self):
         self._tools: dict[str, FunctionDescription] = OrderedDict()
+        self._fastmcp_server = None
 
     def register(
         self,
@@ -58,6 +58,10 @@ class Registry:
 
         self._tools[name] = func_desc
         logger.info(f"Registered tool: {name}")
+        
+        # Auto-register with FastMCP if server exists
+        if self._fastmcp_server is not None:
+            self._register_tool_with_fastmcp(func_desc)
 
     @property
     def functions(self) -> list[FunctionDescription]:
@@ -78,6 +82,41 @@ class Registry:
     def list_tools(self) -> list[str]:
         """List all registered tool names."""
         return list(self._tools.keys())
+
+    def create_fastmcp_server(self, name: str = "TidyLLM Tools"):
+        """Create and configure FastMCP server with all registered tools.
+        
+        Args:
+            name: Server name for FastMCP
+            
+        Returns:
+            FastMCP server instance with all tools registered
+        """
+        try:
+            from fastmcp import FastMCP
+        except ImportError:
+            raise ImportError("fastmcp is required for FastMCP server integration")
+        
+        if self._fastmcp_server is None:
+            self._fastmcp_server = FastMCP(name)
+            
+            # Register all existing tools
+            for tool_desc in self._tools.values():
+                self._register_tool_with_fastmcp(tool_desc)
+        
+        return self._fastmcp_server
+
+    def _register_tool_with_fastmcp(self, func_desc: FunctionDescription) -> None:
+        """Register individual tool with FastMCP server."""
+        if self._fastmcp_server is None:
+            return
+            
+        # Pass the original function directly to FastMCP
+        self._fastmcp_server.tool(
+            name=func_desc.name,
+            description=func_desc.function_schema["function"]["description"],
+            parameters=func_desc.function_schema["function"]["parameters"]
+        )(func_desc.function)
 
 
 # Global registry instance
@@ -128,12 +167,7 @@ def register(
         if name:
             func.__name__ = name
 
-        # Validate context parameter if present
-        sig = inspect.signature(func)
-        if "ctx" in sig.parameters:
-            ctx_param = sig.parameters["ctx"]
-            if ctx_param.kind != inspect.Parameter.KEYWORD_ONLY:
-                raise ValueError("ctx parameter must be keyword-only (*, ctx)")
+        # No context parameter validation needed with new contextvar approach
 
         # Register the function - registry will generate schema automatically
         REGISTRY.register(func, doc_override)

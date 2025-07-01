@@ -14,6 +14,8 @@ from tidyllm.protocol_utils import (
     get_protocol_fields,
 )
 from tidyllm.schema import FunctionDescription
+from tidyllm.context import set_tool_context
+from tidyllm.tools.context import ToolContext
 
 
 def create_context_from_cli_args(protocol_type: type, cli_args: dict[str, Any]) -> Any:
@@ -213,62 +215,32 @@ def collect_function_options(func_desc: FunctionDescription) -> list[CliOption]:
 
 
 def collect_context_options(func_desc: FunctionDescription, context_class: type | None = None) -> list[CliOption]:
-    """Collect CLI options from context protocol fields."""
+    """Collect CLI options from Config fields automatically."""
     options = []
 
-    if func_desc.takes_ctx and func_desc.context_type:
-        # Use provided context_class if available, otherwise use the one from function desc
-        ctx_model = context_class or func_desc.context_type
-
-        # Check if it's a Pydantic model
-        if isinstance(ctx_model, type) and issubclass(ctx_model, BaseModel):
-            # Handle Pydantic model
-            for field_name in ctx_model.model_fields:
-                field_info = ctx_model.model_fields[field_name]
-                # Skip excluded fields (they're not CLI configurable)
-                if field_info.exclude:
-                    continue
-
-                field_info = get_pydantic_field_info(ctx_model, field_name)
-
-                option_name = f"--ctx-{field_name.replace('_', '-')}"
-                param_name = f"ctx_{field_name}"
-                help_text = f"Context field: {field_info.help_text}"
-
-                _, is_flag = get_cli_type_for_annotation(field_info.type)
-
-                options.append(
-                    CliOption(
-                        name=option_name,
-                        param_name=param_name,
-                        type_annotation=field_info.type,
-                        help_text=help_text,
-                        is_flag=is_flag,
-                        multiple=False,
-                        required=field_info.is_required,
-                    )
-                )
-        else:
-            # Handle Protocol/other types
-            ctx_fields = get_protocol_fields(ctx_model)
-            for field_name, field_type in ctx_fields.items():
-                option_name = f"--ctx-{field_name.replace('_', '-')}"
-                param_name = f"ctx_{field_name}"
-                help_text = f"Context field: {field_name} ({field_type.__name__ if hasattr(field_type, '__name__') else str(field_type)})"
-
-                _, is_flag = get_cli_type_for_annotation(field_type)
-
-                options.append(
-                    CliOption(
-                        name=option_name,
-                        param_name=param_name,
-                        type_annotation=field_type,
-                        help_text=help_text,
-                        is_flag=is_flag,
-                        multiple=False,
-                        required=True,  # Default to required for protocols
-                    )
-                )
+    # Automatically enumerate Config fields using Pydantic model fields
+    from tidyllm.tools.config import Config
+    
+    for field_name, field_info in Config.model_fields.items():
+        option_name = f"--ctx-{field_name.replace('_', '-')}"
+        param_name = f"ctx_{field_name}"
+        
+        field_type = field_info.annotation
+        help_text = field_info.description or f"Config field: {field_name}"
+        
+        _, is_flag = get_cli_type_for_annotation(field_type)
+        
+        options.append(
+            CliOption(
+                name=option_name,
+                param_name=param_name,
+                type_annotation=field_type,
+                help_text=help_text,
+                is_flag=is_flag,
+                multiple=False,
+                required=field_info.is_required(),
+            )
+        )
 
     return options
 
@@ -320,9 +292,8 @@ def _generate_cli_from_description(func_desc: FunctionDescription) -> click.Comm
     """Generate CLI from a FunctionDescription."""
 
     # Collect all CLI options
-    context_class = func_desc.context_type if func_desc.takes_ctx else None
     func_options = collect_function_options(func_desc)
-    ctx_options = collect_context_options(func_desc, context_class)
+    ctx_options = collect_context_options(func_desc)
 
     @click.command(name=func_desc.name)
     @click.option("--json", "json_input", help="JSON input for all arguments")
@@ -340,44 +311,23 @@ def _generate_cli_from_description(func_desc: FunctionDescription) -> click.Comm
             # Parse CLI arguments using helper function
             args_dict, ctx_args = parse_cli_arguments(kwargs, func_options, ctx_options)
 
-        # Create context from CLI arguments if needed
-        context = None
-        if func_desc.takes_ctx:
-            context_class = func_desc.context_type
-            assert (
-                context_class is not None
-            ), "Context type must be provided if function takes context"
+        # Create context from CLI arguments 
+        from tidyllm.tools.config import Config
+        
+        # Create config with CLI overrides
+        config_kwargs = {}
+        for key, value in ctx_args.items():
+            if value is not None:  # Only set non-None values
+                config_kwargs[key] = value
+        
+        config = Config(**config_kwargs)
+        context = ToolContext(config=config)
 
-            # Check if context_class is a Pydantic model
-            if isinstance(context_class, type) and issubclass(context_class, BaseModel):
-                # Pydantic model - use model validation for type conversion
-                context = context_class(**ctx_args)
-            else:
-                # Non-Pydantic class - convert types manually
-                converted_args = {}
-                fields = get_protocol_fields(context_class)
-                for field_name, field_type in fields.items():
-                    cli_value = ctx_args.get(field_name)
-                    if cli_value is not None:
-                        # Convert CLI string values to appropriate types
-                        if field_type is bool:
-                            converted_args[field_name] = cli_value
-                        elif field_type is int:
-                            converted_args[field_name] = int(cli_value)
-                        elif field_type is float:
-                            converted_args[field_name] = float(cli_value)
-                        elif field_type is Path or field_type == Path:
-                            converted_args[field_name] = Path(cli_value)
-                        else:
-                            converted_args[field_name] = cli_value
-
-                context = context_class(**converted_args)
-        else:
-            # Use default mock context creation
-            context = create_context_from_cli_args(func_desc.context_type, ctx_args)
-
-        # Execute tool using FunctionDescription
-        result = func_desc.call_with_json_args(args_dict, context)
+        # Execute tool with context variable
+        with set_tool_context(context):
+            # Use the new direct approach - validate args and call function
+            parsed_args = func_desc.validate_and_parse_args(args_dict)
+            result = func_desc.call(**parsed_args)
 
         # Handle async functions by running them in asyncio
         if hasattr(result, "__await__"):

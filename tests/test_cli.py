@@ -37,9 +37,11 @@ def simple_tool(args: SimpleArgs) -> dict:
     return {"message": f"Hello {args.name}", "count": args.count, "flag": args.flag}
 
 
-def context_tool(args: SimpleArgs, *, ctx: CLITestContext) -> dict:
+def context_tool(args: SimpleArgs) -> dict:
     """Tool that requires context."""
-    return {"message": f"Hello {args.name} from {ctx.project_root}"}
+    from tidyllm.context import get_tool_context
+    ctx = get_tool_context()
+    return {"message": f"Hello {args.name} from {ctx.config.notes_dir}"}
 
 
 def complex_tool(args: ComplexArgs) -> dict:
@@ -148,15 +150,17 @@ class TestCLIGeneration:
         assert "Field required" in error_text or "validation error" in error_text
 
     def test_cli_with_context_tool(self):
-        """Test CLI generation for tool that requires context fails appropriately."""
-        # Tools with Protocol context types cannot be used in CLI
-        # because Protocols cannot be instantiated
+        """Test CLI generation for tool that uses context variables."""
+        # Tools using contextvars should work with CLI
         cli_command = generate_cli(context_tool)
         runner = CliRunner()
         
         result = runner.invoke(cli_command, ["--name", "context_test"])
-        assert result.exit_code == 1
-        assert "Protocols cannot be instantiated" in str(result.exception)
+        assert result.exit_code == 0
+        
+        # Parse the JSON output
+        output = json.loads(result.output)
+        assert "Hello context_test from" in output["message"]
 
     def test_cli_complex_arguments(self):
         """Test CLI with complex argument types."""

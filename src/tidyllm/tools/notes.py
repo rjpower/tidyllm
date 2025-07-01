@@ -10,6 +10,7 @@ from tidyllm.multi_cli import simple_cli_main
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.db import init_database, json_decode, json_encode, row_to_dict
+from tidyllm.context import get_tool_context
 
 
 class Note(BaseModel):
@@ -98,8 +99,9 @@ def sanitize_filename(title: str) -> str:
 
 
 @register
-def note_add(args: NoteAddArgs, *, ctx: ToolContext) -> NoteAddResult:
+def note_add(args: NoteAddArgs) -> NoteAddResult:
     """Add a new note with markdown and frontmatter."""
+    ctx = get_tool_context()
     init_database(ctx)
     
     notes_dir = ctx.ensure_notes_dir()
@@ -166,8 +168,9 @@ class NoteSearchResult(BaseModel):
 
 
 @register
-def note_search(args: NoteSearchArgs, *, ctx: ToolContext) -> NoteSearchResult:
+def note_search(args: NoteSearchArgs) -> NoteSearchResult:
     """Search notes by content and metadata."""
+    ctx = get_tool_context()
     init_database(ctx)
     
     conn = ctx.get_db_connection()
@@ -224,8 +227,9 @@ class NoteListResult(BaseModel):
 
 
 @register
-def note_list(args: NoteListArgs, *, ctx: ToolContext) -> NoteListResult:
+def note_list(args: NoteListArgs) -> NoteListResult:
     """List all notes, optionally filtered by tags."""
+    ctx = get_tool_context()
     init_database(ctx)
     
     conn = ctx.get_db_connection()
