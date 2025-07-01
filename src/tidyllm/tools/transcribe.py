@@ -3,12 +3,12 @@
 import base64
 import json
 from pathlib import Path
-from typing import Any, Protocol
 
 import litellm
 from pydantic import BaseModel, Field
 
 from tidyllm.cli import cli_main
+from tidyllm.context import get_tool_context
 from tidyllm.registry import register
 
 
@@ -35,9 +35,6 @@ class TranscriptionResult(BaseModel):
     error: str | None = None
 
 
-class TranscribeContext(Protocol):
-    """Protocol for transcribe context."""
-    config: Any
 
 
 def get_audio_mime_type(file_path: Path) -> str:
@@ -57,8 +54,9 @@ def get_audio_mime_type(file_path: Path) -> str:
 
 
 @register
-def transcribe(args: TranscribeArgs, *, ctx: TranscribeContext) -> TranscriptionResult:
+def transcribe(args: TranscribeArgs) -> TranscriptionResult:
     """Transcribe audio using Gemini Flash via litellm."""
+    ctx = get_tool_context()
     if not args.audio_file_path.exists():
         return TranscriptionResult(
             transcription="",

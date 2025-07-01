@@ -9,12 +9,12 @@ from typing import Any
 import click
 from pydantic import BaseModel
 
+from tidyllm.context import set_tool_context
 from tidyllm.protocol_utils import (
     get_cli_type_for_annotation,
     get_protocol_fields,
 )
 from tidyllm.schema import FunctionDescription
-from tidyllm.context import set_tool_context
 from tidyllm.tools.context import ToolContext
 
 

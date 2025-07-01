@@ -2,20 +2,23 @@
 
 from typing import Any
 
+from tidyllm.context import set_tool_context
 from tidyllm.registry import REGISTRY
 from tidyllm.tools.context import ToolContext
-from tidyllm.context import set_tool_context
 
 
 def create_fastmcp_server(
     name: str = "TidyLLM Tools",
     context: ToolContext | None = None,
+    tool_context: ToolContext | None = None,
 ):
     """Create a FastMCP server that exposes TidyLLM tools.
 
     Args:
         name: Server name
         context: Optional ToolContext to use for tool execution
+        function_library: Optional FunctionLibrary (for backwards compatibility)
+        tool_context: Optional ToolContext (alternative to context parameter)
 
     Returns:
         FastMCP server with all registered tools
@@ -32,17 +35,14 @@ def create_fastmcp_server(
         context = ToolContext(config=Config())
         server = create_fastmcp_server(context=context)
     """
-    if context is None:
+    # Handle backward compatibility - prefer tool_context, then context
+    if tool_context is not None:
+        context = tool_context
+    elif context is None:
         from tidyllm.tools.config import Config
         context = ToolContext(config=Config())
 
-    # Use registry's built-in FastMCP server creation
-    server = REGISTRY.create_fastmcp_server(name)
-    
-    # Note: Context will need to be set when actually running tools
-    # Store context for later use in wrapper functions
-    server._tidyllm_context = context
-    
+    server = REGISTRY.create_fastmcp_server(context=context, name=name)
     return server
 
 
@@ -105,10 +105,7 @@ def run_tidyllm_mcp_server(config_overrides: dict[str, Any] | None = None):
         run_tidyllm_mcp_server(config_overrides={"notes_dir": "/custom/notes"})
     """
     mcp = create_tidyllm_mcp_server(config_overrides)
-    
-    # Set context for tool execution
-    with set_tool_context(mcp._tidyllm_context):
-        mcp.run()
+    mcp.run()
 
 
 async def run_tidyllm_mcp_server_async(config_overrides: dict[str, Any] | None = None):
@@ -127,10 +124,7 @@ async def run_tidyllm_mcp_server_async(config_overrides: dict[str, Any] | None =
         asyncio.run(main())
     """
     mcp = create_tidyllm_mcp_server(config_overrides)
-    
-    # Set context for tool execution
-    with set_tool_context(mcp._tidyllm_context):
-        await mcp.run_async()
+    await mcp.run_async()
 
 
 # Create the default server instance that fastmcp can find

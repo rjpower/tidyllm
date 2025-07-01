@@ -1,8 +1,8 @@
 """Context management using contextvars for automatic context propagation."""
 
-from contextvars import ContextVar
-from typing import TypeVar, Generic, Any
 from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any, Generic, TypeVar
 
 from tidyllm.tools.context import ToolContext
 
@@ -47,11 +47,11 @@ def get_tool_context() -> ToolContext:
     """
     try:
         return _tool_context.get()
-    except LookupError:
+    except LookupError as e:
         raise RuntimeError(
             "No tool context available. Ensure tools are called within "
             "a properly configured adapter (FastAPI, FastMCP, CLI, etc.)"
-        )
+        ) from e
 
 @contextmanager
 def set_tool_context(context: ToolContext):

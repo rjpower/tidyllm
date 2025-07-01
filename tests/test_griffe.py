@@ -57,7 +57,7 @@ def no_docstring_function(data: dict) -> bool:
     return bool(data)
 
 
-def pydantic_function(args: GriffeTestArgs, *, ctx: GriffeTestContext) -> dict:
+def pydantic_function(args: GriffeTestArgs) -> dict:
     """Function using Pydantic model arguments.
 
     This function shows how griffe handles Pydantic model parameters
@@ -65,16 +65,16 @@ def pydantic_function(args: GriffeTestArgs, *, ctx: GriffeTestContext) -> dict:
 
     Args:
         args: The arguments model containing name, count, and enabled
-        ctx: Context object with project_root
 
     Returns:
         Processed result dictionary
     """
+    # In real usage, would use get_tool_context() for context access
     return {
         "name": args.name,
         "count": args.count,
         "enabled": args.enabled,
-        "project": ctx.project_root,
+        "project": "/test/project",  # Mock value for test
     }
 
 
@@ -112,10 +112,10 @@ class TestGriffeParameterExtraction:
         param_docs = extract_function_docs(pydantic_function)["parameters"]
 
         assert "args" in param_docs
-        assert "ctx" in param_docs
+        # ctx parameter was removed in favor of contextvar approach
+        assert "ctx" not in param_docs
 
         assert "arguments model containing" in param_docs["args"]
-        assert "Context object with project_root" in param_docs["ctx"]
 
     def test_extract_parameter_docs_with_defaults(self):
         """Test that parameter docs include default value information."""

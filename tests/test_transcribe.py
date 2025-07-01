@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tidyllm.context import set_tool_context
 from tidyllm.tools.config import Config
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.transcribe import TranscribeArgs, get_audio_mime_type, transcribe
@@ -55,7 +56,8 @@ def test_get_audio_mime_type():
 def test_transcribe_file_not_found(test_context):
     """Test transcription with non-existent file."""
     args = TranscribeArgs(audio_file_path=Path("/nonexistent/file.mp3"))
-    result = transcribe(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = transcribe(args)
     
     assert result.transcription == ""
     assert result.language == "unknown"
@@ -86,7 +88,8 @@ def test_transcribe_success(mock_completion, test_context, mock_audio_file):
         language="en",
         translate_to="es"
     )
-    result = transcribe(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = transcribe(args)
     
     assert result.transcription == "Hello, how are you today?"
     assert result.language == "en"
@@ -132,7 +135,8 @@ def test_transcribe_with_auto_language_detection(mock_completion, test_context, 
         # No language specified - should auto-detect
         translate_to="en"
     )
-    result = transcribe(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = transcribe(args)
     
     assert result.language == "fr"
     assert "Bonjour" in result.transcription
@@ -151,7 +155,8 @@ def test_transcribe_empty_response(mock_completion, test_context, mock_audio_fil
     mock_completion.return_value = mock_response
     
     args = TranscribeArgs(audio_file_path=mock_audio_file)
-    result = transcribe(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = transcribe(args)
     
     assert result.transcription == ""
     assert result.language == "unknown"
@@ -168,7 +173,8 @@ def test_transcribe_invalid_json_response(mock_completion, test_context, mock_au
     mock_completion.return_value = mock_response
     
     args = TranscribeArgs(audio_file_path=mock_audio_file)
-    result = transcribe(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = transcribe(args)
     
     assert result.transcription == ""
     assert result.language == "unknown"
@@ -181,7 +187,8 @@ def test_transcribe_llm_exception(mock_completion, test_context, mock_audio_file
     mock_completion.side_effect = Exception("API Error")
     
     args = TranscribeArgs(audio_file_path=mock_audio_file)
-    result = transcribe(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = transcribe(args)
     
     assert result.transcription == ""
     assert result.language == "unknown"
@@ -231,7 +238,8 @@ def test_transcribe_with_different_audio_formats(mock_completion, test_context):
         
         try:
             args = TranscribeArgs(audio_file_path=audio_file)
-            result = transcribe(args, ctx=test_context)
+            with set_tool_context(test_context):
+                result = transcribe(args)
             
             assert result.transcription == "Test transcription"
             
@@ -260,7 +268,8 @@ def test_transcribe_response_schema_validation(mock_completion, test_context, mo
     mock_completion.return_value = mock_response
     
     args = TranscribeArgs(audio_file_path=mock_audio_file)
-    transcribe(args, ctx=test_context)
+    with set_tool_context(test_context):
+        transcribe(args)
     
     # Verify response format was specified
     call_args = mock_completion.call_args

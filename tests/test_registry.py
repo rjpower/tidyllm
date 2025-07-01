@@ -58,16 +58,16 @@ class TestRegistry:
         assert len(self.registry.list_tools()) == 1
 
     def test_register_with_context_type(self):
-        """Test registering function - context type is auto-inferred from signature."""
+        """Test registering function works properly."""
 
-        # Note: registry_test_function doesn't actually have a context parameter
-        # so this test is testing a function that doesn't need context
+        # Test that registration works for functions regardless of context needs
         self.registry.register(registry_test_function)
 
         func_desc = self.registry.get("registry_test_function")
         assert func_desc is not None
-        # Since registry_test_function doesn't have a ctx parameter, context_type should be None
-        assert func_desc.context_type is None
+        # Verify basic function properties are preserved
+        assert func_desc.name == "registry_test_function"
+        assert func_desc.function is registry_test_function
 
     def test_get_existing_tool(self):
         """Test getting an existing tool."""
@@ -116,8 +116,6 @@ class TestRegistry:
         func_desc = self.registry.get("registry_test_function")
         assert func_desc is not None
         assert func_desc.function_schema["function"]["name"] == "registry_test_function"
-        # Context type should be None for functions without context requirements
-        assert func_desc.context_type is None
         # Check FunctionDescription has schema
         assert func_desc.function_schema is not None
 

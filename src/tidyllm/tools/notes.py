@@ -6,11 +6,10 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from tidyllm.context import get_tool_context
 from tidyllm.multi_cli import simple_cli_main
 from tidyllm.registry import register
-from tidyllm.tools.context import ToolContext
 from tidyllm.tools.db import init_database, json_decode, json_encode, row_to_dict
-from tidyllm.context import get_tool_context
 
 
 class Note(BaseModel):
@@ -206,7 +205,7 @@ def note_search(args: NoteSearchArgs) -> NoteSearchResult:
                     
         return NoteSearchResult(success=True, notes=notes_list, count=len(notes_list))
         
-    except Exception as e:
+    except Exception:
         return NoteSearchResult(success=False)
     finally:
         conn.close()
@@ -269,7 +268,7 @@ def note_list(args: NoteListArgs) -> NoteListResult:
                 
         return NoteListResult(success=True, notes=notes_list, count=len(notes_list))
         
-    except Exception as e:
+    except Exception:
         return NoteListResult(success=False)
     finally:
         conn.close()

@@ -5,12 +5,16 @@ from pathlib import Path
 
 import pytest
 
+from tidyllm.context import set_tool_context
 from tidyllm.tools.config import Config
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.notes import (
-    NoteAddArgs, note_add,
-    NoteSearchArgs, note_search,
-    NoteListArgs, note_list
+    NoteAddArgs,
+    NoteListArgs,
+    NoteSearchArgs,
+    note_add,
+    note_list,
+    note_search,
 )
 
 
@@ -34,7 +38,8 @@ def test_notes_add_basic(test_context):
         tags=["test", "example"]
     )
     
-    result = note_add(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = note_add(args)
     
     assert result.success is True
     assert "Test Note" in result.message
@@ -58,7 +63,8 @@ def test_notes_add_without_title(test_context):
         content="Note without title"
     )
     
-    result = note_add(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = note_add(args)
     
     assert result.success is True
     assert result.file_path is not None
@@ -71,7 +77,8 @@ def test_notes_add_without_title(test_context):
 def test_notes_list_empty(test_context):
     """Test listing notes in empty directory."""
     args = NoteListArgs()
-    result = note_list(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = note_list(args)
     
     assert result.success is True
     assert result.notes == []
@@ -80,12 +87,13 @@ def test_notes_list_empty(test_context):
 def test_notes_list_with_notes(test_context):
     """Test listing notes with existing notes."""
     # Add some notes first
-    note_add(NoteAddArgs(title="Note 1", content="Content 1", tags=["tag1"]), ctx=test_context)
-    note_add(NoteAddArgs(title="Note 2", content="Content 2", tags=["tag2"]), ctx=test_context)
-    note_add(NoteAddArgs(title="Note 3", content="Content 3", tags=["tag1", "tag3"]), ctx=test_context)
-    
-    # List all notes
-    result = note_list(NoteListArgs(), ctx=test_context)
+    with set_tool_context(test_context):
+        note_add(NoteAddArgs(title="Note 1", content="Content 1", tags=["tag1"]))
+        note_add(NoteAddArgs(title="Note 2", content="Content 2", tags=["tag2"]))
+        note_add(NoteAddArgs(title="Note 3", content="Content 3", tags=["tag1", "tag3"]))
+        
+        # List all notes
+        result = note_list(NoteListArgs())
     
     assert result.success is True
     assert len(result.notes) == 3
@@ -101,12 +109,13 @@ def test_notes_list_with_notes(test_context):
 def test_notes_list_filtered_by_tags(test_context):
     """Test listing notes filtered by tags."""
     # Add notes with different tags
-    note_add(NoteAddArgs(title="Note 1", content="Content 1", tags=["python"]), ctx=test_context)
-    note_add(NoteAddArgs(title="Note 2", content="Content 2", tags=["javascript"]), ctx=test_context)
-    note_add(NoteAddArgs(title="Note 3", content="Content 3", tags=["python", "tutorial"]), ctx=test_context)
-    
-    # Filter by tag
-    result = note_list(NoteListArgs(tags=["python"]), ctx=test_context)
+    with set_tool_context(test_context):
+        note_add(NoteAddArgs(title="Note 1", content="Content 1", tags=["python"]))
+        note_add(NoteAddArgs(title="Note 2", content="Content 2", tags=["javascript"]))
+        note_add(NoteAddArgs(title="Note 3", content="Content 3", tags=["python", "tutorial"]))
+        
+        # Filter by tag
+        result = note_list(NoteListArgs(tags=["python"]))
     
     assert result.success is True
     assert len(result.notes) == 2
@@ -119,12 +128,13 @@ def test_notes_list_filtered_by_tags(test_context):
 def test_notes_search_basic(test_context):
     """Test basic note searching."""
     # Add some notes
-    note_add(NoteAddArgs(title="Python Tutorial", content="Learn Python programming"), ctx=test_context)
-    note_add(NoteAddArgs(title="JavaScript Guide", content="Learn JavaScript basics"), ctx=test_context)
-    note_add(NoteAddArgs(title="Database Design", content="Python database connections"), ctx=test_context)
-    
-    # Search for "Python"
-    result = note_search(NoteSearchArgs(query="Python"), ctx=test_context)
+    with set_tool_context(test_context):
+        note_add(NoteAddArgs(title="Python Tutorial", content="Learn Python programming"))
+        note_add(NoteAddArgs(title="JavaScript Guide", content="Learn JavaScript basics"))
+        note_add(NoteAddArgs(title="Database Design", content="Python database connections"))
+        
+        # Search for "Python"
+        result = note_search(NoteSearchArgs(query="Python"))
     
     assert result.success is True
     assert len(result.notes) == 2  # Should find 2 notes containing "Python"
@@ -133,10 +143,11 @@ def test_notes_search_basic(test_context):
 def test_notes_search_no_results(test_context):
     """Test search with no matching results."""
     # Add a note
-    note_add(NoteAddArgs(title="Test", content="Simple content"), ctx=test_context)
-    
-    # Search for something that doesn't exist
-    result = note_search(NoteSearchArgs(query="nonexistent"), ctx=test_context)
+    with set_tool_context(test_context):
+        note_add(NoteAddArgs(title="Test", content="Simple content"))
+        
+        # Search for something that doesn't exist
+        result = note_search(NoteSearchArgs(query="nonexistent"))
     
     assert result.success is True
     assert len(result.notes) == 0
@@ -150,7 +161,8 @@ def test_notes_frontmatter_parsing(test_context):
         tags=["yaml", "frontmatter", "test"]
     )
     
-    result = note_add(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = note_add(args)
     assert result.success is True
     
     # Read the file and verify frontmatter
@@ -172,7 +184,8 @@ def test_notes_filename_sanitization(test_context):
         content="Testing filename sanitization"
     )
     
-    result = note_add(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = note_add(args)
     assert result.success is True
     
     file_path = Path(result.file_path)
@@ -185,11 +198,12 @@ def test_notes_filename_sanitization(test_context):
 def test_notes_duplicate_titles(test_context):
     """Test handling of duplicate note titles."""
     # Add first note
-    result1 = note_add(NoteAddArgs(title="Duplicate", content="First note"), ctx=test_context)
-    assert result1.success is True
-    
-    # Add second note with same title
-    result2 = note_add(NoteAddArgs(title="Duplicate", content="Second note"), ctx=test_context)
+    with set_tool_context(test_context):
+        result1 = note_add(NoteAddArgs(title="Duplicate", content="First note"))
+        assert result1.success is True
+        
+        # Add second note with same title
+        result2 = note_add(NoteAddArgs(title="Duplicate", content="Second note"))
     assert result2.success is True
     
     # Should have different file paths
@@ -203,11 +217,12 @@ def test_notes_duplicate_titles(test_context):
 def test_notes_list_with_limit(test_context):
     """Test listing notes with limit."""
     # Add multiple notes
-    for i in range(5):
-        note_add(NoteAddArgs(title=f"Note {i}", content=f"Content {i}"), ctx=test_context)
-    
-    # List with limit
-    result = note_list(NoteListArgs(limit=3), ctx=test_context)
+    with set_tool_context(test_context):
+        for i in range(5):
+            note_add(NoteAddArgs(title=f"Note {i}", content=f"Content {i}"))
+        
+        # List with limit
+        result = note_list(NoteListArgs(limit=3))
     
     assert result.success is True
     assert len(result.notes) == 3

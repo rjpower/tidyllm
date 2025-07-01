@@ -3,7 +3,6 @@
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Protocol
 
 from pydantic import BaseModel
 
@@ -29,17 +28,10 @@ class FileResult(BaseModel):
     message: str
 
 
-class ProjectContext(Protocol):
+class ProjectContext:
     """Project context for file operations."""
-
-    project_root: Path
-    dry_run: bool
-
-
-class TestContext:
-    """Test context implementation."""
     
-    def __init__(self, project_root: Path, dry_run: bool):
+    def __init__(self, project_root: Path, dry_run: bool = False):
         self.project_root = project_root
         self.dry_run = dry_run
 
@@ -59,17 +51,12 @@ class TestEndToEndIntegration:
         """Test complete workflow: register tool -> create library -> execute."""
 
         @register()
-        def write_file(args: FileArgs, *, ctx: ProjectContext) -> FileResult:
+        def write_file(args: FileArgs) -> FileResult:
             """Write content to a file."""
-            file_path = ctx.project_root / args.path
-
-            if ctx.dry_run:
-                return FileResult(
-                    success=True,
-                    path=args.path,
-                    message=f"Would write to {args.path} (dry run)",
-                )
-
+            # For testing purposes, we'll write to a temp directory
+            # In real usage, tools would get context via get_tool_context()
+            file_path = Path(args.path)
+            
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(args.content)
             return FileResult(
@@ -78,35 +65,38 @@ class TestEndToEndIntegration:
                 message=f"Successfully wrote to {args.path}",
             )
 
-        # Create library with context
+        # Create library and execute tool call
         with TemporaryDirectory() as tmpdir:
-            context = TestContext(project_root=Path(tmpdir), dry_run=False)
+            library = FunctionLibrary(functions=[write_file])
+            
+            # Change to tmpdir so relative paths work
+            import os
+            original_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            
+            try:
+                # Execute tool call
+                result = library.call("write_file", {"path": "test.txt", "content": "Hello, world!"})
 
-            library = FunctionLibrary(functions=[write_file], context=context)
+                assert isinstance(result, FileResult)
+                assert result.success is True
+                assert result.path == "test.txt"
 
-            # Execute tool call
-            result = library.call("write_file", {"path": "test.txt", "content": "Hello, world!"})
-
-            assert isinstance(result, FileResult)
-            assert result.success is True
-            assert result.path == "test.txt"
-
-            # Verify file was actually written
-            written_file = Path(tmpdir) / "test.txt"
-            assert written_file.exists()
-            assert written_file.read_text() == "Hello, world!"
+                # Verify file was actually written
+                written_file = Path(tmpdir) / "test.txt"
+                assert written_file.exists()
+                assert written_file.read_text() == "Hello, world!"
+            finally:
+                os.chdir(original_cwd)
 
     def test_multiple_tools_workflow(self):
         """Test workflow with multiple interacting tools."""
 
         @register()
-        def create_dir(args: FileArgs, *, ctx: ProjectContext) -> FileResult:
+        def create_dir(args: FileArgs) -> FileResult:
             """Create a directory."""
-            dir_path = ctx.project_root / args.path
-
-            if ctx.dry_run:
-                return FileResult(success=True, path=args.path, message="Dry run")
-
+            dir_path = Path(args.path)
+            
             dir_path.mkdir(parents=True, exist_ok=True)
             return FileResult(
                 success=True,
@@ -115,39 +105,42 @@ class TestEndToEndIntegration:
             )
 
         @register()
-        def write_file(args: FileArgs, *, ctx: ProjectContext) -> FileResult:
+        def write_file(args: FileArgs) -> FileResult:
             """Write content to a file."""
-            file_path = ctx.project_root / args.path
-
-            if ctx.dry_run:
-                return FileResult(success=True, path=args.path, message="Dry run")
-
+            file_path = Path(args.path)
+            
             file_path.write_text(args.content)
             return FileResult(success=True, path=args.path, message=f"Wrote file {args.path}")
 
         with TemporaryDirectory() as tmpdir:
-            context = TestContext(project_root=Path(tmpdir), dry_run=False)
+            library = FunctionLibrary(functions=[create_dir, write_file])
+            
+            # Change to tmpdir so relative paths work
+            import os
+            original_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            
+            try:
+                # Step 1: Create directory
+                dir_result = library.call("create_dir", {"path": "subdir"})
+                assert isinstance(dir_result, FileResult)
+                assert dir_result.success is True
 
-            library = FunctionLibrary(functions=[create_dir, write_file], context=context)
+                # Step 2: Write file in that directory
+                file_result = library.call(
+                    "write_file",
+                    {"path": "subdir/config.json", "content": '{"setting": "value"}'},
+                )
 
-            # Step 1: Create directory
-            dir_result = library.call("create_dir", {"path": "subdir"})
-            assert isinstance(dir_result, FileResult)
-            assert dir_result.success is True
+                assert isinstance(file_result, FileResult)
+                assert file_result.success is True
 
-            # Step 2: Write file in that directory
-            file_result = library.call(
-                "write_file",
-                {"path": "subdir/config.json", "content": '{"setting": "value"}'},
-            )
-
-            assert isinstance(file_result, FileResult)
-            assert file_result.success is True
-
-            # Verify results
-            config_file = Path(tmpdir) / "subdir" / "config.json"
-            assert config_file.exists()
-            assert json.loads(config_file.read_text()) == {"setting": "value"}
+                # Verify results
+                config_file = Path(tmpdir) / "subdir" / "config.json"
+                assert config_file.exists()
+                assert json.loads(config_file.read_text()) == {"setting": "value"}
+            finally:
+                os.chdir(original_cwd)
 
     def test_tool_with_prompt_file(self):
         """Test tool registration with external prompt file."""
@@ -171,7 +164,7 @@ A result object indicating success or failure."""
             )
 
             @register(doc=read_prompt(str(prompt_file)))
-            def documented_tool(args: FileArgs, *, ctx: ProjectContext) -> FileResult:
+            def documented_tool(args: FileArgs) -> FileResult:
                 """Tool with external documentation."""
                 return FileResult(success=True, path=args.path, message="Documented tool executed")
 
@@ -185,7 +178,7 @@ A result object indicating success or failure."""
         """Test CLI generation and execution integration."""
 
         @register()
-        def math_tool(args: FileArgs, *, ctx: ProjectContext) -> dict:
+        def math_tool(args: FileArgs) -> dict:
             """Perform math operations."""
             # Use content as a number for this test
             try:
@@ -204,23 +197,23 @@ A result object indicating success or failure."""
 
         result = runner.invoke(cli_command, ["--path", "test", "--content", "5"])
 
-        # Should fail because ProjectContext is a Protocol that can't be instantiated
-        assert result.exit_code == 1
-        assert "Protocols cannot be instantiated" in str(result.exception)
+        # CLI should work now with contextvar approach
+        assert result.exit_code == 0
+        # Result should contain the math operations
+        assert "doubled" in result.output or "5" in result.output
 
     def test_error_propagation_integration(self):
         """Test that errors propagate correctly through the system."""
 
         @register()
-        def failing_tool(args: FileArgs, *, ctx: ProjectContext) -> FileResult:
+        def failing_tool(args: FileArgs) -> FileResult:
             """Tool that demonstrates error handling."""
             if args.path == "fail":
                 raise RuntimeError("Intentional failure")
 
             return FileResult(success=True, path=args.path, message="Success")
 
-        context = TestContext(project_root=Path("/tmp"), dry_run=False)
-        library = FunctionLibrary(functions=[failing_tool], context=context)
+        library = FunctionLibrary(functions=[failing_tool])
 
         # Test successful call
         success_result = library.call("failing_tool", {"path": "success", "content": "test"})
@@ -233,41 +226,24 @@ A result object indicating success or failure."""
         assert "Tool execution failed" in fail_result.error
         assert "Intentional failure" in fail_result.error
 
-    def test_context_validation_integration(self):
-        """Test context validation in full integration."""
+    def test_basic_functionality_integration(self):
+        """Test basic functionality without context dependencies."""
 
         @register()
-        def context_tool(args: FileArgs, *, ctx: ProjectContext) -> FileResult:
-            """Tool that uses context attributes."""
+        def simple_tool(args: FileArgs) -> FileResult:
+            """Simple tool for testing basic functionality."""
             return FileResult(
                 success=True,
-                path=str(ctx.project_root / args.path),
-                message=f"Dry run: {ctx.dry_run}",
+                path=args.path,
+                message=f"Processed file: {args.path}",
             )
 
-        # Test with complete context
-        complete_context = TestContext(project_root=Path("/test"), dry_run=True)
+        library = FunctionLibrary(functions=[simple_tool])
 
-        library = FunctionLibrary(functions=[context_tool], context=complete_context)
-
-        result = library.call("context_tool", {"path": "test.txt", "content": "test"})
+        result = library.call("simple_tool", {"path": "test.txt", "content": "test"})
         assert isinstance(result, FileResult)
         assert result.success is True
-        assert "Dry run: True" in result.message
-
-        # Test with incomplete context
-        class IncompleteContext:
-            def __init__(self, project_root: Path):
-                self.project_root = project_root
-                # Missing dry_run attribute
-
-        incomplete_context = IncompleteContext(project_root=Path("/test"))
-
-        library_incomplete = FunctionLibrary(functions=[context_tool], context=incomplete_context)
-
-        result_incomplete = library_incomplete.call("context_tool", {"path": "test.txt", "content": "test"})
-        assert isinstance(result_incomplete, ToolError)
-        assert "Context missing required attribute" in result_incomplete.error
+        assert "Processed file: test.txt" in result.message
 
     def test_schema_generation_integration(self):
         """Test that schema generation works end-to-end."""

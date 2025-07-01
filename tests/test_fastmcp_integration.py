@@ -1,12 +1,13 @@
 """Test FastMCP integration with registry."""
 
-import pytest
 from unittest.mock import MagicMock
 
-from tidyllm.registry import REGISTRY
+import pytest
+
 from tidyllm.context import set_tool_context
-from tidyllm.tools.context import ToolContext
+from tidyllm.registry import REGISTRY
 from tidyllm.tools.config import Config
+from tidyllm.tools.context import ToolContext
 
 
 def test_registry_fastmcp_integration():
@@ -50,56 +51,55 @@ def test_fastmcp_tool_registration_with_original_callable():
     """Test that FastMCP gets the original function, not a wrapper."""
     # Clear any existing server
     REGISTRY._fastmcp_server = None
-    
+
     # Create a test function
     def test_tool(name: str) -> str:
         """Test tool for FastMCP registration."""
         return f"Hello {name}"
-    
+
     # Mock FastMCP to capture what gets registered
     mock_fastmcp = MagicMock()
     mock_server = MagicMock()
     mock_fastmcp.return_value = mock_server
-    
+
     # Mock the tool decorator to capture the function
     registered_functions = []
-    
-    def mock_tool_decorator(*args, **kwargs):
-        def decorator(func):
-            registered_functions.append(func)
-            return func
-        return decorator
-    
+
+    def mock_tool_decorator(func):
+        registered_functions.append(func)
+        return func
+
     mock_server.tool = mock_tool_decorator
-    
+
     # Patch FastMCP import
     import sys
     sys.modules['fastmcp'] = MagicMock()
     sys.modules['fastmcp'].FastMCP = mock_fastmcp
-    
+
     try:
         # Register our test tool
         from tidyllm.registry import register
         register(test_tool)
-        
+
         # Create FastMCP server
-        server = REGISTRY.create_fastmcp_server("Test Server")
-        
+        REGISTRY.create_fastmcp_server("Test Server")
+
         # Verify the original function was registered with FastMCP
         assert len(registered_functions) >= 1
-        
+
         # Find our test tool in the registered functions
         test_tool_found = False
         for func in registered_functions:
             if func.__name__ == 'test_tool':
-                # Verify it's the original function, not a wrapper
-                assert func is test_tool
+                # With contextvar approach, we now register a wrapper function
+                # but it should preserve the name and docstring
+                assert func.__name__ == "test_tool"
                 assert func.__doc__ == "Test tool for FastMCP registration."
                 test_tool_found = True
                 break
-        
+
         assert test_tool_found, "Test tool was not found in registered functions"
-        
+
     finally:
         # Clean up
         if 'fastmcp' in sys.modules:

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tidyllm.context import set_tool_context
 from tidyllm.tools.anki import (
     AnkiCard,
     AnkiCreateArgs,
@@ -33,7 +34,8 @@ def test_context():
 def test_anki_read_no_database(test_context):
     """Test reading when no Anki database exists."""
     args = AnkiReadArgs(deck_name="Test Deck")
-    result = anki_read(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = anki_read(args)
     
     assert result.deck_name == "Test Deck"
     assert result.count == 0
@@ -72,7 +74,8 @@ def test_anki_read_with_mock_database(mock_connect, test_context):
     test_context.config.anki_path = Path("/mock/anki.db")
     
     args = AnkiReadArgs(deck_name="Spanish", limit=10)
-    result = anki_read(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = anki_read(args)
     
     assert result.deck_name == "Spanish"
     assert result.count == 2
@@ -105,7 +108,8 @@ def test_anki_create_basic(test_context):
         cards=cards
     )
     
-    result = anki_create(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = anki_create(args)
     
     assert result.success is True
     assert result.cards_created == 2
@@ -135,7 +139,8 @@ def test_anki_create_with_audio(test_context):
         cards=cards
     )
     
-    result = anki_create(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = anki_create(args)
     
     assert result.success is True
     assert result.cards_created == 1
@@ -156,7 +161,8 @@ def test_anki_create_custom_output_path(test_context):
         output_path=custom_path
     )
     
-    result = anki_create(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = anki_create(args)
     
     assert result.success is True
     assert result.deck_path == custom_path
@@ -170,7 +176,8 @@ def test_anki_create_empty_cards(test_context):
         cards=[]
     )
     
-    result = anki_create(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = anki_create(args)
     
     assert result.success is True
     assert result.cards_created == 0
@@ -194,7 +201,8 @@ def test_anki_create_with_missing_audio(test_context):
         cards=cards
     )
     
-    result = anki_create(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = anki_create(args)
     
     # Should still succeed, just without audio
     assert result.success is True
@@ -282,7 +290,8 @@ def test_anki_read_with_tags_filter(mock_connect, test_context):
         deck_name="Spanish",
         tags=["basic", "greeting"]
     )
-    result = anki_read(args, ctx=test_context)
+    with set_tool_context(test_context):
+        result = anki_read(args)
     
     # Should execute without error
     assert result.deck_name == "Spanish"

@@ -31,7 +31,7 @@ class LibTestContext(Protocol):
     debug: bool
 
 
-def lib_test_tool_one(args: LibTestArgs, *, ctx: LibTestContext) -> LibTestResult:
+def lib_test_tool_one(args: LibTestArgs) -> LibTestResult:
     """First test tool."""
     return LibTestResult(message=f"Tool one processed {args.name}", computed=args.value * 2)
 
@@ -246,7 +246,7 @@ def test_validate_context_missing_attribute():
     )
 
     is_valid = library.validate_context("lib_test_tool_one")
-    assert is_valid is False
+    assert is_valid is True  # Context validation always passes with contextvar approach
 
 
 def test_validate_context_no_requirements(ctx_registry, tool_context):
@@ -293,8 +293,10 @@ def test_context_validation_in_call():
     )
 
     result = library.call("lib_test_tool_one", {"name": "test", "value": 1})
-    assert isinstance(result, ToolError)
-    assert "Context missing required attribute" in result.error
+    # With contextvar approach, tools no longer validate context through library
+    # The tool should execute successfully
+    assert result.message == "Tool one processed test"
+    assert result.computed == 2
 
 
 def test_empty_context(ctx_registry):

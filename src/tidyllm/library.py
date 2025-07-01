@@ -141,6 +141,10 @@ class FunctionLibrary:
         Note: With contextvar approach, context validation is no longer needed
         at the library level. Tools access context directly via get_tool_context().
         """
+        # Still return False for nonexistent tools
+        func_desc = self._function_descriptions.get(tool_name)
+        if not func_desc:
+            return False
         return True
 
     def call_with_json_response(self, name: str, args: dict, id: str) -> str:

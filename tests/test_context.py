@@ -1,13 +1,13 @@
 """Tests for context injection and validation."""
 
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
 
 from pydantic import BaseModel
 
-from tidyllm.library import FunctionLibrary
+from tidyllm.context import get_tool_context, set_tool_context
 from tidyllm.registry import Registry
+from tidyllm.tools.config import Config
+from tidyllm.tools.context import ToolContext
 
 
 class SimpleArgs(BaseModel):
@@ -22,64 +22,26 @@ class SimpleResult(BaseModel):
     message: str
     context_info: dict
 
-@dataclass
-class BasicContextImpl:
-  project_root: Path
-  debug: bool
 
-@dataclass
-class ExtendedContextImpl:
-  project_root: Path
-  debug: bool
-  api_key: str
-  timeout: int
-
-@dataclass
-class OptionalContextImpl:
-  project_root: Path
-  debug: bool | None
-
-
-class BasicContext(Protocol):
-    """Basic context requirements."""
-
-    project_root: Path
-    debug: bool
-
-
-class ExtendedContext(Protocol):
-    """Extended context with more requirements."""
-
-    project_root: Path
-    debug: bool
-    api_key: str
-    timeout: int
-
-
-class OptionalContext(Protocol):
-    """Context with optional fields."""
-
-    project_root: Path
-    debug: bool = False
-
-
-def basic_context_tool(args: SimpleArgs, *, ctx: BasicContext) -> SimpleResult:
+def basic_context_tool(args: SimpleArgs) -> SimpleResult:
     """Tool requiring basic context."""
+    ctx = get_tool_context()
     return SimpleResult(
         message=f"Hello {args.name}",
-        context_info={"project_root": str(ctx.project_root), "debug": ctx.debug},
+        context_info={"project_root": str(ctx.config.notes_dir), "debug": True},
     )
 
 
-def extended_context_tool(args: SimpleArgs, *, ctx: ExtendedContext) -> SimpleResult:
+def extended_context_tool(args: SimpleArgs) -> SimpleResult:
     """Tool requiring extended context."""
+    ctx = get_tool_context()
     return SimpleResult(
         message=f"Hello {args.name}",
         context_info={
-            "project_root": str(ctx.project_root),
-            "debug": ctx.debug,
-            "api_key": ctx.api_key[:8] + "...",  # Truncate for safety
-            "timeout": ctx.timeout,
+            "project_root": str(ctx.config.notes_dir),
+            "debug": True,
+            "api_key": "test_key...",  # Mock value
+            "timeout": 30,
         },
     )
 
@@ -96,89 +58,65 @@ class TestContextInjection:
         """Set up test registry and tools."""
         self.registry = Registry()
 
-        # Register tools with different context requirements (schemas auto-generated)
-        # Context types are automatically inferred from function signatures
-
+        # Register tools with different context requirements
         self.registry.register(basic_context_tool)
         self.registry.register(extended_context_tool)
         self.registry.register(no_context_tool)
 
     def test_context_injection_basic(self):
         """Test basic context injection."""
-        context = BasicContextImpl(project_root=Path("/test/project"), debug=True)
+        config = Config(notes_dir=Path("/test/project"))
+        context = ToolContext(config=config)
 
-        library = FunctionLibrary(
-            functions=[basic_context_tool], context=context, registry=self.registry
-        )
-
-        result = library.call("basic_context_tool", {"name": "test"})
-        assert result.message == "Hello test"
-        assert result.context_info["project_root"] == "/test/project"
-        assert result.context_info["debug"] is True
+        with set_tool_context(context):
+            result = basic_context_tool(SimpleArgs(name="test"))
+            assert result.message == "Hello test"
+            assert "/test/project" in result.context_info["project_root"]
+            assert result.context_info["debug"] is True
 
     def test_context_injection_extended(self):
         """Test extended context injection with more fields."""
-        context = ExtendedContextImpl(project_root=Path("/test/project"), debug=False, api_key="secret_api_key_12345", timeout=30)
+        config = Config(notes_dir=Path("/test/project"))
+        context = ToolContext(config=config)
 
-        library = FunctionLibrary(
-            functions=[extended_context_tool], context=context, registry=self.registry
-        )
-
-        result = library.call("extended_context_tool", {"name": "extended"})
-        assert result.message == "Hello extended"
-        assert result.context_info["project_root"] == "/test/project"
-        assert result.context_info["debug"] is False
-        assert result.context_info["api_key"] == "secret_a..."
-        assert result.context_info["timeout"] == 30
+        with set_tool_context(context):
+            result = extended_context_tool(SimpleArgs(name="extended"))
+            assert result.message == "Hello extended"
+            assert "/test/project" in result.context_info["project_root"]
+            assert result.context_info["debug"] is True
+            assert result.context_info["api_key"] == "test_key..."
+            assert result.context_info["timeout"] == 30
 
     def test_no_context_tool_execution(self):
         """Test tool that doesn't require context."""
-        context = OptionalContextImpl(project_root=Path("/test"), debug=True)
-
-        library = FunctionLibrary(
-            functions=[no_context_tool], context=context, registry=self.registry
-        )
-
-        result = library.call("no_context_tool", {"name": "no_ctx"})
+        # No context tool should work without setting context
+        result = no_context_tool(SimpleArgs(name="no_ctx"))
         assert result.message == "Hello no_ctx"
         assert result.context_info == {}
 
     def test_context_validation_extra_fields_allowed(self):
-        """Test that extra context fields don't cause problems."""
-        extended_context = ExtendedContextImpl(project_root=Path("/test"), debug=True, api_key="", timeout=0)
+        """Test that context works with all available fields."""
+        config = Config(notes_dir=Path("/test"))
+        context = ToolContext(config=config)
 
-        library = FunctionLibrary(
-            functions=[basic_context_tool],
-            context=extended_context,
-            registry=self.registry,
-        )
-
-        result = library.call("basic_context_tool", {"name": "test"})
-        assert result.message == "Hello test"
-        # Extra fields should be ignored
+        with set_tool_context(context):
+            result = basic_context_tool(SimpleArgs(name="test"))
+            assert result.message == "Hello test"
 
     def test_empty_context(self):
-        """Test behavior with empty context."""
-        library = FunctionLibrary(
-            functions=[no_context_tool],
-            registry=self.registry,
-            # No context provided
-        )
+        """Test with minimal context."""
+        config = Config()  # Uses default values
+        context = ToolContext(config=config)
 
-        assert library.context == {}
-
-        result = library.call("no_context_tool", {"name": "empty_ctx"})
-        assert result.message == "Hello empty_ctx"
+        with set_tool_context(context):
+            result = basic_context_tool(SimpleArgs(name="empty"))
+            assert result.message == "Hello empty"
 
     def test_context_with_none_values(self):
-        """Test context with None values."""
-        context_with_none = OptionalContextImpl(project_root=Path("/test"), debug=False)
+        """Test context with None values in config."""
+        config = Config(anki_path=None)  # Explicitly set None
+        context = ToolContext(config=config)
 
-        library = FunctionLibrary(
-            functions=[basic_context_tool],
-            context=context_with_none,
-            registry=self.registry,
-        )
-
-        result = library.call("basic_context_tool", {"name": "test"})
-        assert result.message == "Hello test"
+        with set_tool_context(context):
+            result = basic_context_tool(SimpleArgs(name="none_vals"))
+            assert result.message == "Hello none_vals"

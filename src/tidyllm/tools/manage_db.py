@@ -4,11 +4,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from tidyllm.context import get_tool_context
 from tidyllm.multi_cli import simple_cli_main
 from tidyllm.registry import register
-from tidyllm.tools.context import ToolContext
 from tidyllm.tools.db import init_database, row_to_dict
-from tidyllm.context import get_tool_context
 
 
 # Query Database Tool
@@ -134,7 +133,7 @@ def db_list_tables(args: DBListTablesArgs) -> DBListTablesResult:
         
         return DBListTablesResult(success=True, tables=tables, count=len(tables))
         
-    except Exception as e:
+    except Exception:
         return DBListTablesResult(success=False, tables=[])
     finally:
         conn.close()

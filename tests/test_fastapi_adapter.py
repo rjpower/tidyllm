@@ -2,7 +2,7 @@
 """Test FastAPI adapter for TidyLLM tools."""
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from tidyllm import FunctionLibrary, register
 
@@ -16,9 +16,9 @@ from tidyllm.adapters.fastapi_adapter import create_fastapi_app
 class CalculatorArgs(BaseModel):
     """Arguments for calculator tool."""
 
-    operation: str
-    left: float
-    right: float
+    operation: str = Field(description="Mathematical operation: add, subtract, multiply, or divide")
+    left: float = Field(description="Left operand for the operation")
+    right: float = Field(description="Right operand for the operation")
 
 
 @register()
@@ -46,6 +46,7 @@ def fastapi_calculator(args: CalculatorArgs) -> dict:
 @pytest.fixture
 def library():
     """Create a FunctionLibrary with test tools."""
+    # Create library with only this specific function to isolate test
     return FunctionLibrary(functions=[fastapi_calculator])
 
 
