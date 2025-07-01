@@ -1,10 +1,25 @@
 """FastMCP adapter for TidyLLM registry functions."""
 
-from typing import Any
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
+from functools import wraps
+from typing import Any, ParamSpec, TypeVar
 
 from tidyllm.context import set_tool_context
 from tidyllm.registry import REGISTRY
 from tidyllm.tools.context import ToolContext
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def context_fn(func: Callable[P, R], _desc, _context) -> Callable[P, R]:
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        with set_tool_context(_context):
+            return func(*args, **kwargs)
+
+    return wrapper
 
 
 def create_fastmcp_server(
@@ -42,7 +57,20 @@ def create_fastmcp_server(
         from tidyllm.tools.config import Config
         context = ToolContext(config=Config())
 
-    server = REGISTRY.create_fastmcp_server(context=context, name=name)
+    from mcp.server.fastmcp import FastMCP
+
+    @asynccontextmanager
+    async def app_lifespan(server: FastMCP) -> AsyncIterator[ToolContext]:
+        try:
+            yield context
+        finally:
+            pass
+
+    server = FastMCP(lifespan=app_lifespan)
+    for tool_desc in REGISTRY.functions:
+        fn = context_fn(tool_desc.function, tool_desc, context)
+        server.tool()(fn)
+
     return server
 
 
@@ -124,7 +152,7 @@ async def run_tidyllm_mcp_server_async(config_overrides: dict[str, Any] | None =
         asyncio.run(main())
     """
     mcp = create_tidyllm_mcp_server(config_overrides)
-    await mcp.run_async()
+    await mcp.run_stdio_async()
 
 
 # Create the default server instance that fastmcp can find

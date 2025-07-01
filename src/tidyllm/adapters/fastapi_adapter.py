@@ -1,6 +1,9 @@
 """FastAPI adapter for TidyLLM registry functions."""
 
 
+from functools import wraps
+from typing import Any, Callable, ParamSpec, TypeVar
+
 from fastapi import FastAPI, HTTPException
 
 from tidyllm.context import set_tool_context
@@ -77,66 +80,33 @@ def create_fastapi_app(
 
     # Create individual endpoints for each tool
     for tool_desc in function_descriptions:
-        _create_tool_endpoint(app, tool_desc)
+        _create_tool_endpoint(app, tool_desc, context)
 
     return app
 
 
-def _create_tool_endpoint(app: FastAPI, tool_desc):
-    """Create a FastAPI endpoint for a specific tool.""" 
-    from inspect import Parameter, Signature
+P = ParamSpec("P")
+R = TypeVar("R")
 
+
+def context_fn(func: Callable[P, R], _desc, _context) -> Callable[P, R]:
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        with set_tool_context(_context):
+            return func(*args, **kwargs)
+
+    return wrapper
+
+
+def _create_tool_endpoint(app: FastAPI, tool_desc, context: Any):
+    """Create a FastAPI endpoint for a specific tool."""
     tool_name = tool_desc.name
-    args_model = tool_desc.args_model
-
-    # Create the endpoint function dynamically
-    def create_endpoint():
-        async def tool_endpoint(args):
-            """Execute the tool with the provided arguments."""
-            try:
-                # Set context for this request
-                with set_tool_context(app._tidyllm_context):
-                    # Validate and execute tool directly
-                    parsed_args = tool_desc.validate_and_parse_args(args.model_dump())
-                    result = tool_desc.call(**parsed_args)
-                    return result
-
-            except Exception as e:
-                if isinstance(e, HTTPException):
-                    raise
-
-                # Check if it's a tool error (user error) vs unexpected error
-                if isinstance(e, (ValueError | TypeError)):
-                    # Tool validation or execution errors - return 400
-                    raise HTTPException(
-                        status_code=400, detail={"error": str(e)}
-                    ) from e
-                else:
-                    # Unexpected errors - return 500
-                    raise HTTPException(
-                        status_code=500, detail=f"Unexpected error: {str(e)}"
-                    ) from e
-
-        # Set function metadata
-        tool_endpoint.__name__ = f"{tool_name}_endpoint"
-        tool_endpoint.__doc__ = tool_desc.function.__doc__ or f"Execute {tool_name} tool"
-
-        # Create signature with properly typed parameter
-        param = Parameter('args', Parameter.POSITIONAL_OR_KEYWORD, annotation=args_model)
-        tool_endpoint.__signature__ = Signature([param])
-
-        return tool_endpoint
-
-    endpoint_func = create_endpoint()
-
-    # Add the endpoint to the FastAPI app
     app.post(
         f"/tools/{tool_name}",
-        response_model=None,  # Let FastAPI infer from return type
         summary=f"Execute {tool_name}",
         description=tool_desc.function.__doc__ or f"Execute the {tool_name} tool",
-        tags=["tools"]
-    )(endpoint_func)
+        tags=["tools"],
+    )(context_fn(tool_desc.function, tool_desc, context))
 
 
 # Convenience function for common use case

@@ -36,7 +36,10 @@ class VocabAddResult(BaseModel):
 
 @register
 def vocab_add(args: VocabAddArgs) -> VocabAddResult:
-    """Add a new vocabulary word to the database."""
+    """Add a new vocabulary word to the database.
+    
+    Example usage: vocab_add({"word": "hello", "translation": "hola", "examples": ["Hello world"], "tags": ["greetings"]})
+    """
     ctx = get_tool_context()
     init_database(ctx)
     
@@ -82,7 +85,10 @@ class VocabSearchResult(BaseModel):
 
 @register
 def vocab_search(args: VocabSearchArgs) -> VocabSearchResult:
-    """Search vocabulary words in the database."""
+    """Search vocabulary words in the database.
+    
+    Example usage: vocab_search({"word": "hel", "limit": 10}) or vocab_search({"tag": "verbs"})
+    """
     ctx = get_tool_context()
     init_database(ctx)
     
@@ -150,7 +156,10 @@ class VocabUpdateResult(BaseModel):
 
 @register
 def vocab_update(args: VocabUpdateArgs) -> VocabUpdateResult:
-    """Update an existing vocabulary word."""
+    """Update an existing vocabulary word.
+    
+    Example usage: vocab_update({"word": "hello", "translation": "¡hola!", "examples": ["Hello there!"]})
+    """
     ctx = get_tool_context()
     init_database(ctx)
     
@@ -208,7 +217,10 @@ class VocabDeleteResult(BaseModel):
 
 @register
 def vocab_delete(args: VocabDeleteArgs) -> VocabDeleteResult:
-    """Delete a vocabulary word from the database."""
+    """Delete a vocabulary word from the database.
+    
+    Example usage: vocab_delete({"word": "hello"})
+    """
     ctx = get_tool_context()
     init_database(ctx)
     

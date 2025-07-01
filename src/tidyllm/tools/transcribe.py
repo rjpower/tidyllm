@@ -55,7 +55,10 @@ def get_audio_mime_type(file_path: Path) -> str:
 
 @register
 def transcribe(args: TranscribeArgs) -> TranscriptionResult:
-    """Transcribe audio using Gemini Flash via litellm."""
+    """Transcribe audio using Gemini Flash via litellm.
+    
+    Example usage: transcribe({"audio_file_path": "/path/to/audio.mp3", "language": "es", "translate_to": "en"})
+    """
     ctx = get_tool_context()
     if not args.audio_file_path.exists():
         return TranscriptionResult(

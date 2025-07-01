@@ -27,7 +27,10 @@ class DBQueryResult(BaseModel):
 
 @register
 def db_query(args: DBQueryArgs) -> DBQueryResult:
-    """Execute SELECT queries safely."""
+    """Execute SELECT queries safely.
+    
+    Example usage: db_query({"sql": "SELECT * FROM vocab WHERE word LIKE ?", "params": {"%hello%"}})
+    """
     ctx = get_tool_context()
     init_database(ctx)
     
@@ -72,7 +75,10 @@ class DBExecuteResult(BaseModel):
 
 @register
 def db_execute(args: DBExecuteArgs) -> DBExecuteResult:
-    """Execute INSERT, UPDATE, DELETE statements safely."""
+    """Execute INSERT, UPDATE, DELETE statements safely.
+    
+    Example usage: db_execute({"sql": "INSERT INTO vocab (word, translation) VALUES (?, ?)", "params": {"hello": "hola"}})
+    """
     ctx = get_tool_context()
     init_database(ctx)
     
@@ -117,7 +123,10 @@ class DBListTablesResult(BaseModel):
 
 @register
 def db_list_tables(args: DBListTablesArgs) -> DBListTablesResult:
-    """List all tables in the database."""
+    """List all tables in the database.
+    
+    Example usage: db_list_tables({})
+    """
     ctx = get_tool_context()
     init_database(ctx)
     
@@ -154,7 +163,10 @@ class DBSchemaResult(BaseModel):
 
 @register
 def db_schema(args: DBSchemaArgs) -> DBSchemaResult:
-    """Get database schema information."""
+    """Get database schema information.
+    
+    Example usage: db_schema({"table": "vocab"}) or db_schema({}) for all tables
+    """
     ctx = get_tool_context()
     init_database(ctx)
     

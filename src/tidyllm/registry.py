@@ -3,6 +3,7 @@
 import logging
 from collections import OrderedDict
 from collections.abc import Callable
+from functools import wraps
 from typing import Any, ParamSpec, Protocol, TypeVar, cast, overload
 
 from fastapi.middleware import Middleware
@@ -45,7 +46,6 @@ class Registry:
 
     def __init__(self):
         self._tools: dict[str, FunctionDescription] = OrderedDict()
-        self._fastmcp_server = None
 
     def register(
         self,
@@ -75,10 +75,6 @@ class Registry:
         self._tools[name] = func_desc
         logger.info(f"Registered tool: {name}")
 
-        # Auto-register with FastMCP if server exists
-        if self._fastmcp_server is not None:
-            self._fastmcp_server.tool(func_desc.function)
-
     @property
     def functions(self) -> list[FunctionDescription]:
         """Get all registered tool descriptions."""
@@ -98,28 +94,6 @@ class Registry:
     def list_tools(self) -> list[str]:
         """List all registered tool names."""
         return list(self._tools.keys())
-
-    def create_fastmcp_server(self, context: Any, name: str = "TidyLLM Tools"):
-        """Create and configure FastMCP server with all registered tools.
-
-        Args:
-            name: Server name for FastMCP
-
-        Returns:
-            FastMCP server instance with all tools registered
-        """
-        from fastmcp import FastMCP
-
-        if self._fastmcp_server is None:
-            self._fastmcp_server = FastMCP(name)
-            self._fastmcp_server.add_middleware(InjectContextMiddleware(context))
-
-            # Register all existing tools
-            for tool_desc in self._tools.values():
-                self._fastmcp_server.tool(tool_desc.function)
-
-        return self._fastmcp_server
-
 
 # Global registry instance
 REGISTRY = Registry()
@@ -162,6 +136,7 @@ def register(
         name: Override tool name
     """
 
+    @wraps(func_or_doc)
     def _register_func(
         func: Callable[P, T], doc_override: str | None = None
     ) -> CallableWithSchema[P, T]:
@@ -181,7 +156,7 @@ def register(
     if callable(func_or_doc):
         return _register_func(func_or_doc, doc)
 
-    # Otherwise, this is parameterized usage (@register() or @register(doc="..."))
+    @wraps(func_or_doc)
     def decorator(func: Callable[P, T]) -> CallableWithSchema[P, T]:
         # Use func_or_doc as doc if it's a string, otherwise use doc parameter
         doc_override = func_or_doc if isinstance(func_or_doc, str) else doc
