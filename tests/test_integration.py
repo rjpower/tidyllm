@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 from pydantic import BaseModel
 
 from tidyllm.cli import generate_cli
-from tidyllm.library import FunctionLibrary, ToolError
+from tidyllm.registry import Registry, ToolError
 from tidyllm.prompt import read_prompt
 from tidyllm.registry import REGISTRY, register
 
@@ -66,7 +66,9 @@ class TestEndToEndIntegration:
 
         # Create library and execute tool call
         with TemporaryDirectory() as tmpdir:
-            library = FunctionLibrary(functions=[write_file])
+            library = Registry()
+            for func in [write_file]:
+                library.register(func)
             
             # Change to tmpdir so relative paths work
             import os
@@ -112,7 +114,9 @@ class TestEndToEndIntegration:
             return FileResult(success=True, path=args.path, message=f"Wrote file {args.path}")
 
         with TemporaryDirectory() as tmpdir:
-            library = FunctionLibrary(functions=[create_dir, write_file])
+            library = Registry()
+            for func in [create_dir, write_file]:
+                library.register(func)
             
             # Change to tmpdir so relative paths work
             import os
@@ -168,7 +172,7 @@ A result object indicating success or failure."""
                 return FileResult(success=True, path=args.path, message="Documented tool executed")
 
             # Check that schema uses prompt content
-            func_desc = REGISTRY.get("documented_tool")
+            func_desc = REGISTRY.get_description("documented_tool")
             schema = func_desc.function_schema
             assert "A tool for writing content to files" in schema["function"]["description"]
             assert "Parameters" in schema["function"]["description"]
@@ -212,7 +216,10 @@ A result object indicating success or failure."""
 
             return FileResult(success=True, path=args.path, message="Success")
 
-        library = FunctionLibrary(functions=[failing_tool])
+        library = Registry()
+        library = Registry()
+        for func in [failing_tool]:
+            library.register(func)
 
         # Test successful call
         success_result = library.call("failing_tool", {"path": "success", "content": "test"})
@@ -237,7 +244,10 @@ A result object indicating success or failure."""
                 message=f"Processed file: {args.path}",
             )
 
-        library = FunctionLibrary(functions=[simple_tool])
+        library = Registry()
+        library = Registry()
+        for func in [simple_tool]:
+            library.register(func)
 
         result = library.call("simple_tool", {"path": "test.txt", "content": "test"})
         assert isinstance(result, FileResult)
@@ -252,7 +262,10 @@ A result object indicating success or failure."""
             """Complex tool with detailed schema."""
             return FileResult(success=True, path=args.path, message="OK")
 
-        library = FunctionLibrary(functions=[complex_tool])
+        library = Registry()
+        library = Registry()
+        for func in [complex_tool]:
+            library.register(func)
         schemas = library.get_schemas()
 
         assert len(schemas) == 1
@@ -314,7 +327,7 @@ A result object indicating success or failure."""
                 return FileResult(success=True, path=args.path, message="Included")
 
             # Verify prompt was processed correctly
-            func_desc = REGISTRY.get("include_tool")
+            func_desc = REGISTRY.get_description("include_tool")
             schema = func_desc.function_schema
             description = schema["function"]["description"]
 

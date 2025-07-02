@@ -1,16 +1,17 @@
 """Benchmark framework for testing TidyAgent tools with LLMs."""
 
 import inspect
+import json
 import time
 import traceback
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any, ParamSpec, Protocol, TypeVar, cast, overload
+from typing import Any, ParamSpec, TypeVar, overload
 
 import click
 
-from tidyllm import FunctionLibrary
+from tidyllm.registry import Registry
 from tidyllm.agent import LLMAgent
 from tidyllm.llm import LLMResponse, create_llm_client
 
@@ -18,13 +19,17 @@ P = ParamSpec("P")
 T = TypeVar("T", covariant=True)
 
 
-class CallableEvaluationTest(Protocol[P, T]):
-    """Protocol for evaluation test functions."""
+@dataclass
+class EvaluationTestInfo:
+    """Information about a registered evaluation test."""
+    
+    func: Callable
+    timeout_seconds: int = 30
+    module_name: str = ""
 
-    __evaluation_test__: bool
-    __evaluation_timeout__: int
 
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> T: ...
+# Global registry for evaluation tests
+EVALUATION_REGISTRY: dict[str, EvaluationTestInfo] = {}
 
 
 @dataclass
@@ -43,7 +48,7 @@ class EvaluationResult:
 @overload
 def evaluation_test(
     func_or_timeout: Callable[P, T],
-) -> CallableEvaluationTest[P, T]: ...
+) -> Callable[P, T]: ...
 
 
 @overload
@@ -51,14 +56,14 @@ def evaluation_test(
     func_or_timeout: None = None,
     *,
     timeout_seconds: int = 30,
-) -> Callable[[Callable[P, T]], CallableEvaluationTest[P, T]]: ...
+) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 
 def evaluation_test(
     func_or_timeout: Callable[P, T] | None = None,
     *,
     timeout_seconds: int = 30,
-) -> CallableEvaluationTest[P, T] | Callable[[Callable[P, T]], CallableEvaluationTest[P, T]]:
+) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     """Decorator to mark a function as a evaluation test.
 
     Can be used with or without parentheses:
@@ -78,17 +83,25 @@ def evaluation_test(
 
     def _mark_evaluation_test(
         func: Callable[P, T], timeout: int = 30
-    ) -> CallableEvaluationTest[P, T]:
-        func.__evaluation_test__ = True
-        func.__evaluation_timeout__ = timeout
-        return cast(CallableEvaluationTest[P, T], func)
+    ) -> Callable[P, T]:
+        # Get module name for namespacing
+        module_name = getattr(func, "__module__", "")
+        test_key = f"{module_name}.{func.__name__}"
+        
+        # Register in global registry
+        EVALUATION_REGISTRY[test_key] = EvaluationTestInfo(
+            func=func,
+            timeout_seconds=timeout,
+            module_name=module_name
+        )
+        return func
 
     # If first argument is a callable, this is direct usage (@evaluation_test)
     if callable(func_or_timeout):
         return _mark_evaluation_test(func_or_timeout, timeout_seconds)
 
     # Otherwise, this is parameterized usage (@evaluation_test() or @evaluation_test(timeout_seconds=60))
-    def decorator(func: Callable[P, T]) -> CallableEvaluationTest[P, T]:
+    def decorator(func: Callable[P, T]) -> Callable[P, T]:
         return _mark_evaluation_test(func, timeout_seconds)
 
     return decorator
@@ -97,10 +110,13 @@ def evaluation_test(
 def find_test_cases(module):
     """Find all functions marked with @evaluation_test in a module."""
     test_cases = []
-    for name in dir(module):
-        obj = getattr(module, name)
-        if callable(obj) and hasattr(obj, "__evaluation_test__") and obj.__evaluation_test__:
-            test_cases.append(obj)
+    module_name = getattr(module, "__name__", "")
+    
+    # Look for tests registered for this module
+    for test_info in EVALUATION_REGISTRY.values():
+        if test_info.module_name == module_name:
+            test_cases.append(test_info.func)
+    
     return test_cases
 
 
@@ -116,13 +132,13 @@ class EvaluationContext:
     def assert_tool_called(self, response: LLMResponse, expected_tool: str):
         """Assert that the expected tool was called."""
         self._assertions_total += 1
-        
+
         # Collect all tool calls from assistant messages
         all_tool_calls = []
         for msg in response.messages:
             if msg.role.value == "assistant":
                 all_tool_calls.extend(msg.tool_calls)
-        
+
         if any(tool_call.tool_name == expected_tool for tool_call in all_tool_calls):
             self._assertions_passed += 1
         else:
@@ -138,13 +154,13 @@ class EvaluationContext:
     def assert_result_contains(self, response: LLMResponse, expected_value: Any):
         """Assert that the tool result contains the expected value."""
         self._assertions_total += 1
-        
+
         # Collect all tool responses from tool messages
         tool_responses = []
         for msg in response.messages:
             if msg.role.value == "tool":
                 tool_responses.append(msg.content)
-        
+
         if any(expected_value in str(response) for response in tool_responses):
             self._assertions_passed += 1
         else:
@@ -155,14 +171,12 @@ class EvaluationContext:
     def assert_result_equals(self, response: LLMResponse, expected_value: Any):
         """Assert that the tool result equals the expected value."""
         self._assertions_total += 1
-        
+
         # Collect all tool responses from tool messages
         tool_responses = []
         for msg in response.messages:
             if msg.role.value == "tool":
                 try:
-                    # Try to parse JSON content to get the actual result value
-                    import json
                     parsed = json.loads(msg.content)
                     if isinstance(parsed, dict) and "result" in parsed:
                         tool_responses.append(parsed["result"])
@@ -171,7 +185,7 @@ class EvaluationContext:
                 except json.JSONDecodeError:
                     # If not JSON, use the content directly
                     tool_responses.append(msg.content)
-        
+
         if any(response == expected_value for response in tool_responses):
             self._assertions_passed += 1
         else:
@@ -183,7 +197,7 @@ class EvaluationContext:
 class EvaluationRunner:
     """Runner for executing evaluation tests."""
 
-    def __init__(self, function_library: FunctionLibrary = None, test_cases: list[Callable] = None):
+    def __init__(self, function_library: Registry = None, test_cases: list[Callable] = None):
         self.function_library = function_library
         self.test_cases = test_cases or []
 
@@ -199,14 +213,11 @@ class EvaluationRunner:
         tests = []
 
         for module in test_modules:
-            for name in dir(module):
-                obj = getattr(module, name)
-                if (
-                    callable(obj)
-                    and hasattr(obj, "__evaluation_test__")
-                    and obj.__evaluation_test__
-                ):
-                    tests.append(obj)
+            module_name = getattr(module, "__name__", "")
+            # Look for tests registered for this module
+            for test_info in EVALUATION_REGISTRY.values():
+                if test_info.module_name == module_name:
+                    tests.append(test_info.func)
 
         return tests
 
@@ -225,9 +236,6 @@ class EvaluationRunner:
         test_name = getattr(test_func, "__name__", str(test_func))
 
         try:
-            # Get test configuration
-            getattr(test_func, "__evaluation_timeout__", 30)
-
             # Create LLM client and helper
             if use_mock:
                 from tidyllm.llm import MockLLMClient
@@ -267,13 +275,14 @@ class EvaluationRunner:
         except Exception as e:
             traceback.print_exc()
             duration_ms = int((time.time() - start_time) * 1000)
+            
             return EvaluationResult(
                 test_name=test_name,
                 success=False,
                 duration_ms=duration_ms,
                 error_message=str(e),
-                assertions_passed=getattr(context, "_assertions_passed", 0),
-                assertions_total=getattr(context, "_assertions_total", 0),
+                assertions_passed=0,
+                assertions_total=0,
             )
 
     def run_tests(
@@ -404,7 +413,8 @@ class EvaluationRunner:
             # Create function library if not already set
             if not self.function_library:
                 # Build library from registry - assumes tools are already registered
-                self.function_library = FunctionLibrary()
+                from tidyllm.registry import REGISTRY
+                self.function_library = REGISTRY
 
             # Run tests
             if parallel:
@@ -423,7 +433,7 @@ class EvaluationRunner:
 
 
 def run_evaluations(
-    function_library: FunctionLibrary,
+    function_library: Registry,
     model: str,
     test_modules: list[Any] | None = None,
     mock_client: bool = False,
@@ -431,7 +441,7 @@ def run_evaluations(
     """Convenience function to run evaluations.
 
     Args:
-        function_library: FunctionLibrary with registered tools
+        function_library: Registry with registered tools
         model: LLM model to use for testing
         test_modules: List of modules containing evaluation tests
         test_path: Path to discover tests from

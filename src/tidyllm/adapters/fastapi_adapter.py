@@ -7,13 +7,11 @@ from typing import Any, ParamSpec, TypeVar
 
 from fastapi import FastAPI
 
-from tidyllm.context import ToolContext, set_tool_context
-from tidyllm.library import FunctionLibrary
+from tidyllm.context import set_tool_context
 
 
 def create_fastapi_app(
-    library: FunctionLibrary | None = None,
-    context: ToolContext | None = None,
+    context: Any,
     title: str = "TidyLLM Tools API",
     description: str = "API for TidyLLM registered tools",
     version: str = "1.0.0",
@@ -25,7 +23,7 @@ def create_fastapi_app(
     directly, with FastAPI automatically generating the OpenAPI schema.
 
     Args:
-        context: Optional ToolContext for tools execution
+        context: ToolContext instance for tools execution (required)
         title: API title
         description: API description
         version: API version
@@ -46,17 +44,9 @@ def create_fastapi_app(
     """
     app = FastAPI(title=title, description=description, version=version)
 
-    # Use provided context or create default
-    if context is None:
-        from tidyllm.tools.config import Config
-        context = ToolContext(config=Config())
+    from tidyllm.registry import REGISTRY
 
-    if library is not None:
-        function_descriptions = library.function_descriptions
-    else:
-        from tidyllm.registry import REGISTRY
-
-        function_descriptions = REGISTRY.functions
+    function_descriptions = REGISTRY.functions
 
     @app.get("/", summary="API Information")
     async def root():
@@ -109,35 +99,3 @@ def _create_tool_endpoint(app: FastAPI, tool_desc, context: Any):
     )(context_fn(tool_desc.function, tool_desc, context))
 
 
-# Convenience function for common use case
-def create_portkit_api(
-    context: ToolContext | None = None,
-    title: str = "PortKit Tools API",
-    description: str = "API for PortKit TinyAgent tools",
-) -> FastAPI:
-    """
-    Create a FastAPI app specifically for PortKit tools.
-
-    Args:
-        context: ToolContext for tools execution
-        title: API title
-        description: API description
-
-    Returns:
-        Configured FastAPI application with PortKit tools
-
-    Example:
-        from tidyllm.adapters.fastapi_adapter import create_portkit_api
-        from tidyllm.tools.context import ToolContext
-
-        context = ToolContext()
-        app = create_portkit_api(context=context)
-    """
-    # Import all tools to ensure they're registered
-    import tidyllm.tools.anki  # noqa: F401
-    import tidyllm.tools.manage_db  # noqa: F401
-    import tidyllm.tools.notes  # noqa: F401
-    import tidyllm.tools.transcribe  # noqa: F401
-    import tidyllm.tools.vocab_table  # noqa: F401
-
-    return create_fastapi_app(context=context, title=title, description=description)

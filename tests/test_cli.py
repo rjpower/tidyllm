@@ -86,7 +86,7 @@ class TestCLIGeneration:
         if result.exit_code != 0:
             print(f"CLI Error: {result.output}")
             print(f"Exception: {result.exception}")
-        
+
         assert result.exit_code == 0
         # Check text output contains expected values
         assert "Hello test" in result.output
@@ -153,13 +153,15 @@ class TestCLIGeneration:
 
     def test_cli_with_context_tool(self):
         """Test CLI generation for tool that uses context variables."""
-        # Tools using contextvars should work with CLI
-        cli_command = generate_cli(context_tool)
+        # Tools using contextvars should work with CLI when context_cls is provided
+        from tidyllm.tools.context import ToolContext
+
+        cli_command = generate_cli(context_tool, context_cls=ToolContext)
         runner = CliRunner()
-        
+
         result = runner.invoke(cli_command, ["--name", "context_test"])
         assert result.exit_code == 0
-        
+
         # Check text output contains expected values
         assert "Hello context_test from" in result.output
 

@@ -66,6 +66,11 @@ class Cursor:
         self.columns = columns
         self._rows = rows
 
+    @property
+    def rows(self) -> list[Row]:
+        """Get all rows."""
+        return self._rows
+
     def __iter__(self) -> Iterator[Row]:
         """Iterate over rows."""
         return iter(self._rows)

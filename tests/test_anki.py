@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tidyllm.context import ToolContext, set_tool_context
+from tidyllm.context import set_tool_context
 from tidyllm.tools.anki import (
     AnkiCard,
     AnkiCreateArgs,
@@ -16,6 +16,7 @@ from tidyllm.tools.anki import (
     anki_query,
 )
 from tidyllm.tools.config import Config
+from tidyllm.tools.context import ToolContext
 
 
 @pytest.fixture

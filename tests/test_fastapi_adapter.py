@@ -4,13 +4,15 @@
 import pytest
 from pydantic import BaseModel, Field
 
-from tidyllm import FunctionLibrary, register
+from tidyllm import register
 
 # Skip all tests if FastAPI is not available
 fastapi = pytest.importorskip("fastapi")
 TestClient = pytest.importorskip("fastapi.testclient").TestClient
 
 from tidyllm.adapters.fastapi_adapter import create_fastapi_app
+from tidyllm.tools.context import ToolContext
+from tidyllm.tools.config import Config
 
 
 class CalculatorArgs(BaseModel):
@@ -44,16 +46,16 @@ def fastapi_calculator(args: CalculatorArgs) -> dict:
 
 
 @pytest.fixture
-def library():
-    """Create a FunctionLibrary with test tools."""
-    # Create library with only this specific function to isolate test
-    return FunctionLibrary(functions=[fastapi_calculator])
+def test_context():
+    """Create a test context."""
+    config = Config()
+    return ToolContext(config=config)
 
 
 @pytest.fixture
-def app(library):
+def app(test_context):
     """Create a FastAPI app with test tools."""
-    return create_fastapi_app(library)
+    return create_fastapi_app(test_context)
 
 
 @pytest.fixture
@@ -62,9 +64,9 @@ def client(app):
     return TestClient(app)
 
 
-def test_fastapi_app_creation(library):
+def test_fastapi_app_creation(test_context):
     """Test that FastAPI app can be created with registered tools."""
-    app = create_fastapi_app(library, title="Test API")
+    app = create_fastapi_app(test_context, title="Test API")
 
     # Verify app was created
     assert app is not None
@@ -85,7 +87,7 @@ def test_fastapi_tool_endpoints(client):
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "healthy"
-    assert data["available_tools"] == 1
+    assert data["available_tools"] >= 1  # At least the fastapi_calculator tool
 
 
 def test_tool_execution_success(client):

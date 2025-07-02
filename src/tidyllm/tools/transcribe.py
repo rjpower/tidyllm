@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from tidyllm.cli import cli_main
 from tidyllm.context import get_tool_context
 from tidyllm.registry import register
+from tidyllm.tools.context import ToolContext
 
 
 class TranscribedWord(BaseModel):
@@ -35,7 +36,6 @@ class TranscriptionResult(BaseModel):
     transcription: str
     language: str
     words: list[TranscribedWord] = Field(default_factory=list)
-    error: str | None = None
 
 
 def get_audio_mime_type(file_path: Path) -> str:
@@ -156,10 +156,8 @@ Return the results in the specified JSON format."""
             words=words,
         )
     else:
-        return TranscriptionResult(
-            transcription="", language="unknown", error="No response from LLM"
-        )
+        raise RuntimeError("No response from LLM")
 
 
 if __name__ == "__main__":
-    cli_main(transcribe)
+    cli_main(transcribe, context_cls=ToolContext)

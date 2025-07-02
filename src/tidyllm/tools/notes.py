@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from tidyllm.cli import multi_cli_main
 from tidyllm.context import get_tool_context
 from tidyllm.registry import register
+from tidyllm.tools.context import ToolContext
 
 
 class Note(BaseModel):
@@ -437,4 +438,5 @@ if __name__ == "__main__":
     multi_cli_main(
         [note_add, note_search, note_list, note_open, note_recent, note_tags],
         default_function="note_recent",
+        context_cls=ToolContext,
     )

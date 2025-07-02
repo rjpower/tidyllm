@@ -3,7 +3,7 @@
 import pytest
 
 from tidyllm import REGISTRY
-from tidyllm.library import ToolError
+from tidyllm.registry import ToolError
 from tidyllm.tools.calculator import calculator
 from tidyllm.tools.calculator.lib import (
     CalculatorArgs,
@@ -78,7 +78,7 @@ class TestCalculatorTool:
     def setup_method(self):
         """Ensure calculator is registered."""
         # If calculator isn't already registered, register it
-        if REGISTRY.get("calculator") is None:
+        if REGISTRY.get_description("calculator") is None:
             # Import will cause the @register decorator to execute
             import importlib
 
@@ -88,7 +88,7 @@ class TestCalculatorTool:
 
     def test_tool_registered(self):
         """Test that calculator tool is properly registered."""
-        tool_desc = REGISTRY.get("calculator")
+        tool_desc = REGISTRY.get_description("calculator")
         assert tool_desc is not None
         assert tool_desc.function.__name__ == "calculator"
 
@@ -117,7 +117,7 @@ class TestCalculatorTool:
 
     def test_schema_generation(self):
         """Test that schema is generated correctly."""
-        tool_desc = REGISTRY.get("calculator")
+        tool_desc = REGISTRY.get_description("calculator")
         schema = tool_desc.function_schema
 
         # Check basic structure
@@ -145,13 +145,6 @@ class TestCalculatorTool:
         assert "left" in required
         assert "right" in required
 
-    def test_context_not_required(self):
-        """Test that calculator doesn't require context."""
-        # Calculator should not require context
-        func_desc = REGISTRY.get("calculator")
-        assert func_desc is not None
-        assert func_desc.context_type is None
-
 
 class TestCalculatorIntegration:
     """Test calculator integration with FunctionLibrary."""
@@ -159,7 +152,7 @@ class TestCalculatorIntegration:
     def setup_method(self):
         """Ensure calculator is registered."""
         # If calculator isn't already registered, register it
-        if REGISTRY.get("calculator") is None:
+        if REGISTRY.get_description("calculator") is None:
             # Import will cause the @register decorator to execute
             import importlib
 
@@ -168,11 +161,12 @@ class TestCalculatorIntegration:
             importlib.reload(tidyllm.tools.calculator)
 
     def test_library_execution(self):
-        """Test calculator execution through FunctionLibrary."""
-        from tidyllm import FunctionLibrary
-
-        # Create library without context since calculator doesn't need it
-        library = FunctionLibrary(functions=[calculator])
+        """Test calculator execution through Registry."""
+        from tidyllm.registry import Registry
+        
+        # Create a new registry and register the function
+        library = Registry()
+        library.register(calculator)
 
         # Execute through library
         result = library.call(
@@ -184,10 +178,11 @@ class TestCalculatorIntegration:
         assert result.operation == "multiply"
 
     def test_library_error_handling(self):
-        """Test error handling through FunctionLibrary."""
-        from tidyllm import FunctionLibrary
-
-        library = FunctionLibrary(functions=[calculator])
+        """Test error handling through Registry."""
+        from tidyllm.registry import Registry
+        
+        library = Registry()
+        library.register(calculator)
 
         result = library.call(
             "calculator", {"operation": "divide", "left": 5, "right": 0}
@@ -198,9 +193,10 @@ class TestCalculatorIntegration:
 
     def test_invalid_arguments(self):
         """Test handling of invalid arguments."""
-        from tidyllm import FunctionLibrary
-
-        library = FunctionLibrary(functions=[calculator])
+        from tidyllm.registry import Registry
+        
+        library = Registry()
+        library.register(calculator)
 
         # Missing required argument
         result = library.call(

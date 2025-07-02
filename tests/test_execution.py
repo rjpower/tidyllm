@@ -4,8 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from tidyllm.library import FunctionLibrary, ToolError
-from tidyllm.registry import Registry
+from tidyllm.registry import Registry, ToolError
 
 
 class SimpleArgs(BaseModel):
@@ -121,7 +120,7 @@ class TestToolExecution:
         for tool in tools_and_schemas:
             self.registry.register(tool)
 
-        self.library = FunctionLibrary(registry=self.registry)
+        self.library = self.registry
 
     def test_simple_arguments(self):
         """Test execution with simple argument types."""

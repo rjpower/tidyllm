@@ -3,7 +3,7 @@
 import json
 
 from tidyllm.agent import LLMAgent, LLMLogger, create_request
-from tidyllm.library import FunctionLibrary
+from tidyllm.registry import Registry
 from tidyllm.llm import (
     AssistantMessage,
     LLMClient,
@@ -72,7 +72,7 @@ def test_conversation_workflow():
     test_registry.register(calculator)
     
     # Create function library with the test registry
-    library = FunctionLibrary(registry=test_registry)
+    library = test_registry
     
     # Create LLM agent
     agent = LLMAgent(function_library=library, llm_client=client, model="mock-gpt")
@@ -207,7 +207,7 @@ def test_ask_with_conversation():
     test_registry.register(patch_file)
 
     # Create function library with the test registry
-    library = FunctionLibrary(registry=test_registry)
+    library = test_registry
 
     agent = LLMAgent(function_library=library, llm_client=client, model="mock-gpt")
 

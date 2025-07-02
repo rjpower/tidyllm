@@ -8,7 +8,9 @@ import asyncio
 import hashlib
 import json
 from collections.abc import Callable, Coroutine
-from typing import Any, Generic, ParamSpec, Protocol, TypeVar, cast
+from dataclasses import dataclass
+from functools import wraps
+from typing import Any, Generic, ParamSpec, Protocol, TypeVar
 
 from pydantic import BaseModel
 
@@ -18,49 +20,52 @@ from tidyllm.schema import FunctionDescription, parse_from_json
 class DatabaseProtocol(Protocol):
     """Protocol defining the minimal database interface required for caching."""
 
-    def create_table(self, table_name: str, schema: dict[str, str]) -> None:
-        """Create a table with the given schema.
+    def mutate(self, sql: str, params: list[Any] | None = None) -> int:
+        """Execute an INSERT/UPDATE/DELETE statement.
 
         Args:
-            table_name: Name of the table to create
-            schema: Dictionary mapping column names to SQL type definitions
-                   e.g., {"id": "INTEGER PRIMARY KEY", "data": "TEXT"}
-        """
-        ...
-
-    def get(
-        self, table_name: str, keys: dict[str, Any], key_columns: tuple[str, ...] = ("id",)
-    ) -> dict[str, Any] | None:
-        """Get a single row by key.
-
-        Args:
-            table_name: Name of the table to query
-            keys: Dictionary mapping column names to values
-            key_columns: Tuple of column names that form the key (default: ("id",))
+            sql: SQL statement to execute
+            params: Optional parameters for the SQL statement
 
         Returns:
-            Dictionary of column values if found, None otherwise
+            Number of affected rows
         """
         ...
 
-    def update(
-        self,
-        table_name: str,
-        data: list[dict[str, Any]],
-        key_columns: tuple[str, ...] = ("id",),
-    ) -> None:
-        """Insert or update a row.
+    def query(self, sql: str, params: list[Any] | None = None) -> Any:
+        """Execute a SELECT statement and return results.
 
         Args:
-            table_name: Name of the table to update
-            data: Dictionary of column values to insert/update
-            key_columns: Tuple of column names that form the key (default: ("id",))
+            sql: SQL query to execute
+            params: Optional parameters for the SQL query
+
+        Returns:
+            Query results (implementation-specific format)
         """
         ...
 
 
 R = TypeVar("R")
 P = ParamSpec("P")
+T = TypeVar("T")
+
+
+@dataclass
+class CacheResult(Generic[T]):
+    """Result of a cache lookup operation."""
+
+    exists: bool
+    value: T | None = None
+
+    @classmethod
+    def hit(cls, value: T) -> "CacheResult[T]":
+        """Create a cache hit result."""
+        return cls(exists=True, value=value)
+
+    @classmethod
+    def miss(cls) -> "CacheResult[T]":
+        """Create a cache miss result."""
+        return cls(exists=False, value=None)
 
 
 class _FunctionCacheHandler(Generic[P, R]):
@@ -79,15 +84,16 @@ class _FunctionCacheHandler(Generic[P, R]):
 
         self._ensure_cache_table()
 
-
     def _ensure_cache_table(self):
         """Ensure the cache table exists."""
-        schema = {
-            "arg_hash": "TEXT PRIMARY KEY",
-            "result": "TEXT",
-            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-        }
-        self.db.create_table(self.table_name, schema)
+        sql = f"""
+            CREATE TABLE IF NOT EXISTS {self.table_name} (
+                arg_hash TEXT PRIMARY KEY,
+                result TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        self.db.mutate(sql)
 
     def compute_arg_hash(self, *args: P.args, **kwargs: P.kwargs) -> str:
         """Compute a hash of the function arguments."""
@@ -96,40 +102,32 @@ class _FunctionCacheHandler(Generic[P, R]):
         args_hash = hashlib.sha256(args_json.encode("utf-8")).hexdigest()
         return args_hash
 
-    def get_cached_result_sync(self, arg_hash: str) -> R | None:
-        """Get cached result synchronously."""
-        row = self.db.get(self.table_name, {"arg_hash": arg_hash}, key_columns=("arg_hash",))
-        if row:
-            return parse_from_json(row["result"], self.description.result_type)
-        return None
+    def lookup_cache(self, arg_hash: str) -> CacheResult[R]:
+        """Single method to check cache and return result if exists."""
+        sql = f"SELECT result FROM {self.table_name} WHERE arg_hash = ?"
+        cursor = self.db.query(sql, [arg_hash])
 
-    async def get_cached_result_async(self, arg_hash: str) -> R | None:
-        """Get cached result asynchronously."""
-        # Run synchronous DB operation in a thread pool
-        row = await asyncio.to_thread(
-            self.db.get, self.table_name, {"arg_hash": arg_hash}, key_columns=("arg_hash",)
+        row = cursor.first()
+        if row:
+            result_data = json.loads(row.result)
+            parsed_result = parse_from_json(
+                result_data["result"], self.description.result_type
+            )
+            return CacheResult.hit(parsed_result)
+
+        return CacheResult.miss()
+
+    def store_result(self, arg_hash: str, result_data: R):
+        """Store result in cache."""
+        if isinstance(result_data, BaseModel):
+            result_data = result_data.model_dump() # type: ignore
+
+        result = {"result": result_data}
+        result_json = json.dumps(result)
+        sql = (
+            f"INSERT OR REPLACE INTO {self.table_name} (arg_hash, result) VALUES (?, ?)"
         )
-        if row:
-            return parse_from_json(row["result"], self.description.result_type)
-        return None
-
-    def store_result_sync(self, arg_hash: str, result_data: R):
-        """Store result synchronously."""
-        if isinstance(result_data, BaseModel):
-            result_data = result_data.model_dump() # type: ignore
-
-        result = { "result": result_data }
-        data = {"arg_hash": arg_hash, "result": json.dumps(result)}
-        self.db.update(self.table_name, [data], key_columns=("arg_hash",))
-
-    async def store_result_async(self, arg_hash: str, result_data: R):
-        """Store result asynchronously."""
-        if isinstance(result_data, BaseModel):
-            result_data = result_data.model_dump() # type: ignore
-
-        result = { "result": result_data }
-        data = {"arg_hash": arg_hash, "result": json.dumps(result)}
-        await asyncio.to_thread(self.db.update, self.table_name, [data], key_columns=("arg_hash",))
+        self.db.mutate(sql, [arg_hash, result_json])
 
 
 def cached_function(db: DatabaseProtocol):
@@ -151,23 +149,17 @@ def cached_function(db: DatabaseProtocol):
     def decorator(func: Callable[P, R]) -> Callable[P, R]:
         handler = _FunctionCacheHandler(func, db)
 
+        @wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             arg_hash = handler.compute_arg_hash(*args, **kwargs)
 
-            cached_result = handler.get_cached_result_sync(arg_hash)
-            if cached_result is not None:
-                return cached_result
+            cache_result = handler.lookup_cache(arg_hash)
+            if cache_result.exists:
+                return cache_result.value  # type: ignore
 
             actual_result = func(*args, **kwargs)
-            handler.store_result_sync(arg_hash, actual_result)
+            handler.store_result(arg_hash, actual_result)
             return actual_result
-
-        # Preserve function metadata
-        wrapper.__name__ = func.__name__
-        wrapper.__doc__ = func.__doc__
-        wrapper.__module__ = func.__module__
-        wrapper.__qualname__ = func.__qualname__
-        wrapper.__annotations__ = func.__annotations__
 
         return wrapper
 
@@ -199,23 +191,17 @@ def async_cached_function(db: DatabaseProtocol):
 
         handler = _FunctionCacheHandler(func, db)
 
+        @wraps(func)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             arg_hash = handler.compute_arg_hash(*args, **kwargs)
 
-            cached_result = await handler.get_cached_result_async(arg_hash)
-            if cached_result is not None:
-                return cast(R, cached_result)
+            cache_result = await asyncio.to_thread(handler.lookup_cache, arg_hash)
+            if cache_result.exists:
+                return cache_result.value  # type: ignore
 
             actual_result = await func(*args, **kwargs)
-            await handler.store_result_async(arg_hash, actual_result)
+            await asyncio.to_thread(handler.store_result, arg_hash, actual_result)
             return actual_result
-
-        # Preserve function metadata
-        wrapper.__name__ = func.__name__
-        wrapper.__doc__ = func.__doc__
-        wrapper.__module__ = func.__module__
-        wrapper.__qualname__ = func.__qualname__
-        wrapper.__annotations__ = func.__annotations__
 
         return wrapper
 

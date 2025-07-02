@@ -1,22 +1,33 @@
 # tidyllm
 
-👉\[\[\[**This is the initial readme for your
-[simple-modern-uv](https://github.com/jlevy/simple-modern-uv) template.** Fill it in and
-delete this message!
-Below are general setup instructions that you may remove or keep and adapt for your
-project.\]\]\]
+Clean tool management for LLMs with automatic schema generation and multi-protocol support.
 
-* * *
+## Features
 
-## Project Docs
+- **Zero-config tool registration** with `@register()` decorator
+- **Multi-protocol support** - CLI, REST API, MCP, direct LLM integration
+- **Type-safe** with full Pydantic validation
+- **Context management** using modern Python contextvars
+- **Built-in tools** - notes, flashcards, transcription, vocabulary
+- **Rich UI** for real-time LLM interaction monitoring
 
-For how to install uv and Python, see [installation.md](installation.md).
+## Quick Start
 
-For development workflows, see [development.md](development.md).
+```python
+from tidyllm import register, get_tool_context
+from pydantic import BaseModel
 
-For instructions on publishing to PyPI, see [publishing.md](publishing.md).
+class AddArgs(BaseModel):
+    a: int
+    b: int
 
-* * *
+@register()
+def add(args: AddArgs) -> int:
+    """Add two numbers."""
+    return args.a + args.b
+```
 
-*This project was built from
-[simple-modern-uv](https://github.com/jlevy/simple-modern-uv).*
+## Usage
+```bash
+uv add tidyllm
+```

@@ -61,7 +61,7 @@ def parse_from_json(result: Any, result_type: type) -> Any:
         return None
 
     # Handle Pydantic models
-    if issubclass(result_type, BaseModel):
+    if inspect.isclass(result_type) and issubclass(result_type, BaseModel):
         return result_type.model_validate(result)
 
     # Get origin and args for generic types
@@ -144,6 +144,10 @@ class FunctionDescription:
 
         self.sig = inspect.signature(func)
         self.is_async = inspect.iscoroutinefunction(func)
+
+        # Extract return type
+        hints = get_type_hints(func)
+        self.result_type = hints.get('return', Any)
 
         # Generate Pydantic model for argument validation
         self.args_model = self._create_args_model(func)

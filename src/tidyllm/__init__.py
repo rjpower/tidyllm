@@ -5,9 +5,8 @@ from tidyllm.discover import (
     discover_tools_in_directory,
     discover_tools_in_package,
 )
-from tidyllm.library import FunctionLibrary, ToolError, ToolResult
 from tidyllm.prompt import read_prompt
-from tidyllm.registry import REGISTRY, register
+from tidyllm.registry import REGISTRY, REGISTRY as FunctionLibrary, ToolError, ToolResult, register
 from tidyllm.schema import FunctionDescription
 
 __all__ = [

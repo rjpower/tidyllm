@@ -4,9 +4,10 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from tidyllm.context import ToolContext, get_tool_context, set_tool_context
+from tidyllm.context import get_tool_context, set_tool_context
 from tidyllm.registry import Registry
 from tidyllm.tools.config import Config
+from tidyllm.tools.context import ToolContext
 
 
 class SimpleArgs(BaseModel):

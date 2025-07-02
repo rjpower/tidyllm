@@ -16,7 +16,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from tidyllm.library import FunctionLibrary
+from tidyllm.registry import Registry
 from tidyllm.llm import (
     AssistantMessage,
     LLMClient,
@@ -311,7 +311,7 @@ class RichStreamWriter:
 class LLMAgent:
     """An LLM agent processes multiple rounds with a model and performs automatic tool calling and logging."""
 
-    function_library: FunctionLibrary
+    function_library: Registry
     llm_client: LLMClient
     model: str
 

@@ -1,48 +1,28 @@
 """Global registry for tools."""
 
+import json
 import logging
 from collections import OrderedDict
 from collections.abc import Callable
 from functools import wraps
-from typing import Any, ParamSpec, Protocol, TypeVar, cast
+from typing import Any, ParamSpec, TypeVar
 
-from fastapi.middleware import Middleware
+from pydantic import BaseModel, ValidationError
 
-from tidyllm.context import set_tool_context
-from tidyllm.schema import (
-    FunctionDescription,
-)
+from tidyllm.schema import FunctionDescription, JSONSchema
 
 logger = logging.getLogger(__name__)
 
-P = ParamSpec("P")
-T = TypeVar("T", covariant=True)
 
+class ToolError(BaseModel):
+    """Error response from a tool."""
 
-class CallableWithSchema(Protocol[P, T]):
-    """Generic callable with schema that preserves function signature."""
-
-    __tool_schema__: dict
-    __name__: str
-
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> T: ...
-
-
-class InjectContextMiddleware(Middleware):
-    def __init__(self, context: Any):
-        self.context = context
-
-    async def on_call_tool(
-        self,
-        fastmcp_context: Any,
-        call_next: Callable,
-    ):
-        with set_tool_context(self.context):
-            return await call_next(fastmcp_context)
+    error: str
+    details: dict[str, Any] | None = None
 
 
 class Registry:
-    """Global registry for tools."""
+    """Global registry for tools with execution capabilities."""
 
     def __init__(self):
         self._tools: dict[str, FunctionDescription] = OrderedDict()
@@ -80,30 +60,96 @@ class Registry:
         """Get all registered tool descriptions."""
         return list(self._tools.values())
 
-    def get(self, name: str) -> FunctionDescription | None:
+    def get_description(self, name: str) -> FunctionDescription | None:
         """Get a tool description by name."""
         return self._tools.get(name)
 
-    def get_function(self, name: str) -> CallableWithSchema[..., Any]:
-        """Get the raw function by name with preserved typing."""
+    def get_function(self, name: str) -> Callable[..., Any]:
+        """Get the raw function by name."""
         func_desc = self._tools.get(name)
         if func_desc is None:
             raise KeyError(f"Tool '{name}' not found")
-        return cast(CallableWithSchema[..., Any], func_desc.function)
+        return func_desc.function
 
-    def list_tools(self) -> list[str]:
-        """List all registered tool names."""
-        return list(self._tools.keys())
+    def add_tool(self, tool_name: str, tool_call: Callable) -> None:
+        """Add a new tool to the registry."""
+        if tool_name in self._tools:
+            raise ValueError(f"Tool '{tool_name}' already exists in the registry")
+
+        func_desc = FunctionDescription(tool_call)
+        func_desc.name = tool_name
+        self._tools[tool_name] = func_desc
+        logger.info(f"Added tool: {tool_name}")
+
+    def call(self, tool_name: str, arguments: dict) -> Any:
+        """Execute a function call with JSON arguments."""
+        logger.info(f"Calling tool: {tool_name} with arguments: {arguments}")
+
+        func_desc = self._tools.get(tool_name)
+        if not func_desc:
+            error = f"Tool '{tool_name}' not found"
+            logger.error(error)
+            return ToolError(error=error)
+
+        try:
+            call_kwargs = func_desc.validate_and_parse_args(arguments)
+        except ValidationError as e:
+            error = f"Invalid arguments: {e}"
+            logger.error(error)
+            return ToolError(error=error, details={"validation_errors": e.errors()})
+        except Exception as e:
+            error = f"Invalid arguments: {str(e)}"
+            logger.error(error)
+            return ToolError(error=error)
+
+        try:
+            result = func_desc.function(**call_kwargs)
+
+            if func_desc.is_async:
+                return result
+
+            logger.info(f"Tool {tool_name} completed successfully")
+            return result
+
+        except Exception as e:
+            error = f"Tool execution failed: {str(e)}"
+            logger.exception(e, stack_info=True)
+            return ToolError(error=error)
+
+    def get_schemas(self) -> list[JSONSchema]:
+        """Get OpenAI-format schemas for all tools."""
+        return [func_desc.function_schema for func_desc in self._tools.values()]
+
+    def call_with_json_response(self, name: str, args: dict, id: str) -> str:
+        """Execute a tool call, returning a tool call message with the result or error."""
+        try:
+            result = self.call(name, args)
+
+            if hasattr(result, "to_message"):
+                result = result.to_message()
+            elif isinstance(result, BaseModel):
+                result = result.model_dump_json()
+            else:
+                result = json.dumps(result)
+
+            return result
+        except Exception as e:
+            logger.exception(e, stack_info=True)
+            return json.dumps({"error": str(e), "type": type(e).__name__})
+
 
 # Global registry instance
 REGISTRY = Registry()
+
+P = ParamSpec("P")
+T = TypeVar("T")
 
 
 def register(
     *,
     doc: str | None = None,
     name: str | None = None,
-) -> Callable[[Callable[P, T]], CallableWithSchema[P, T]]:
+) -> Callable[[Callable[P, T]], Callable[P, T]]:
     """
     Register a function as a tool.
 
@@ -121,19 +167,19 @@ def register(
         doc: Override docstring (supports read_prompt())
         name: Override tool name
     """
-    def decorator(func: Callable[P, T]) -> CallableWithSchema[P, T]:
+    def decorator(func: Callable[P, T]) -> Callable[P, T]:
         @wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             return func(*args, **kwargs)
 
-        # Override function name if provided
         if name:
             wrapper.__name__ = name
 
-        # Register the function - registry will generate schema automatically
         REGISTRY.register(wrapper, doc)
-
-        # Return the wrapper cast as CallableWithSchema to indicate it has __tool_schema__
-        return cast(CallableWithSchema[P, T], wrapper)
+        return wrapper
 
     return decorator
+
+
+# Tool results can be errors or any JSON-serializable success value
+ToolResult = ToolError | Any

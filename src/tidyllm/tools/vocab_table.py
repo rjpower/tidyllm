@@ -6,6 +6,7 @@ from tidyllm.cli import multi_cli_main
 from tidyllm.context import get_tool_context
 from tidyllm.database import json_decode, json_encode
 from tidyllm.registry import register
+from tidyllm.tools.context import ToolContext
 
 
 class VocabItem(BaseModel):
@@ -220,4 +221,5 @@ if __name__ == "__main__":
     multi_cli_main(
         [vocab_add, vocab_search, vocab_update, vocab_delete],
         default_function="vocab_search",
+        context_cls=ToolContext,
     )

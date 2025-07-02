@@ -9,7 +9,7 @@ import click
 from pydantic import BaseModel
 
 from tidyllm.schema import FunctionDescription
-from tidyllm.context import ToolContext, set_tool_context
+from tidyllm.context import set_tool_context
 
 
 class CliOption:
@@ -136,22 +136,22 @@ def parse_cli_arguments(
     return args_dict
 
 
-def generate_cli(func: Callable) -> click.Command:
+def generate_cli(func: Callable, context_cls: type[BaseModel] = None) -> click.Command:
     """Generate a Click CLI for a registered tool using FunctionDescription."""
     func_desc = FunctionDescription(func)
-    return _generate_cli_from_description(func_desc)
+    return _generate_cli_from_description(func_desc, context_cls)
 
 
-def cli_main(func: Callable):
+def cli_main(func: Callable, context_cls: type[BaseModel] = None):
     try:
-        generate_cli(func)(standalone_mode=False)
+        generate_cli(func, context_cls)(standalone_mode=False)
     except Exception as _:
         import traceback
         click.echo(traceback.format_exc())
         click.echo(json.dumps({"error": "An error occurred while generating CLI"}))
 
 
-def _generate_cli_from_description(func_desc: FunctionDescription) -> click.Command:
+def _generate_cli_from_description(func_desc: FunctionDescription, context_cls: type[BaseModel] = None) -> click.Command:
     """Generate CLI from a FunctionDescription."""
 
     # Collect CLI options from function arguments
@@ -172,13 +172,13 @@ def _generate_cli_from_description(func_desc: FunctionDescription) -> click.Comm
             # Parse CLI arguments
             args_dict = parse_cli_arguments(kwargs, func_options)
 
-        # Create default context (config from env vars)
-        from tidyllm.tools.config import Config
-        config = Config()  # Will load from env vars
-        context = ToolContext(config=config)
-
-        # Execute tool with context
-        with set_tool_context(context):
+        # Execute tool with context if provided
+        if context_cls:
+            context = context_cls()
+            with set_tool_context(context):
+                parsed_args = func_desc.validate_and_parse_args(args_dict)
+                result = func_desc.call(**parsed_args)
+        else:
             parsed_args = func_desc.validate_and_parse_args(args_dict)
             result = func_desc.call(**parsed_args)
 
@@ -198,12 +198,13 @@ def _generate_cli_from_description(func_desc: FunctionDescription) -> click.Comm
     return cli
 
 
-def multi_cli_main(functions: list[Callable], default_function: str | None = None):
+def multi_cli_main(functions: list[Callable], default_function: str | None = None, context_cls: type[BaseModel] = None):
     """Create a click CLI that dispatches to multiple functions.
 
     Args:
-        functions: Dict mapping command names to functions
+        functions: List of functions to create CLI commands for
         default_function: Name of default function if no command specified
+        context_cls: Context class to instantiate for each function call
     """
 
     @click.group(invoke_without_command=True)
@@ -222,7 +223,7 @@ def multi_cli_main(functions: list[Callable], default_function: str | None = Non
     for func in functions:
         cmd_name = func.__name__
         func_desc = FunctionDescription(func)
-        cmd = _generate_cli_from_description(func_desc)
+        cmd = _generate_cli_from_description(func_desc, context_cls)
 
         # Wrap the command to handle exceptions properly
         def make_wrapper(original_cmd, _cmd_name=cmd_name):

@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from tidyllm import FunctionLibrary
+from tidyllm.registry import Registry
 from tidyllm.agent import LLMAgent
 from tidyllm.evaluation import (
     EvaluationContext,
@@ -28,23 +28,29 @@ class TestEvaluationDecorator:
 
     def test_decorator_marks_function(self):
         """Test that decorator properly marks functions."""
+        from tidyllm.evaluation import EVALUATION_REGISTRY
 
         @evaluation_test()
         def test_func():
             pass
 
-        assert hasattr(test_func, "__evaluation_test__")
-        assert test_func.__evaluation_test__ is True
-        assert test_func.__evaluation_timeout__ == 30
+        # Check that function is registered in the global registry
+        test_key = f"{test_func.__module__}.{test_func.__name__}"
+        assert test_key in EVALUATION_REGISTRY
+        assert EVALUATION_REGISTRY[test_key].func == test_func
+        assert EVALUATION_REGISTRY[test_key].timeout_seconds == 30
 
     def test_decorator_with_custom_timeout(self):
         """Test decorator with custom timeout."""
+        from tidyllm.evaluation import EVALUATION_REGISTRY
 
         @evaluation_test(timeout_seconds=60)
         def test_func():
             pass
 
-        assert test_func.__evaluation_timeout__ == 60
+        # Check that custom timeout is stored in registry
+        test_key = f"{test_func.__module__}.{test_func.__name__}"
+        assert EVALUATION_REGISTRY[test_key].timeout_seconds == 60
 
 
 class TestEvaluationContext:
@@ -57,7 +63,8 @@ class TestEvaluationContext:
             def completion(self, model, messages, tools, **kwargs):
                 return LLMResponse(model="gemini/gemini-2.5-flash", messages=messages)
 
-        library = FunctionLibrary(functions=[calculator])
+        library = Registry()
+        library.register(calculator)
         client = SimpleMockClient()
         agent = LLMAgent(function_library=library, llm_client=client, model="mock-model")
         self.context = EvaluationContext(agent)
@@ -137,13 +144,15 @@ class TestEvaluationRunner:
 
     def setup_method(self):
         """Set up test runner."""
-        library = FunctionLibrary(functions=[calculator])
+        library = Registry()
+        library.register(calculator)
         self.runner = EvaluationRunner(library)
 
     def test_discover_tests(self):
         """Test test discovery from modules."""
         # Create a mock module with evaluation tests
         mock_module = Mock()
+        mock_module.__name__ = "test_module"
 
         @evaluation_test()
         def test_func1():
@@ -156,27 +165,28 @@ class TestEvaluationRunner:
         def test_func2():
             pass
 
-        mock_module.__dict__ = {
-            "test_func1": test_func1,
-            "regular_func": regular_func,
-            "test_func2": test_func2,
-            "other_attr": "not a function",
-        }
-
-        # Mock dir() to return the keys
-        import builtins
-
-        original_dir = builtins.dir
-        builtins.dir = lambda x: list(x.__dict__.keys())
+        # Manually set the module name for the test functions to match
+        test_func1.__module__ = "test_module"
+        test_func2.__module__ = "test_module"
+        
+        # Clear and re-register with the correct module name
+        from tidyllm.evaluation import EVALUATION_REGISTRY
+        old_registry = EVALUATION_REGISTRY.copy()
+        EVALUATION_REGISTRY.clear()
+        
+        # Re-decorate to register with correct module names
+        test_func1 = evaluation_test()(test_func1)
+        test_func2 = evaluation_test()(test_func2)
 
         try:
             tests = self.runner.discover_tests([mock_module])
             assert len(tests) == 2
             assert test_func1 in tests
             assert test_func2 in tests
-            assert regular_func not in tests
         finally:
-            builtins.dir = original_dir
+            # Restore original registry
+            EVALUATION_REGISTRY.clear()
+            EVALUATION_REGISTRY.update(old_registry)
 
     def test_run_test_success(self):
         """Test successful test execution."""
@@ -260,22 +270,27 @@ class TestEvaluationIntegration:
 
     def test_run_evaluations_with_modules(self):
         """Test running evaluations with provided modules."""
-        library = FunctionLibrary(functions=[calculator])
+        library = Registry()
+        library.register(calculator)
 
         # Create mock module with tests
         mock_module = Mock()
+        mock_module.__name__ = "integration_test_module"
 
         @evaluation_test()
         def integration_test():
             assert True
 
-        mock_module.__dict__ = {"integration_test": integration_test}
-
-        # Mock dir() for test discovery
-        import builtins
-
-        original_dir = builtins.dir
-        builtins.dir = lambda x: list(x.__dict__.keys())
+        # Set the module name to match the mock module
+        integration_test.__module__ = "integration_test_module"
+        
+        # Clear and re-register with the correct module name
+        from tidyllm.evaluation import EVALUATION_REGISTRY
+        old_registry = EVALUATION_REGISTRY.copy()
+        EVALUATION_REGISTRY.clear()
+        
+        # Re-decorate to register with correct module name
+        integration_test = evaluation_test()(integration_test)
 
         try:
             results = run_evaluations(
@@ -289,11 +304,14 @@ class TestEvaluationIntegration:
             assert len(results) == 1
             assert results[0].success is True
         finally:
-            builtins.dir = original_dir
+            # Restore original registry
+            EVALUATION_REGISTRY.clear()
+            EVALUATION_REGISTRY.update(old_registry)
 
     def test_run_evaluations_no_tests(self):
         """Test running evaluations when no tests are found."""
-        library = FunctionLibrary(functions=[calculator])
+        library = Registry()
+        library.register(calculator)
         mock_module = Mock()
         mock_module.__dict__ = {}
 
@@ -316,7 +334,8 @@ class TestEvaluationIntegration:
 
     def test_run_evaluations_no_tests_found(self):
         """Test when no tests are found."""
-        library = FunctionLibrary(functions=[calculator])
+        library = Registry()
+        library.register(calculator)
 
         results = run_evaluations(function_library=library, model="mock", mock_client=True)
 

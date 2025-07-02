@@ -12,6 +12,7 @@ from unidecode import unidecode
 from tidyllm.cli import multi_cli_main
 from tidyllm.context import get_tool_context
 from tidyllm.registry import register
+from tidyllm.tools.context import ToolContext
 
 
 def unicase_compare(x, y):
@@ -339,4 +340,8 @@ def anki_list() -> AnkiListResult:
 
 
 if __name__ == "__main__":
-    multi_cli_main([anki_list, anki_query, anki_create], default_function="anki_list")
+    multi_cli_main(
+        [anki_list, anki_query, anki_create],
+        default_function="anki_list",
+        context_cls=ToolContext,
+    )
