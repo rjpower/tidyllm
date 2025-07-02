@@ -5,8 +5,7 @@ from tidyllm.discover import (
     discover_tools_in_directory,
     discover_tools_in_package,
 )
-from tidyllm.library import FunctionLibrary
-from tidyllm.models import ToolError, ToolResult
+from tidyllm.library import FunctionLibrary, ToolError, ToolResult
 from tidyllm.prompt import read_prompt
 from tidyllm.registry import REGISTRY, register
 from tidyllm.schema import FunctionDescription

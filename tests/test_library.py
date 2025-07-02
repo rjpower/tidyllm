@@ -5,8 +5,7 @@ from typing import Protocol
 import pytest
 from pydantic import BaseModel
 
-from tidyllm.library import FunctionLibrary
-from tidyllm.models import ToolError
+from tidyllm.library import FunctionLibrary, ToolError
 from tidyllm.registry import Registry
 
 

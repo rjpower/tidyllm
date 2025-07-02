@@ -2,7 +2,8 @@
 
 import pytest
 
-from tidyllm import REGISTRY, ToolError
+from tidyllm import REGISTRY
+from tidyllm.library import ToolError
 from tidyllm.tools.calculator import calculator
 from tidyllm.tools.calculator.lib import (
     CalculatorArgs,

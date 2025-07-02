@@ -7,8 +7,7 @@ from tempfile import TemporaryDirectory
 from pydantic import BaseModel
 
 from tidyllm.cli import generate_cli
-from tidyllm.library import FunctionLibrary
-from tidyllm.models import ToolError
+from tidyllm.library import FunctionLibrary, ToolError
 from tidyllm.prompt import read_prompt
 from tidyllm.registry import REGISTRY, register
 

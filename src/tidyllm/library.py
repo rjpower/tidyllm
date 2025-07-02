@@ -7,11 +7,17 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from tidyllm.models import ToolError
 from tidyllm.registry import REGISTRY
 from tidyllm.schema import FunctionDescription, JSONSchema
 
 logger = logging.getLogger(__name__)
+
+
+class ToolError(BaseModel):
+    """Error response from a tool."""
+
+    error: str
+    details: dict[str, Any] | None = None
 
 
 class FunctionLibrary:
@@ -164,3 +170,7 @@ class FunctionLibrary:
         except Exception as e:
             logger.exception(e, stack_info=True)
             return json.dumps({"error": str(e), "type": type(e).__name__})
+
+
+# Tool results can be errors or any JSON-serializable success value
+ToolResult = ToolError | Any
