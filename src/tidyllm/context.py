@@ -52,7 +52,8 @@ class ToolContext(BaseModel):
     def db(self):
         """Get database instance, creating it if needed."""
         if self._db is None:
-            from tidyllm.db import Database
+            from tidyllm.database import Database
+
             self._db = Database(str(self.config.user_db))
         return self._db
 

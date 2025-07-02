@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 from tidyllm.cli import multi_cli_main
 from tidyllm.context import get_tool_context
-from tidyllm.db import json_decode, json_encode
+from tidyllm.database import json_decode, json_encode
 from tidyllm.registry import register
 
 

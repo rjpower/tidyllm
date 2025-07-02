@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from tidyllm.database import Database, json_decode, json_encode
 from tidyllm.database_models import ColumnSchema, Cursor, Row, Schema, TableSchema
-from tidyllm.db import Database, json_decode, json_encode
 
 
 class TestDatabaseModels:
