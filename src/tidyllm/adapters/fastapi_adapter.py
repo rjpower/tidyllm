@@ -1,14 +1,14 @@
 """FastAPI adapter for TidyLLM registry functions."""
 
 
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 
-from tidyllm.context import set_tool_context
+from tidyllm.context import ToolContext, set_tool_context
 from tidyllm.library import FunctionLibrary
-from tidyllm.tools.context import ToolContext
 
 
 def create_fastapi_app(

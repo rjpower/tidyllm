@@ -53,7 +53,7 @@ def get_audio_mime_type(file_path: Path) -> str:
     return mime_types.get(suffix, 'audio/mpeg')
 
 
-@register
+@register()
 def transcribe(args: TranscribeArgs) -> TranscriptionResult:
     """Transcribe audio using Gemini Flash via litellm.
     

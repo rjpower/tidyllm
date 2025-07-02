@@ -2,10 +2,10 @@
 
 from pydantic import BaseModel, Field
 
+from tidyllm.cli import multi_cli_main
 from tidyllm.context import get_tool_context
-from tidyllm.multi_cli import simple_cli_main
+from tidyllm.db import json_decode, json_encode
 from tidyllm.registry import register
-from tidyllm.tools.db import init_database, json_decode, json_encode, row_to_dict
 
 
 class VocabItem(BaseModel):
@@ -34,37 +34,30 @@ class VocabAddResult(BaseModel):
     message: str
 
 
-@register
+@register()
 def vocab_add(args: VocabAddArgs) -> VocabAddResult:
     """Add a new vocabulary word to the database.
     
     Example usage: vocab_add({"word": "hello", "translation": "hola", "examples": ["Hello world"], "tags": ["greetings"]})
     """
     ctx = get_tool_context()
-    init_database(ctx)
-    
-    conn = ctx.get_db_connection()
-    cursor = conn.cursor()
-    
+    db = ctx.db
+
     try:
-        cursor.execute(
+        db.mutate(
             """INSERT INTO vocab (word, translation, examples, tags) 
                VALUES (?, ?, ?, ?)""",
             (
                 args.word,
                 args.translation,
                 json_encode(args.examples),
-                json_encode(args.tags)
-            )
+                json_encode(args.tags),
+            ),
         )
-        conn.commit()
         return VocabAddResult(success=True, message=f"Added word: {args.word}")
-        
+
     except Exception as e:
-        conn.rollback()
         return VocabAddResult(success=False, message=f"Database error: {str(e)}")
-    finally:
-        conn.close()
 
 
 # Search Vocab Tool
@@ -83,23 +76,20 @@ class VocabSearchResult(BaseModel):
     count: int
 
 
-@register
+@register()
 def vocab_search(args: VocabSearchArgs) -> VocabSearchResult:
     """Search vocabulary words in the database.
     
     Example usage: vocab_search({"word": "hel", "limit": 10}) or vocab_search({"tag": "verbs"})
     """
     ctx = get_tool_context()
-    init_database(ctx)
-    
-    conn = ctx.get_db_connection()
-    cursor = conn.cursor()
-    
+    db = ctx.db
+
     try:
         # Build query with filters
         where_clauses = []
         params = []
-        
+
         if args.word:
             where_clauses.append("word LIKE ?")
             params.append(f"%{args.word}%")
@@ -109,34 +99,32 @@ def vocab_search(args: VocabSearchArgs) -> VocabSearchResult:
         if args.tag:
             where_clauses.append("tags LIKE ?")
             params.append(f'%"{args.tag}"%')
-            
+
         query = "SELECT * FROM vocab"
         if where_clauses:
             query += " WHERE " + " AND ".join(where_clauses)
         query += f" ORDER BY updated_at DESC LIMIT {args.limit}"
-        
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        
+
+        cursor = db.query(query, params)
+
         items = []
-        for row in rows:
-            row_dict = row_to_dict(row)
-            items.append(VocabItem(
-                id=row_dict["id"],
-                word=row_dict["word"],
-                translation=row_dict["translation"],
-                examples=json_decode(row_dict["examples"]),
-                tags=json_decode(row_dict["tags"]),
-                created_at=row_dict["created_at"],
-                updated_at=row_dict["updated_at"]
-            ))
-            
+        for row in cursor:
+            items.append(
+                VocabItem(
+                    id=row["id"],
+                    word=row["word"],
+                    translation=row["translation"],
+                    examples=json_decode(row["examples"]),
+                    tags=json_decode(row["tags"]),
+                    created_at=row["created_at"],
+                    updated_at=row["updated_at"],
+                )
+            )
+
         return VocabSearchResult(success=True, items=items, count=len(items))
-        
+
     except Exception:
         return VocabSearchResult(success=False, items=[], count=0)
-    finally:
-        conn.close()
 
 
 # Update Vocab Tool
@@ -154,23 +142,20 @@ class VocabUpdateResult(BaseModel):
     message: str
 
 
-@register
+@register()
 def vocab_update(args: VocabUpdateArgs) -> VocabUpdateResult:
     """Update an existing vocabulary word.
     
     Example usage: vocab_update({"word": "hello", "translation": "¡hola!", "examples": ["Hello there!"]})
     """
     ctx = get_tool_context()
-    init_database(ctx)
-    
-    conn = ctx.get_db_connection()
-    cursor = conn.cursor()
-    
+    db = ctx.db
+
     try:
         # Build update query dynamically
         update_parts = []
         params = []
-        
+
         if args.translation is not None:
             update_parts.append("translation = ?")
             params.append(args.translation)
@@ -180,27 +165,22 @@ def vocab_update(args: VocabUpdateArgs) -> VocabUpdateResult:
         if args.tags is not None:
             update_parts.append("tags = ?")
             params.append(json_encode(args.tags))
-            
+
         if not update_parts:
             return VocabUpdateResult(success=False, message="No fields to update")
-            
+
         params.append(args.word)
-        cursor.execute(
-            f"UPDATE vocab SET {', '.join(update_parts)} WHERE word = ?",
-            params
+        rowcount = db.mutate(
+            f"UPDATE vocab SET {', '.join(update_parts)} WHERE word = ?", params
         )
-        
-        if cursor.rowcount == 0:
+
+        if rowcount == 0:
             return VocabUpdateResult(success=False, message=f"Word not found: {args.word}")
-            
-        conn.commit()
+
         return VocabUpdateResult(success=True, message=f"Updated word: {args.word}")
-        
+
     except Exception as e:
-        conn.rollback()
         return VocabUpdateResult(success=False, message=f"Database error: {str(e)}")
-    finally:
-        conn.close()
 
 
 # Delete Vocab Tool
@@ -215,33 +195,29 @@ class VocabDeleteResult(BaseModel):
     message: str
 
 
-@register
+@register()
 def vocab_delete(args: VocabDeleteArgs) -> VocabDeleteResult:
     """Delete a vocabulary word from the database.
     
     Example usage: vocab_delete({"word": "hello"})
     """
     ctx = get_tool_context()
-    init_database(ctx)
-    
-    conn = ctx.get_db_connection()
-    cursor = conn.cursor()
-    
+    db = ctx.db
+
     try:
-        cursor.execute("DELETE FROM vocab WHERE word = ?", (args.word,))
-        
-        if cursor.rowcount == 0:
+        rowcount = db.mutate("DELETE FROM vocab WHERE word = ?", (args.word,))
+
+        if rowcount == 0:
             return VocabDeleteResult(success=False, message=f"Word not found: {args.word}")
-            
-        conn.commit()
+
         return VocabDeleteResult(success=True, message=f"Deleted word: {args.word}")
-        
+
     except Exception as e:
-        conn.rollback()
         return VocabDeleteResult(success=False, message=f"Database error: {str(e)}")
-    finally:
-        conn.close()
 
 
 if __name__ == "__main__":
-    simple_cli_main([vocab_add, vocab_search, vocab_update, vocab_delete], default_function="vocab_search")
+    multi_cli_main(
+        [vocab_add, vocab_search, vocab_update, vocab_delete],
+        default_function="vocab_search",
+    )

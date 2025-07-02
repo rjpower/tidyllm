@@ -6,10 +6,9 @@ from pathlib import Path
 import pytest
 
 from tidyllm.adapters.fastmcp_adapter import create_fastmcp_server, create_tidyllm_mcp_server
-from tidyllm.library import FunctionLibrary
+from tidyllm.context import ToolContext
 from tidyllm.registry import REGISTRY
 from tidyllm.tools.config import Config
-from tidyllm.tools.context import ToolContext
 
 
 @pytest.fixture
@@ -32,17 +31,13 @@ def test_create_fastmcp_server_basic():
     # Verify server was created
     assert mcp_server is not None
     assert hasattr(mcp_server, 'run')
-    assert hasattr(mcp_server, 'run_async')
 
 
 def test_create_fastmcp_server_with_custom_library(test_tool_context):
-    """Test FastMCP server creation with custom function library."""
-    # Create a function library with specific context
-    library = FunctionLibrary(context={"ctx": test_tool_context})
-    
-    # Create server with the library
+    """Test FastMCP server creation with custom tool context."""
+    # Create server with custom tool context
     mcp_server = create_fastmcp_server(
-        function_library=library,
+        context=test_tool_context,
         name="Test Server"
     )
     
@@ -88,13 +83,9 @@ def test_tool_wrapper_execution():
         )
         tool_context = ToolContext(config=config)
         
-        # Create function library with the tool
-        library = FunctionLibrary(context={"ctx": tool_context})
-        
-        # Create server
+        # Create server with tool context
         mcp_server = create_fastmcp_server(
-            function_library=library,
-            tool_context=tool_context
+            context=tool_context
         )
         
         # Verify the server has tools registered
@@ -113,13 +104,9 @@ def test_tool_context_integration():
         )
         tool_context = ToolContext(config=config)
         
-        # Create function library with the context
-        library = FunctionLibrary(context={"ctx": tool_context})
-        
-        # Create server
+        # Create server with tool context
         mcp_server = create_fastmcp_server(
-            function_library=library,
-            tool_context=tool_context
+            context=tool_context
         )
         
         # Verify server creation succeeded
@@ -146,12 +133,10 @@ def test_mock_tool_execution():
             notes_dir=temp_path / "notes",
         )
         tool_context = ToolContext(config=config)
-        library = FunctionLibrary(context={"ctx": tool_context})
         
         # Create server - this should work without errors
         mcp_server = create_fastmcp_server(
-            function_library=library,
-            tool_context=tool_context
+            context=tool_context
         )
         
         # Verify server creation

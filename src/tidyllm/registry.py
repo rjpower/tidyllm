@@ -4,7 +4,7 @@ import logging
 from collections import OrderedDict
 from collections.abc import Callable
 from functools import wraps
-from typing import Any, ParamSpec, Protocol, TypeVar, cast, overload
+from typing import Any, ParamSpec, Protocol, TypeVar, cast
 
 from fastapi.middleware import Middleware
 
@@ -99,67 +99,41 @@ class Registry:
 REGISTRY = Registry()
 
 
-@overload
 def register(
-    func_or_doc: Callable[P, T], *, doc: str | None = None, name: str | None = None
-) -> CallableWithSchema[P, T]: ...
-
-
-@overload
-def register(
-    func_or_doc: str | None = None, *, doc: str | None = None, name: str | None = None
-) -> Callable[[Callable[P, T]], CallableWithSchema[P, T]]: ...
-
-
-def register(
-    func_or_doc: Callable[P, T] | str | None = None,
     *,
     doc: str | None = None,
     name: str | None = None,
-) -> CallableWithSchema[P, T] | Callable[[Callable[P, T]], CallableWithSchema[P, T]]:
+) -> Callable[[Callable[P, T]], CallableWithSchema[P, T]]:
     """
     Register a function as a tool.
 
-    Can be used with or without parentheses:
-        @register
-        def my_tool(...): ...
-
+    Usage:
         @register()
         def my_tool(...): ...
 
         @register(doc="custom doc")
         def my_tool(...): ...
 
+        @register(name="custom_name")
+        def my_tool(...): ...
+
     Args:
-        func_or_doc: Function (when used without parentheses) or doc override
         doc: Override docstring (supports read_prompt())
         name: Override tool name
     """
+    def decorator(func: Callable[P, T]) -> CallableWithSchema[P, T]:
+        @wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            return func(*args, **kwargs)
 
-    @wraps(func_or_doc)
-    def _register_func(
-        func: Callable[P, T], doc_override: str | None = None
-    ) -> CallableWithSchema[P, T]:
         # Override function name if provided
         if name:
-            func.__name__ = name
-
-        # No context parameter validation needed with new contextvar approach
+            wrapper.__name__ = name
 
         # Register the function - registry will generate schema automatically
-        REGISTRY.register(func, doc_override)
+        REGISTRY.register(wrapper, doc)
 
-        # Return the function cast as CallableWithSchema to indicate it has __tool_schema__
-        return cast(CallableWithSchema[P, T], func)
-
-    # If first argument is a callable, this is direct usage (@register)
-    if callable(func_or_doc):
-        return _register_func(func_or_doc, doc)
-
-    @wraps(func_or_doc)
-    def decorator(func: Callable[P, T]) -> CallableWithSchema[P, T]:
-        # Use func_or_doc as doc if it's a string, otherwise use doc parameter
-        doc_override = func_or_doc if isinstance(func_or_doc, str) else doc
-        return _register_func(func, doc_override)
+        # Return the wrapper cast as CallableWithSchema to indicate it has __tool_schema__
+        return cast(CallableWithSchema[P, T], wrapper)
 
     return decorator

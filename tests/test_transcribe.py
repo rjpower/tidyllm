@@ -6,9 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tidyllm.context import set_tool_context
+from tidyllm.context import ToolContext, set_tool_context
 from tidyllm.tools.config import Config
-from tidyllm.tools.context import ToolContext
 from tidyllm.tools.transcribe import TranscribeArgs, get_audio_mime_type, transcribe
 
 

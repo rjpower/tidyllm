@@ -9,8 +9,8 @@ import genanki
 from pydantic import BaseModel, Field
 from unidecode import unidecode
 
+from tidyllm.cli import multi_cli_main
 from tidyllm.context import get_tool_context
-from tidyllm.multi_cli import simple_cli_main
 from tidyllm.registry import register
 
 
@@ -139,7 +139,7 @@ class AnkiCreateResult(BaseModel):
     success: bool
     deck_path: Path
     cards_created: int
-    message: str | None = None
+    message: str = ""
 
 
 class AnkiListResult(BaseModel):
@@ -149,7 +149,7 @@ class AnkiListResult(BaseModel):
     count: int
 
 
-@register
+@register()
 def anki_query(args: AnkiQueryArgs) -> AnkiQueryResult:
     """Search for notes in Anki database by query text.
 
@@ -219,7 +219,7 @@ def anki_query(args: AnkiQueryArgs) -> AnkiQueryResult:
         conn.close()
 
 
-@register
+@register()
 def anki_create(args: AnkiCreateArgs) -> AnkiCreateResult:
     """Create Anki flashcards using genanki.
 
@@ -287,11 +287,11 @@ def anki_create(args: AnkiCreateArgs) -> AnkiCreateResult:
         )
 
 
-@register
+@register()
 def anki_list() -> AnkiListResult:
-    """List all available Anki decks with their card counts.
+    """List all available Anki decks with their card counts (alias for anki_list).
 
-    Example usage: anki_list()
+    Example usage: anki_decks()
     """
     ctx = get_tool_context()
     anki_db = ctx.find_anki_db()
@@ -302,27 +302,33 @@ def anki_list() -> AnkiListResult:
     cursor = conn.cursor()
 
     try:
-        # Get all decks first
-        cursor.execute("SELECT id, name FROM decks")
-        deck_rows = cursor.fetchall()
+        # Get all decks with card counts using proper collation
+        cursor.execute(
+            """
+            SELECT d.name as deck_name, 
+                   COUNT(c.id) as card_count,
+                   d.id as deck_id
+            FROM decks d
+            LEFT JOIN cards c ON c.did = d.id
+            GROUP BY d.id, d.name
+            ORDER BY d.name COLLATE unicase
+        """
+        )
+        rows = cursor.fetchall()
 
         decks = []
-        for deck_row in deck_rows:
-            deck_id = deck_row["id"]
-            deck_name = deck_row["name"].replace('\x1f', '::')  # Replace hierarchy separator with ::
+        for row in rows:
+            deck_name = row["deck_name"].replace(
+                "\x1f", "::"
+            )  # Replace hierarchy separator with ::
+            decks.append(
+                {
+                    "name": deck_name,
+                    "card_count": row["card_count"],
+                    "deck_id": row["deck_id"],
+                }
+            )
 
-            # Count cards for this deck
-            cursor.execute("SELECT COUNT(*) as card_count FROM cards WHERE did = ?", (deck_id,))
-            card_count_row = cursor.fetchone()
-            card_count = card_count_row["card_count"] if card_count_row else 0
-
-            decks.append({
-                "name": deck_name,
-                "card_count": card_count,
-                "deck_id": deck_id,
-            })
-
-        decks.sort(key=lambda x: x["name"].lower())
         return AnkiListResult(decks=decks, count=len(decks))
 
     except Exception as e:
@@ -333,4 +339,4 @@ def anki_list() -> AnkiListResult:
 
 
 if __name__ == "__main__":
-    simple_cli_main([anki_list, anki_query, anki_create], default_function="anki_list")
+    multi_cli_main([anki_list, anki_query, anki_create], default_function="anki_list")

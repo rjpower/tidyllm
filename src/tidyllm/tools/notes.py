@@ -7,8 +7,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from tidyllm.cli import multi_cli_main
 from tidyllm.context import get_tool_context
-from tidyllm.multi_cli import simple_cli_main
 from tidyllm.registry import register
 
 
@@ -131,7 +131,7 @@ def _parse_note_file(file_path: Path) -> Note | None:
         return None
 
 
-@register
+@register()
 def note_add(args: NoteAddArgs) -> NoteAddResult:
     """Add a new note with markdown and frontmatter.
 
@@ -182,7 +182,7 @@ class NoteSearchResult(BaseModel):
     count: int = 0
 
 
-@register
+@register()
 def note_search(args: NoteSearchArgs) -> NoteSearchResult:
     """Search notes by content and filename using ripgrep and find.
 
@@ -260,7 +260,7 @@ class NoteListResult(BaseModel):
     count: int = 0
 
 
-@register
+@register()
 def note_list(args: NoteListArgs) -> NoteListResult:
     """List all notes, optionally filtered by tags.
 
@@ -309,7 +309,7 @@ class NoteOpenResult(BaseModel):
     message: str = ""
 
 
-@register
+@register()
 def note_open(args: NoteOpenArgs) -> NoteOpenResult:
     """Open and display a note by title or filename.
 
@@ -366,7 +366,7 @@ class NoteRecentResult(BaseModel):
     count: int = 0
 
 
-@register
+@register()
 def note_recent(args: NoteRecentArgs) -> NoteRecentResult:
     """List recently modified notes.
 
@@ -407,7 +407,7 @@ class NoteTagsResult(BaseModel):
     count: int = 0
 
 
-@register
+@register()
 def note_tags(args: NoteTagsArgs) -> NoteTagsResult:
     """List all unique tags used in notes.
 
@@ -434,7 +434,7 @@ def note_tags(args: NoteTagsArgs) -> NoteTagsResult:
 
 
 if __name__ == "__main__":
-    simple_cli_main(
+    multi_cli_main(
         [note_add, note_search, note_list, note_open, note_recent, note_tags],
         default_function="note_recent",
     )

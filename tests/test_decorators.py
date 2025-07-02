@@ -173,15 +173,20 @@ class TestRegisterDecorator:
         assert preserved_tool.__name__ == "preserved_tool"
         assert "preserved_tool" in REGISTRY.list_tools()
 
-    def test_register_function_returns_self(self):
-        """Test that register decorator returns the original function."""
+    def test_register_function_returns_wrapper(self):
+        """Test that register decorator returns a wrapper function."""
 
         def original_function(args: DecoratorTestArgs) -> DecoratorTestResult:
             """Original function."""
             return DecoratorTestResult(message="original", computed=1)
 
         decorated = register()(original_function)
-        assert decorated is original_function
+        # Returns a wrapper, not the original function
+        assert decorated is not original_function
+        # But preserves the name and behavior
+        assert decorated.__name__ == "original_function"
+        # And is registered
+        assert "original_function" in REGISTRY.list_tools()
 
     def test_register_with_conditional_context_usage(self):
         """Test registering with conditional context usage."""

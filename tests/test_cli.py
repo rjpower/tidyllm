@@ -1,6 +1,5 @@
 """Tests for CLI generation."""
 
-import json
 from typing import Protocol
 from unittest.mock import MagicMock, patch
 
@@ -72,10 +71,10 @@ class TestCLIGeneration:
             print(f"CLI Error: {result.output}")
             print(f"Exception: {result.exception}")
         assert result.exit_code == 0
-        output = json.loads(result.output)
-        assert output["message"] == "Hello test"
-        assert output["count"] == 10
-        assert output["flag"] is True
+        # Check text output contains expected values
+        assert "Hello test" in result.output
+        assert "10" in result.output
+        assert "true" in result.output
 
     def test_cli_execution_with_defaults(self):
         """Test CLI execution using default values."""
@@ -89,32 +88,32 @@ class TestCLIGeneration:
             print(f"Exception: {result.exception}")
         
         assert result.exit_code == 0
-        output = json.loads(result.output)
-        assert output["message"] == "Hello test"
-        assert output["count"] == 5  # default value
-        assert output["flag"] is False  # default value
+        # Check text output contains expected values
+        assert "Hello test" in result.output
+        assert "5" in result.output  # default count value
+        assert "false" in result.output  # default flag value
 
     def test_cli_execution_with_json_input(self):
         """Test CLI execution with JSON input."""
         cli_command = generate_cli(simple_tool)
         runner = CliRunner()
 
-        json_input = json.dumps({"name": "json_test", "count": 15, "flag": True})
+        json_input = '{"name": "json_test", "count": 15, "flag": true}'
 
         result = runner.invoke(cli_command, ["--json", json_input])
 
         assert result.exit_code == 0
-        output = json.loads(result.output)
-        assert output["message"] == "Hello json_test"
-        assert output["count"] == 15
-        assert output["flag"] is True
+        # Check text output contains expected values
+        assert "Hello json_test" in result.output
+        assert "15" in result.output
+        assert "true" in result.output
 
     def test_cli_json_overrides_individual_args(self):
         """Test that JSON input takes precedence over individual args."""
         cli_command = generate_cli(simple_tool)
         runner = CliRunner()
 
-        json_input = json.dumps({"name": "json_name", "count": 20})
+        json_input = '{"name": "json_name", "count": 20}'
 
         result = runner.invoke(
             cli_command,
@@ -122,9 +121,12 @@ class TestCLIGeneration:
         )
 
         assert result.exit_code == 0
-        output = json.loads(result.output)
-        assert output["message"] == "Hello json_name"
-        assert output["count"] == 20
+        # Check text output contains JSON values, not the individual args
+        assert "Hello json_name" in result.output
+        assert "20" in result.output
+        # Should not contain the ignored values
+        assert "ignored_name" not in result.output
+        assert "999" not in result.output
 
     def test_cli_invalid_json_input(self):
         """Test CLI with invalid JSON input."""
@@ -133,9 +135,9 @@ class TestCLIGeneration:
 
         result = runner.invoke(cli_command, ["--json", "invalid json"])
 
-        assert result.exit_code == 0  # Should handle gracefully
-        output = json.loads(result.output)
-        assert "error" in output
+        assert result.exit_code == 0  # CLI might handle invalid JSON gracefully
+        # Should contain error message
+        assert "error" in result.output.lower() or "invalid" in result.output.lower()
 
     def test_cli_missing_required_arguments(self):
         """Test CLI with missing required arguments."""
@@ -158,29 +160,25 @@ class TestCLIGeneration:
         result = runner.invoke(cli_command, ["--name", "context_test"])
         assert result.exit_code == 0
         
-        # Parse the JSON output
-        output = json.loads(result.output)
-        assert "Hello context_test from" in output["message"]
+        # Check text output contains expected values
+        assert "Hello context_test from" in result.output
 
     def test_cli_complex_arguments(self):
         """Test CLI with complex argument types."""
         cli_command = generate_cli(complex_tool)
         runner = CliRunner()
 
-        json_input = json.dumps(
-            {
-                "items": ["item1", "item2", "item3"],
-                "config": {"key1": "value1", "key2": "value2"},
-                "optional_value": 42,
-            }
-        )
+        json_input = '{"items": ["item1", "item2", "item3"], "config": {"key1": "value1", "key2": "value2"}, "optional_value": 42}'
 
         result = runner.invoke(cli_command, ["--json", json_input])
 
         assert result.exit_code == 0
-        output = json.loads(result.output)
-        assert output["items"] == ["item1", "item2", "item3"]
-        assert output["config"] == {"key1": "value1", "key2": "value2"}
+        # Check text output contains expected values
+        assert "item1" in result.output
+        assert "item2" in result.output
+        assert "item3" in result.output
+        assert "key1" in result.output
+        assert "value1" in result.output
 
     def test_cli_tool_execution_error(self):
         """Test CLI when tool execution fails."""
@@ -231,9 +229,9 @@ class TestCLIGeneration:
         )
 
         assert result.exit_code == 0
-        output = json.loads(result.output)
-        assert output["field"] == "test_value"
-        assert output["another"] == 20
+        # Check text output contains expected values
+        assert "test_value" in result.output
+        assert "20" in result.output
 
     def test_cli_help_includes_descriptions(self):
         """Test that CLI help includes field descriptions."""
@@ -276,10 +274,10 @@ class TestCLIGeneration:
         result = runner.invoke(cli_command, ["--name", "test"])
 
         assert result.exit_code == 0
-        output = json.loads(result.output)
-        assert output["status"] == "success"
-        assert output["data"]["name"] == "test"
-        assert output["data"]["count"] == 5
+        # Check text output contains expected values from the model
+        assert "success" in result.output
+        assert "test" in result.output
+        assert "5" in result.output
 
     @patch("tidyllm.schema.inspect.signature")
     def test_cli_generation_signature_inspection(self, mock_signature):

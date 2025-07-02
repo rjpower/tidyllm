@@ -9,6 +9,8 @@ Use `uv` for all package management and execution:
 For individual test runs with output: `uv run pytest -s path/to/test.py`
 Run full test suite: `uv run pytest`
 
+**IMPORTANT**: Always run `uv run pytest` (full test suite) after making changes to verify nothing is broken.
+
 ## Architecture Overview
 
 **tidyllm** is a Python library for LLM tool management with automatic schema generation, CLI creation, and adapter integrations for FastAPI and FastMCP.

@@ -1,112 +1,11 @@
 """Test FastMCP integration with registry."""
 
-from unittest.mock import MagicMock
 
 import pytest
 
-from tidyllm.context import set_tool_context
+from tidyllm.context import ToolContext, set_tool_context
 from tidyllm.registry import REGISTRY
 from tidyllm.tools.config import Config
-from tidyllm.tools.context import ToolContext
-
-
-def test_registry_fastmcp_integration():
-    """Test that registry creates FastMCP server and registers tools properly."""
-    # Clear any existing server
-    REGISTRY._fastmcp_server = None
-    
-    # Mock FastMCP to avoid actual import dependency
-    mock_fastmcp = MagicMock()
-    mock_server = MagicMock()
-    mock_fastmcp.return_value = mock_server
-    
-    # Patch FastMCP import
-    import sys
-    sys.modules['fastmcp'] = MagicMock()
-    sys.modules['fastmcp'].FastMCP = mock_fastmcp
-    
-    try:
-        # Create server
-        server = REGISTRY.create_fastmcp_server("Test Server")
-        
-        # Verify server was created
-        assert server is mock_server
-        assert REGISTRY._fastmcp_server is mock_server
-        
-        # Verify FastMCP was called with correct name
-        mock_fastmcp.assert_called_once_with("Test Server")
-        
-        # Verify tools were registered (should have been called for each tool)
-        # We can't easily test the exact calls without complex mocking,
-        # but we can verify the tool decorator was called
-        assert mock_server.tool.call_count >= 0  # At least 0 tools registered
-        
-    finally:
-        # Clean up mock
-        if 'fastmcp' in sys.modules:
-            del sys.modules['fastmcp']
-
-
-def test_fastmcp_tool_registration_with_original_callable():
-    """Test that FastMCP gets the original function, not a wrapper."""
-    # Clear any existing server
-    REGISTRY._fastmcp_server = None
-
-    # Create a test function
-    def test_tool(name: str) -> str:
-        """Test tool for FastMCP registration."""
-        return f"Hello {name}"
-
-    # Mock FastMCP to capture what gets registered
-    mock_fastmcp = MagicMock()
-    mock_server = MagicMock()
-    mock_fastmcp.return_value = mock_server
-
-    # Mock the tool decorator to capture the function
-    registered_functions = []
-
-    def mock_tool_decorator(func):
-        registered_functions.append(func)
-        return func
-
-    mock_server.tool = mock_tool_decorator
-
-    # Patch FastMCP import
-    import sys
-    sys.modules['fastmcp'] = MagicMock()
-    sys.modules['fastmcp'].FastMCP = mock_fastmcp
-
-    try:
-        # Register our test tool
-        from tidyllm.registry import register
-        register(test_tool)
-
-        # Create FastMCP server
-        REGISTRY.create_fastmcp_server("Test Server")
-
-        # Verify the original function was registered with FastMCP
-        assert len(registered_functions) >= 1
-
-        # Find our test tool in the registered functions
-        test_tool_found = False
-        for func in registered_functions:
-            if func.__name__ == 'test_tool':
-                # With contextvar approach, we now register a wrapper function
-                # but it should preserve the name and docstring
-                assert func.__name__ == "test_tool"
-                assert func.__doc__ == "Test tool for FastMCP registration."
-                test_tool_found = True
-                break
-
-        assert test_tool_found, "Test tool was not found in registered functions"
-
-    finally:
-        # Clean up
-        if 'fastmcp' in sys.modules:
-            del sys.modules['fastmcp']
-        # Remove test tool from registry
-        if 'test_tool' in REGISTRY._tools:
-            del REGISTRY._tools['test_tool']
 
 
 def test_context_variable_integration():

@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
 """DXT entry point for TidyLLM MCP Server."""
 
-from tidyllm.adapters.fastmcp_adapter import run_tidyllm_mcp_server
+import logging
+
+logging.getLogger().setLevel(logging.WARNING)
+logging.getLogger("tidyllm").setLevel(logging.WARNING)
+logging.getLogger("fastmcp").setLevel(logging.WARNING)
+logging.getLogger("mcp").setLevel(logging.WARNING)
+
+import asyncio
+
+from tidyllm.adapters.fastmcp_adapter import (
+    run_tidyllm_mcp_server_async,
+)
 
 if __name__ == "__main__":
-    # Config class automatically reads TIDYLLM_* environment variables
-    # set by the DXT manifest user_config
-    run_tidyllm_mcp_server()
+    asyncio.run(run_tidyllm_mcp_server_async())

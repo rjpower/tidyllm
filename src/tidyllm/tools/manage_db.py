@@ -4,10 +4,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from tidyllm.cli import multi_cli_main
 from tidyllm.context import get_tool_context
-from tidyllm.multi_cli import simple_cli_main
 from tidyllm.registry import register
-from tidyllm.tools.db import init_database, row_to_dict
 
 
 # Query Database Tool
@@ -25,38 +24,30 @@ class DBQueryResult(BaseModel):
     error: str | None = None
 
 
-@register
+@register()
 def db_query(args: DBQueryArgs) -> DBQueryResult:
     """Execute SELECT queries safely.
     
     Example usage: db_query({"sql": "SELECT * FROM vocab WHERE word LIKE ?", "params": {"%hello%"}})
     """
     ctx = get_tool_context()
-    init_database(ctx)
-    
-    conn = ctx.get_db_connection()
-    cursor = conn.cursor()
-    
+    db = ctx.db
+
     try:
         # Only allow SELECT queries
         if not args.sql.strip().upper().startswith("SELECT"):
             return DBQueryResult(success=False, error="Only SELECT queries are allowed")
-            
+
         # Execute with parameters if provided
-        if args.params:
-            cursor.execute(args.sql, list(args.params.values()))
-        else:
-            cursor.execute(args.sql)
-            
-        rows = cursor.fetchall()
-        result_rows = [row_to_dict(row) for row in rows]
-        
+        params = list(args.params.values()) if args.params else None
+        cursor = db.query(args.sql, params)
+
+        result_rows = [dict(row.items()) for row in cursor]
+
         return DBQueryResult(success=True, rows=result_rows, count=len(result_rows))
-        
+
     except Exception as e:
         return DBQueryResult(success=False, error=f"Database error: {str(e)}")
-    finally:
-        conn.close()
 
 
 # Execute Database Statements Tool
@@ -73,39 +64,29 @@ class DBExecuteResult(BaseModel):
     error: str | None = None
 
 
-@register
+@register()
 def db_execute(args: DBExecuteArgs) -> DBExecuteResult:
     """Execute INSERT, UPDATE, DELETE statements safely.
     
     Example usage: db_execute({"sql": "INSERT INTO vocab (word, translation) VALUES (?, ?)", "params": {"hello": "hola"}})
     """
     ctx = get_tool_context()
-    init_database(ctx)
-    
-    conn = ctx.get_db_connection()
-    cursor = conn.cursor()
-    
+    db = ctx.db
+
     try:
         # Disallow dangerous operations
         sql_upper = args.sql.strip().upper()
         if any(keyword in sql_upper for keyword in ["DROP", "TRUNCATE", "ALTER TABLE"]):
             return DBExecuteResult(success=False, error="Dangerous operations are not allowed")
-            
+
         # Execute with parameters if provided
-        if args.params:
-            cursor.execute(args.sql, list(args.params.values()))
-        else:
-            cursor.execute(args.sql)
-            
-        conn.commit()
-        
-        return DBExecuteResult(success=True, affected_count=cursor.rowcount)
-        
+        params = list(args.params.values()) if args.params else None
+        affected_count = db.mutate(args.sql, params)
+
+        return DBExecuteResult(success=True, affected_count=affected_count)
+
     except Exception as e:
-        conn.rollback()
         return DBExecuteResult(success=False, error=f"Database error: {str(e)}")
-    finally:
-        conn.close()
 
 
 # List Tables Tool
@@ -121,31 +102,26 @@ class DBListTablesResult(BaseModel):
     count: int = 0
 
 
-@register
+@register()
 def db_list_tables(args: DBListTablesArgs) -> DBListTablesResult:
     """List all tables in the database.
     
     Example usage: db_list_tables({})
     """
+    del args  # Unused parameter
     ctx = get_tool_context()
-    init_database(ctx)
-    
-    conn = ctx.get_db_connection()
-    cursor = conn.cursor()
-    
+    db = ctx.db
+
     try:
-        cursor.execute(
+        cursor = db.query(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         )
-        rows = cursor.fetchall()
-        tables = [row["name"] for row in rows]
-        
+        tables = [row["name"] for row in cursor]
+
         return DBListTablesResult(success=True, tables=tables, count=len(tables))
-        
+
     except Exception:
         return DBListTablesResult(success=False, tables=[])
-    finally:
-        conn.close()
 
 
 # Get Schema Tool
@@ -161,55 +137,51 @@ class DBSchemaResult(BaseModel):
     error: str | None = None
 
 
-@register
+@register()
 def db_schema(args: DBSchemaArgs) -> DBSchemaResult:
     """Get database schema information.
     
     Example usage: db_schema({"table": "vocab"}) or db_schema({}) for all tables
     """
     ctx = get_tool_context()
-    init_database(ctx)
-    
-    conn = ctx.get_db_connection()
-    cursor = conn.cursor()
-    
+    db = ctx.db
+
     try:
-        # Get specific table or all tables
+        # Use the built-in schema method
+        full_schema = db.schema()
+
+        # Filter by table if specified
         if args.table:
-            tables_to_check = [{"name": args.table}]
+            table_schema = full_schema.get_table(args.table)
+            if not table_schema:
+                return DBSchemaResult(
+                    success=False, error=f"Table '{args.table}' not found"
+                )
+            tables_to_process = [table_schema]
         else:
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-            )
-            tables_to_check = cursor.fetchall()
-        
+            tables_to_process = full_schema.tables
+
         schema = {}
-        for table_row in tables_to_check:
-            table_name = table_row["name"]
-            
-            # Get column info for each table
-            cursor.execute(f"PRAGMA table_info({table_name})")
-            columns = cursor.fetchall()
-            
-            if columns:  # Only add if table exists and has columns
-                schema[table_name] = [
-                    {
-                        "name": col["name"],
-                        "type": col["type"],
-                        "nullable": str(not col["notnull"]),
-                        "default": str(col["dflt_value"]) if col["dflt_value"] is not None else "",
-                        "primary_key": str(bool(col["pk"]))
-                    }
-                    for col in columns
-                ]
-            
+        for table in tables_to_process:
+            schema[table.name] = [
+                {
+                    "name": col.name,
+                    "type": col.type,
+                    "nullable": str(not col.not_null),
+                    "default": col.default or "",
+                    "primary_key": str(col.primary_key),
+                }
+                for col in table.columns
+            ]
+
         return DBSchemaResult(success=True, db_schema=schema)
-        
+
     except Exception as e:
         return DBSchemaResult(success=False, error=f"Database error: {str(e)}")
-    finally:
-        conn.close()
 
 
 if __name__ == "__main__":
-    simple_cli_main([db_query, db_execute, db_list_tables, db_schema], default_function="db_list_tables")
+    multi_cli_main(
+        [db_query, db_execute, db_list_tables, db_schema],
+        default_function="db_list_tables",
+    )

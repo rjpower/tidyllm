@@ -5,9 +5,8 @@ from contextlib import asynccontextmanager
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar
 
-from tidyllm.context import set_tool_context
+from tidyllm.context import ToolContext, set_tool_context
 from tidyllm.registry import REGISTRY
-from tidyllm.tools.context import ToolContext
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -102,13 +101,14 @@ def create_tidyllm_mcp_server(config_overrides: dict[str, Any] | None = None):
     # Create tool context
     from tidyllm.tools.config import Config
     config = Config()
-    
+
     if config_overrides:
         # Allow configuration overrides
         for key, value in config_overrides.items():
             if hasattr(config, key):
                 setattr(config, key, value)
-    
+
+    print("Starting server, config=", config)
     context = ToolContext(config=config)
 
     return create_fastmcp_server(

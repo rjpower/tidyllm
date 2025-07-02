@@ -13,7 +13,7 @@ class Config(BaseSettings):
     user_db: Path = Path.home() / ".config" / "tidyllm" / "user.db"
     anki_path: Path | None = None  # Will autodiscover if unset
     fast_model: str = "gemini/gemini-2.5-flash"
-    slow_model: str = "gemini/gemini-2.0-pro"
+    slow_model: str = "gemini/gemini-2.5-pro"
 
     model_config = {
         "env_prefix": "TIDYLLM_",
@@ -59,6 +59,7 @@ class Config(BaseSettings):
                 if profile_dir.is_dir():
                     collection = profile_dir / "collection.anki2"
                     if collection.exists():
+                        print("Found Anki database at:", collection)
                         return collection
 
         return None
