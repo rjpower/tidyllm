@@ -5,7 +5,6 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar
-from warnings import warn
 
 import pydantic
 

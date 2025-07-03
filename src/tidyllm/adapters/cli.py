@@ -50,10 +50,14 @@ def get_cli_type_for_annotation(type_annotation: type) -> tuple[str, bool]:
 
 def create_click_option(option: CliOption):
     """Create a Click option decorator from a CliOption configuration."""
+    # Click automatically converts hyphens to underscores in parameter names
+    # So --audio-file-path becomes audio_file_path in the callback kwargs
+    click_param_name = option.name.lstrip("-").replace("-", "_")
+
     if option.is_flag:
         return click.option(
             option.name,
-            option.param_name,
+            click_param_name,
             is_flag=True,
             help=option.help_text,
             required=False,
@@ -61,7 +65,7 @@ def create_click_option(option: CliOption):
     elif option.multiple:
         return click.option(
             option.name,
-            option.param_name,
+            click_param_name,
             multiple=True,
             help=f"{option.help_text} (can be specified multiple times)",
         )
@@ -78,7 +82,7 @@ def create_click_option(option: CliOption):
 
         return click.option(
             option.name,
-            option.param_name,
+            click_param_name,
             type=click_type,
             help=option.help_text,
             required=False,
@@ -91,7 +95,7 @@ def collect_function_options(func_desc: FunctionDescription) -> list[CliOption]:
 
     for field_name, field_info in func_desc.args_model.model_fields.items():
         option_name = f"--{field_name.replace('_', '-')}"
-        param_name = field_name.replace("-", "_")
+        param_name = field_name
 
         field_type = field_info.annotation or Any
         help_text = field_info.description or f"Value for {field_name}"
@@ -221,30 +225,9 @@ def multi_cli_main(functions: list[Callable], default_function: str | None = Non
 
     # Add subcommands for each function
     for func in functions:
-        cmd_name = func.__name__
         func_desc = FunctionDescription(func)
         cmd = _generate_cli_from_description(func_desc, context_cls)
-
-        # Wrap the command to handle exceptions properly
-        def make_wrapper(original_cmd, _cmd_name=cmd_name):
-            def wrapper(*args, **kwargs):
-                try:
-                    return original_cmd.callback(*args, **kwargs)
-                except Exception as e:
-                    import traceback
-
-                    click.echo(traceback.format_exc())
-                    click.echo(json.dumps({"error": f"Error in {_cmd_name}: {str(e)}"}))
-
-            return wrapper
-
-        # Replace the callback with our wrapper
-        wrapped_cmd = click.command(name=cmd_name)(make_wrapper(cmd))
-
-        # Copy over the parameters from the original command
-        wrapped_cmd.params = cmd.params[:]  # Copy params list
-
-        cli.add_command(wrapped_cmd)
+        cli.add_command(cmd)
 
     try:
         cli(standalone_mode=False)

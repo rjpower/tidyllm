@@ -77,23 +77,23 @@ def test_transcribe_success(mock_completion, test_context, mock_audio_file):
     }
     """
     mock_completion.return_value = mock_response
-    
+
     with set_tool_context(test_context):
         result = transcribe(audio_file_path=mock_audio_file, language="en", translate_to="es")
-    
+
     assert result.transcription == "Hello, how are you today?"
     assert result.language == "en"
     assert len(result.words) == 2
-    assert result.words[0].word == "Hello"
-    assert result.words[0].translation == "Hola"
+    assert result.words[0].word_native == "Hello"
+    assert result.words[0].word_translated == "Hola"
     # No error field needed
-    
+
     # Verify LLM was called correctly
     mock_completion.assert_called_once()
     call_args = mock_completion.call_args
     assert call_args[1]["model"] == test_context.config.fast_model
     assert len(call_args[1]["messages"]) == 1
-    
+
     # Check message structure
     message = call_args[1]["messages"][0]
     assert message["role"] == "user"

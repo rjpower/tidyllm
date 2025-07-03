@@ -23,7 +23,7 @@ def extract_docs_from_string(docstring_text: str) -> dict[str, Any]:
 
     # Parse docstring directly using griffe
     docstring = Docstring(docstring_text, lineno=1)
-    parsed = docstring.parse("google")
+    parsed = docstring.parse("google", warnings=False)
 
     docs: dict[str, Any] = {
         "description": "",

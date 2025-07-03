@@ -2,7 +2,8 @@
 
 import queue
 import time
-from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 import numpy as np
@@ -15,9 +16,118 @@ from tidyllm.stream import Stream, create_stream_from_iterator
 
 # VAD Configuration
 VAD_SAMPLE_RATE = 16000
-MIN_SPEECH_DURATION_MS = 250
-MIN_SILENCE_DURATION_MS = 100
+VAD_BOUNDARY_WINDOW_MS = 1000
+MIN_SPEECH_DURATION_MS = 1000
+MIN_SILENCE_DURATION_MS = 250
 SPEECH_THRESHOLD = 0.5
+
+
+@dataclass
+class AudioFormat:
+    """Audio format descriptor with conversion capabilities."""
+
+    sample_rate: int
+    channels: int
+    dtype: Literal["int16", "float32"] = "int16"
+
+    def samples_to_ms(self, samples: int) -> float:
+        """Convert sample count to milliseconds for this format."""
+        return samples * 1000.0 / self.sample_rate
+
+    def ms_to_samples(self, ms: float) -> int:
+        """Convert milliseconds to sample count for this format."""
+        return int(ms * self.sample_rate / 1000)
+
+    def bytes_to_samples(self, data: bytes) -> int:
+        """Get sample count from byte data."""
+        bytes_per_sample = 2 if self.dtype == "int16" else 4
+        return len(data) // (self.channels * bytes_per_sample)
+
+    def duration(self, data: bytes) -> float:
+        """Get duration in ms from byte data."""
+        return self.samples_to_ms(self.bytes_to_samples(data)) / 1000
+
+    def to_float32_array(self, data: bytes) -> np.ndarray:
+        """Convert bytes to normalized float32 array."""
+        if self.dtype == "int16":
+            array = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32767.0
+        else:
+            array = np.frombuffer(data, dtype=np.float32)
+
+        if self.channels == 2:
+            array = array.reshape(-1, 2)
+        return array
+
+    def from_float32_array(self, array: np.ndarray) -> bytes:
+        """Convert float32 array to bytes in this format."""
+        if self.channels == 2 and array.ndim == 2:
+            array = array.flatten()
+
+        if self.dtype == "int16":
+            return (array * 32767).astype(np.int16).tobytes()
+        else:
+            return array.astype(np.float32).tobytes()
+
+    def extract_segment(self, data: bytes, start_ms: float, end_ms: float) -> bytes:
+        """Extract time segment from audio data."""
+        start_samples = self.ms_to_samples(start_ms)
+        end_samples = self.ms_to_samples(end_ms)
+
+        array = self.to_float32_array(data)
+        if self.channels == 2:
+            segment = array[start_samples:end_samples, :]
+        else:
+            segment = array[start_samples:end_samples]
+
+        return self.from_float32_array(segment)
+
+    def resample_to(self, data: bytes, target_format: "AudioFormat") -> bytes:
+        """Resample audio data to target format."""
+        if (
+            self.sample_rate == target_format.sample_rate
+            and self.channels == target_format.channels
+        ):
+            # No resampling needed, just convert data type if necessary
+            if self.dtype == target_format.dtype:
+                return data
+            else:
+                array = self.to_float32_array(data)
+                return target_format.from_float32_array(array)
+
+        import librosa
+
+        # Convert to float32 array
+        array = self.to_float32_array(data)
+
+        # Handle stereo to mono or vice versa
+        if self.channels == 2 and target_format.channels == 1:
+            # Convert stereo to mono
+            array = np.mean(array, axis=1)
+        elif self.channels == 1 and target_format.channels == 2:
+            # Convert mono to stereo (duplicate channel)
+            array = np.column_stack([array, array])
+
+        # Resample if needed
+        if self.sample_rate != target_format.sample_rate:
+            if array.ndim == 2:
+                # Stereo - resample each channel
+                resampled = np.zeros(
+                    (int(len(array) * target_format.sample_rate / self.sample_rate), 2)
+                )
+                for ch in range(2):
+                    resampled[:, ch] = librosa.resample(
+                        array[:, ch],
+                        orig_sr=self.sample_rate,
+                        target_sr=target_format.sample_rate,
+                    )
+                array = resampled
+            else:
+                # Mono
+                array = librosa.resample(
+                    array, orig_sr=self.sample_rate, target_sr=target_format.sample_rate
+                )
+
+        return target_format.from_float32_array(array)
 
 
 def _load_vad_model():
@@ -86,12 +196,51 @@ def find_voice_activity(
 
 class AudioChunk(BaseModel):
     """Represents a chunk of audio data."""
-    
+
     data: bytes
     timestamp: float
-    sample_rate: int
-    channels: int
-    format: Literal["pcm"] = "pcm"
+    format: AudioFormat
+
+    @property
+    def duration(self) -> float:
+        """Get duration in seconds"""
+        return self.format.duration(self.data)
+
+    @property
+    def sample_rate(self) -> int:
+        return self.format.sample_rate
+
+    @property
+    def channels(self) -> int:
+        return self.format.channels
+
+    def to_float32_array(self) -> np.ndarray:
+        """Convert to normalized float32 array."""
+        return self.format.to_float32_array(self.data)
+
+    def extract_segment(self, start_ms: float, end_ms: float) -> "AudioChunk":
+        """Extract time segment from this chunk."""
+        segment_data = self.format.extract_segment(self.data, start_ms, end_ms)
+        return AudioChunk(
+            data=segment_data,
+            timestamp=self.timestamp + start_ms / 1000,
+            format=self.format,
+        )
+
+    def resample_to(self, target_format: AudioFormat) -> "AudioChunk":
+        """Resample this chunk to target format."""
+        resampled_data = self.format.resample_to(self.data, target_format)
+        return AudioChunk(
+            data=resampled_data, timestamp=self.timestamp, format=target_format
+        )
+
+    @classmethod
+    def from_float32_array(
+        cls, array: np.ndarray, timestamp: float, audio_format: AudioFormat
+    ) -> "AudioChunk":
+        """Create AudioChunk from float32 numpy array."""
+        data = audio_format.from_float32_array(array)
+        return cls(data=data, timestamp=timestamp, format=audio_format)
 
 
 @register(
@@ -102,8 +251,7 @@ class AudioChunk(BaseModel):
 def mic(
     sample_rate: int = 16000,
     channels: int = 1,
-    chunk_size: int = 1024,
-    format: Literal["pcm"] = "pcm",
+    sample_size: float = 1.0,
     device_id: int | None = None,
 ) -> Stream[AudioChunk]:
     """Stream audio from microphone.
@@ -111,14 +259,16 @@ def mic(
     Args:
         sample_rate: Sample rate in Hz
         channels: Number of audio channels
-        chunk_size: Size of audio chunks in bytes
-        format: Audio format
+        sample_size: Length of audio chunks in seconds
         device_id: Audio device ID
 
     Returns:
         A stream of audio chunks captured from the microphone
     """
     cleanup_ref = {"stream": None}
+    audio_format = AudioFormat(
+        sample_rate=sample_rate, channels=channels, dtype="int16"
+    )
 
     def mic_generator():
         """Generator that yields audio chunks from microphone."""
@@ -126,7 +276,7 @@ def mic(
 
         audio_queue = queue.Queue()
         start_time = time.time()
-        frames_per_chunk = chunk_size // (2 * channels)
+        frames_per_chunk = channels * sample_size * sample_rate
 
         def audio_callback(indata, _frames, _time_info, status):
             """Callback function for sounddevice."""
@@ -154,9 +304,7 @@ def mic(
                 yield AudioChunk(
                     data=audio_data,
                     timestamp=timestamp,
-                    sample_rate=sample_rate,
-                    channels=channels,
-                    format=format,
+                    format=audio_format,
                 )
         except KeyboardInterrupt:
             return
@@ -180,16 +328,16 @@ def mic(
     tags=["audio", "source", "streaming"],
 )
 def file(
-    file_path: str,
-    sample_size: int = 1024,
+    file_path: Path,
     sample_rate: int | None = None,
     max_duration: float | None = None,
+    sample_size: float = 1.0,
 ) -> Stream[AudioChunk]:
     """Stream audio from a file.
 
     Args:
         file_path: Path to audio file
-        sample_size: Number of samples to read per chunk
+        sample_size: Length of each chunk in seconds.
         sample_rate: Override sample rate (uses file's rate if None)
         max_duration: Maximum duration in seconds to read
 
@@ -200,55 +348,53 @@ def file(
     def file_generator():
         """Generator that yields audio chunks from file."""
         import librosa
-        
-        start_time = time.time()
-        
-        # Load audio file with librosa
+
+        # Load audio file with librosa, preserving original channel count
         audio_data, file_sample_rate = librosa.load(file_path, sr=sample_rate, mono=False)
-        
-        # Handle mono/stereo
-        if audio_data.ndim == 1:
-            channels = 1
-            audio_data = audio_data.reshape(1, -1)
-        else:
-            channels = audio_data.shape[0]
-            
         actual_sample_rate = sample_rate or file_sample_rate
+
+        # Normalize audio_data to always be 2D: (channels, samples)
+        if audio_data.ndim == 1:
+            # Mono file - reshape to (1, samples)
+            audio_data = audio_data.reshape(1, -1)
+            channels = 1
+        else:
+            # Stereo file - ensure shape is (channels, samples)
+            if audio_data.shape[0] > audio_data.shape[1]:
+                audio_data = audio_data.T
+            channels = audio_data.shape[0]
+
+        audio_format = AudioFormat(
+            sample_rate=actual_sample_rate, channels=channels, dtype="int16"
+        )
         total_samples = audio_data.shape[1]
-        
+        samples_per_chunk = int(sample_size * actual_sample_rate)
+
         # Apply max_duration limit
         if max_duration:
             max_samples = int(max_duration * actual_sample_rate)
             total_samples = min(total_samples, max_samples)
-            
+
         samples_read = 0
-        
+
         while samples_read < total_samples:
-            # Read chunk
-            chunk_end = min(samples_read + sample_size, total_samples)
+            # Read chunk - audio_data is always (channels, samples) now
+            chunk_end = min(samples_read + samples_per_chunk, total_samples)
             chunk_data = audio_data[:, samples_read:chunk_end]
-            
-            if chunk_data.shape[1] == 0:
-                break
-                
-            # Convert to interleaved format for multi-channel
-            if channels == 1:
-                chunk_flat = chunk_data[0]
-            else:
-                chunk_flat = chunk_data.T.flatten()
-                
-            # Convert to 16-bit PCM bytes
-            audio_bytes = (chunk_flat * 32767).astype(np.int16).tobytes()
-            timestamp = time.time() - start_time
+
+            # Convert to interleaved format: (channels, samples) -> (samples * channels,)
+            chunk_flat = chunk_data.T.flatten()
+            timestamp = samples_read / actual_sample_rate
+
+            # Use AudioFormat to convert
+            audio_bytes = audio_format.from_float32_array(chunk_flat)
 
             yield AudioChunk(
                 data=audio_bytes,
                 timestamp=timestamp,
-                sample_rate=actual_sample_rate,
-                channels=channels,
-                format="pcm",
+                format=audio_format,
             )
-            
+
             samples_read = chunk_end
 
     return create_stream_from_iterator(file_generator)
@@ -280,106 +426,116 @@ def merge_chunks(chunks: list[AudioChunk]) -> AudioChunk:
     return AudioChunk(
         data=merged_data,
         timestamp=first.timestamp,
-        sample_rate=first.sample_rate,
-        channels=first.channels,
         format=first.format,
     )
 
 
-@register(
-    name="audio.create_resampler",
-    description="Create a resampler function for a specific sample rate",
-    tags=["audio", "transform", "factory"],
-)
-def create_resampler(target_sample_rate: int) -> Callable[[AudioChunk], AudioChunk]:
-    """Create a resampler function for a specific sample rate.
+class VADBuffer:
+    """Helper class to manage audio buffering and VAD processing."""
 
-    Args:
-        target_sample_rate: The target sample rate in Hz
-
-    Returns:
-        A function that resamples audio chunks to the target rate
-    """
-
-    def resample(chunk: AudioChunk) -> AudioChunk:
-        """Resample audio chunk to target sample rate."""
-        if chunk.sample_rate == target_sample_rate:
-            return chunk
-
-        import librosa
-        
-        # Convert bytes to numpy array
-        audio_array = np.frombuffer(chunk.data, dtype=np.int16).astype(np.float32) / 32767.0
-        
-        # Handle mono/stereo
-        if chunk.channels == 2:
-            audio_array = audio_array.reshape(-1, 2).T
-        
-        # Resample using librosa
-        resampled = librosa.resample(
-            audio_array, 
-            orig_sr=chunk.sample_rate, 
-            target_sr=target_sample_rate
+    def __init__(
+        self,
+        vad_model,
+        target_format: AudioFormat | None = None,
+        min_buffer_ms: int = MIN_SPEECH_DURATION_MS + VAD_BOUNDARY_WINDOW_MS,
+    ):
+        self.vad_model = vad_model
+        self.target_format = target_format or AudioFormat(
+            sample_rate=VAD_SAMPLE_RATE, channels=1, dtype="int16"
         )
-        
-        # Convert back to int16 bytes
-        if resampled.ndim == 2:
-            resampled = resampled.T.flatten()
-        
-        resampled_bytes = (resampled * 32767).astype(np.int16).tobytes()
+        self.min_buffer_ms = min_buffer_ms
+        self.audio_data = np.array([], dtype=np.float32)
+        self.start_timestamp = None
 
-        return AudioChunk(
-            data=resampled_bytes,
-            timestamp=chunk.timestamp,
-            sample_rate=target_sample_rate,
-            channels=chunk.channels,
-            format=chunk.format,
+    def add_audio(self, chunk: AudioChunk):
+        """Add audio chunk to buffer."""
+        # Resample chunk to target format if needed
+        if chunk.format != self.target_format:
+            chunk = chunk.resample_to(self.target_format)
+
+        if self.start_timestamp is None:
+            self.start_timestamp = chunk.timestamp
+
+        # Convert chunk to float32 and append to buffer
+        chunk_array = chunk.to_float32_array()
+        if chunk_array.ndim == 2:
+            chunk_array = chunk_array.flatten()
+        self.audio_data = np.concatenate([self.audio_data, chunk_array])
+
+    def get_buffer_duration_ms(self) -> float:
+        """Get current buffer duration in milliseconds."""
+        return self.target_format.samples_to_ms(len(self.audio_data))
+
+    def process_vad(
+        self,
+        min_speech_duration_ms: int,
+        min_silence_duration_ms: int,
+        speech_threshold: float,
+    ) -> list[AudioChunk]:
+        """Process VAD and return speech segments."""
+        if self.get_buffer_duration_ms() < self.min_buffer_ms:
+            return []
+
+        if len(self.audio_data) == 0 or self.start_timestamp is None:
+            return []
+
+        audio_tensor = torch.from_numpy(self.audio_data)
+        segments = find_voice_activity(
+            audio_tensor,
+            self.vad_model,
+            sample_rate=self.target_format.sample_rate,
+            min_speech_duration_ms=min_speech_duration_ms,
+            min_silence_duration_ms=min_silence_duration_ms,
+            speech_threshold=speech_threshold,
         )
 
-    return resample
+        if not segments:
+            # Keep entire buffer when no segments found - this is critical!
+            return []
 
+        # Extract speech segments
+        speech_chunks = []
+        for start_ms, end_ms in segments:
+            start_samples = self.target_format.ms_to_samples(start_ms)
+            end_samples = self.target_format.ms_to_samples(end_ms)
 
-def audio_duration(chunks: list[AudioChunk]) -> float:
-    """Calculate total duration of audio chunks in seconds.
+            segment_audio = self.audio_data[start_samples:end_samples]
 
-    Args:
-        chunks: List of audio chunks
+            speech_chunks.append(
+                AudioChunk.from_float32_array(
+                    array=segment_audio,
+                    timestamp=self.start_timestamp + start_ms / 1000,
+                    audio_format=self.target_format,
+                )
+            )
 
-    Returns:
-        Total duration in seconds
-    """
-    if not chunks:
-        return 0.0
+        # Keep remaining audio after last segment
+        last_end_ms = segments[-1][1]
+        cut_samples = self.target_format.ms_to_samples(last_end_ms)
 
-    first = chunks[0]
-    bytes_per_second = first.sample_rate * first.channels * 2
-    total_bytes = sum(len(chunk.data) for chunk in chunks)
+        self.audio_data = self.audio_data[cut_samples:]
+        self.start_timestamp = self.start_timestamp + last_end_ms / 1000
+        print([s.timestamp for s in speech_chunks])
+        return speech_chunks
 
-    return total_bytes / bytes_per_second
+    def get_remaining_chunk(self) -> AudioChunk | None:
+        """Return any remaining audio in buffer as a single chunk."""
+        if len(self.audio_data) == 0 or self.start_timestamp is None:
+            return None
 
-
-def has_silence_gap(chunks: list[AudioChunk], max_gap: float = 0.5) -> bool:
-    """Check if there's a silence gap in audio chunks.
-
-    Args:
-        chunks: List of audio chunks
-        max_gap: Maximum allowed gap in seconds
-
-    Returns:
-        True if there's a gap larger than max_gap
-    """
-    if len(chunks) < 2:
-        return False
-
-    for i in range(1, len(chunks)):
-        gap = chunks[i].timestamp - chunks[i - 1].timestamp
-        expected_duration = len(chunks[i - 1].data) / (
-            chunks[i - 1].sample_rate * chunks[i - 1].channels * 2
+        remaining_chunk = AudioChunk.from_float32_array(
+            array=self.audio_data.copy(),
+            timestamp=self.start_timestamp,
+            audio_format=self.target_format,
         )
-        if gap > expected_duration + max_gap:
-            return True
 
-    return False
+        self._reset_buffer()
+        return remaining_chunk
+
+    def _reset_buffer(self):
+        """Reset the buffer state."""
+        self.audio_data = np.array([], dtype=np.float32)
+        self.start_timestamp = None
 
 
 def chunk_by_vad_stream(
@@ -387,7 +543,6 @@ def chunk_by_vad_stream(
     min_speech_duration_ms: int = MIN_SPEECH_DURATION_MS,
     min_silence_duration_ms: int = MIN_SILENCE_DURATION_MS,
     speech_threshold: float = SPEECH_THRESHOLD,
-    buffer_duration_ms: int = 5000,
 ) -> Stream[AudioChunk]:
     """Split audio stream into chunks based on voice activity detection.
 
@@ -396,106 +551,28 @@ def chunk_by_vad_stream(
         min_speech_duration_ms: Minimum speech duration in ms
         min_silence_duration_ms: Minimum silence duration in ms
         speech_threshold: Speech detection threshold
-        buffer_duration_ms: Buffer duration for VAD processing
 
     Returns:
         Stream of audio chunks segmented by voice activity
     """
+
     def vad_generator():
         context = get_tool_context()
         vad_model, _ = context.get_ref("vad_model", _load_vad_model)
-        
-        buffer = []
-        buffer_start_time = None
-        
+
+        vad_buffer = VADBuffer(vad_model)
+
         for chunk in audio_stream:
-            # Ensure chunk is at VAD sample rate
-            if chunk.sample_rate != VAD_SAMPLE_RATE:
-                # Simple resampling placeholder - in production use proper resampling
-                chunk = AudioChunk(
-                    data=chunk.data,
-                    timestamp=chunk.timestamp,
-                    sample_rate=VAD_SAMPLE_RATE,
-                    channels=chunk.channels,
-                    format=chunk.format,
-                )
-            
-            if buffer_start_time is None:
-                buffer_start_time = chunk.timestamp
-            
-            buffer.append(chunk)
-            
-            # Check if buffer has enough data
-            buffer_duration = (chunk.timestamp - buffer_start_time) * 1000
-            if buffer_duration >= buffer_duration_ms:
-                # Process buffer through VAD
-                merged_chunk = merge_chunks(buffer)
-                
-                # Convert to float32 numpy array
-                audio_array = np.frombuffer(merged_chunk.data, dtype=np.int16).astype(np.float32) / 32767.0
-                
-                # Convert to torch tensor
-                audio_tensor = torch.from_numpy(audio_array)
-                
-                # Find speech segments
-                segments = find_voice_activity(
-                    audio_tensor,
-                    vad_model,
-                    sample_rate=VAD_SAMPLE_RATE,
-                    min_speech_duration_ms=min_speech_duration_ms,
-                    min_silence_duration_ms=min_silence_duration_ms,
-                    speech_threshold=speech_threshold,
-                )
-                
-                # Yield segments as AudioChunks
-                for start_ms, end_ms in segments:
-                    start_samples = int(start_ms * VAD_SAMPLE_RATE / 1000)
-                    end_samples = int(end_ms * VAD_SAMPLE_RATE / 1000)
-                    
-                    segment_audio = audio_array[start_samples:end_samples]
-                    segment_bytes = (segment_audio * 32767).astype(np.int16).tobytes()
-                    
-                    yield AudioChunk(
-                        data=segment_bytes,
-                        timestamp=buffer_start_time + start_ms / 1000,
-                        sample_rate=VAD_SAMPLE_RATE,
-                        channels=merged_chunk.channels,
-                        format="pcm",
-                    )
-                
-                # Reset buffer
-                buffer = []
-                buffer_start_time = None
-        
-        # Handle remaining buffer
-        if buffer:
-            merged_chunk = merge_chunks(buffer)
-            audio_array = np.frombuffer(merged_chunk.data, dtype=np.int16).astype(np.float32) / 32767.0
-            audio_tensor = torch.from_numpy(audio_array)
-            
-            segments = find_voice_activity(
-                audio_tensor,
-                vad_model,
-                sample_rate=VAD_SAMPLE_RATE,
+            vad_buffer.add_audio(chunk)
+            yield from vad_buffer.process_vad(
                 min_speech_duration_ms=min_speech_duration_ms,
                 min_silence_duration_ms=min_silence_duration_ms,
                 speech_threshold=speech_threshold,
             )
-            
-            for start_ms, end_ms in segments:
-                start_samples = int(start_ms * VAD_SAMPLE_RATE / 1000)
-                end_samples = int(end_ms * VAD_SAMPLE_RATE / 1000)
-                
-                segment_audio = audio_array[start_samples:end_samples]
-                segment_bytes = (segment_audio * 32767).astype(np.int16).tobytes()
-                
-                yield AudioChunk(
-                    data=segment_bytes,
-                    timestamp=buffer_start_time + start_ms / 1000,
-                    sample_rate=VAD_SAMPLE_RATE,
-                    channels=merged_chunk.channels,
-                    format="pcm",
-                )
+
+        remaining_chunk = vad_buffer.get_remaining_chunk()
+        if remaining_chunk:
+            yield remaining_chunk
 
     return create_stream_from_iterator(vad_generator)
 
@@ -506,45 +583,104 @@ def chunk_by_vad_stream(
     tags=["audio", "vad", "file"],
 )
 def chunk_by_vad(
-    file_path: str,
+    file_path: Path,
     min_speech_duration_ms: int = MIN_SPEECH_DURATION_MS,
     min_silence_duration_ms: int = MIN_SILENCE_DURATION_MS,
     speech_threshold: float = SPEECH_THRESHOLD,
-    buffer_duration_ms: int = 5000,
-    max_chunks: int = 10,
-) -> list[dict]:
+) -> list[AudioChunk]:
     """Apply VAD to audio file and return speech segments.
 
     Args:
         file_path: Path to audio file
         min_speech_duration_ms: Minimum speech duration in ms
-        min_silence_duration_ms: Minimum silence duration in ms  
+        min_silence_duration_ms: Minimum silence duration in ms
         speech_threshold: Speech detection threshold
-        buffer_duration_ms: Buffer duration for VAD processing
-        max_chunks: Maximum number of chunks to return
 
     Returns:
         List of speech segments as dictionaries with data, timestamp, etc.
     """
-    audio_stream = file(file_path, sample_size=1024)
+    audio_stream = file(file_path)
     vad_stream = chunk_by_vad_stream(
         audio_stream,
         min_speech_duration_ms=min_speech_duration_ms,
         min_silence_duration_ms=min_silence_duration_ms,
         speech_threshold=speech_threshold,
-        buffer_duration_ms=buffer_duration_ms,
     )
-    
-    chunks = list(vad_stream.take(max_chunks))
-    
-    return [
-        {
-            "data_hex": chunk.data.hex(),
-            "data_length": len(chunk.data),
-            "timestamp": chunk.timestamp,
-            "sample_rate": chunk.sample_rate,
-            "channels": chunk.channels,
-            "format": chunk.format,
-        }
-        for chunk in chunks
-    ]
+
+    chunks = list(vad_stream)
+    return chunks
+
+
+def chunk_to_wav_bytes(chunk: AudioChunk) -> bytes:
+    """Convert an AudioChunk to WAV format bytes.
+
+    Args:
+        chunk: AudioChunk containing PCM audio data
+
+    Returns:
+        WAV file as bytes
+    """
+    import io
+
+    import soundfile as sf
+
+    # Use AudioFormat to convert to float32 array
+    audio_array = chunk.to_float32_array()
+
+    # Write to in-memory WAV file
+    with io.BytesIO() as wav_buffer:
+        sf.write(
+            wav_buffer,
+            audio_array,
+            chunk.format.sample_rate,
+            format="WAV",
+            subtype="PCM_16",
+        )
+        return wav_buffer.getvalue()
+
+
+@register(
+    name="audio.chunk_to_wav_bytes",
+    description="Convert AudioChunk to WAV bytes",
+    tags=["audio", "export", "bytes"],
+)
+def chunk_to_wav_bytes_tool(chunk: AudioChunk) -> bytes:
+    """Convert an AudioChunk to WAV format bytes.
+
+    Args:
+        chunk: AudioChunk containing PCM audio data
+
+    Returns:
+        WAV file as bytes
+
+    Example: wav_data = chunk_to_wav_bytes_tool(audio_chunk)
+    """
+    return chunk_to_wav_bytes(chunk)
+
+
+@register(
+    name="audio.chunk_to_wav_file",
+    description="Convert AudioChunk to WAV file",
+    tags=["audio", "export", "file"],
+)
+def chunk_to_wav_file(chunk: AudioChunk, output_path: str) -> str:
+    """Convert an AudioChunk to a WAV file.
+
+    Args:
+        chunk: AudioChunk containing PCM audio data
+        output_path: Path where to save the WAV file
+
+    Returns:
+        Path to the created WAV file
+
+    Example: chunk_to_wav_file(audio_chunk, "/tmp/segment.wav")
+    """
+    wav_bytes = chunk_to_wav_bytes(chunk)
+
+    output_path_obj = Path(output_path)
+    output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_path, "wb") as f:
+        f.write(wav_bytes)
+
+    return str(output_path_obj)

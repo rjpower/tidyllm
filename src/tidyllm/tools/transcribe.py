@@ -11,6 +11,7 @@ import litellm.types.utils
 from pydantic import BaseModel, Field
 
 from tidyllm.adapters.cli import cli_main
+from tidyllm.cache import cached_function
 from tidyllm.context import get_tool_context
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
@@ -18,18 +19,13 @@ from tidyllm.tools.context import ToolContext
 
 class TranscribedWord(BaseModel):
     """A word with its translation."""
-    word: str
-    translation: str | None = None
-    start_time: float | None = None
-    end_time: float | None = None
-
-
+    word_native: str
+    word_translated: str | None = None
 
 
 class TranscriptionResult(BaseModel):
     """Result of audio transcription."""
     transcription: str
-    language: str
     words: list[TranscribedWord] = Field(default_factory=list)
 
 
@@ -51,63 +47,66 @@ def get_audio_mime_type(file_path: Path) -> str:
 
 
 @register()
-def transcribe(audio_file_path: Path, language: str | None = None, translate_to: str = "en") -> TranscriptionResult:
-    """Transcribe audio using Gemini Flash via litellm.
-    
+@cached_function
+def transcribe_bytes(
+    audio_data: bytes,
+    mime_type: str,
+    source_language: str | None = None,
+    target_language: str = "en",
+) -> TranscriptionResult:
+    """Transcribe audio from bytes using Gemini Flash via litellm.
+
     Args:
-        audio_file_path: Path to audio file to transcribe
+        audio_data: Audio file data as bytes
+        mime_type: MIME type of the audio (e.g., "audio/wav", "audio/mp3")
         language: Language of the audio (auto-detect if not provided)
         translate_to: Target language for translation (default: "en")
-    
-    Example usage: transcribe(Path("/path/to/audio.mp3"), "es", "en")
+
+    Example usage: transcribe_bytes(audio_bytes, "audio/wav", "es", "en")
     """
     ctx = get_tool_context()
-    if not audio_file_path.exists():
-        raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
 
-    # Read audio file and encode as base64
-    audio_data = audio_file_path.read_bytes()
+    # Encode audio data as base64
     audio_base64 = base64.b64encode(audio_data).decode("utf-8")
-    mime_type = get_audio_mime_type(audio_file_path)
 
-    # Create structured output schema
-    response_schema = {
-        "type": "object",
-        "properties": {
-            "transcription": {
-                "type": "string",
-                "description": "The full transcription of the audio",
-            },
-            "language": {
-                "type": "string",
-                "description": "The detected language of the audio (ISO 639-1 code)",
-            },
-            "words": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "word": {"type": "string"},
-                        "translation": {"type": "string"},
-                    },
-                    "required": ["word"],
-                },
-                "description": "Key words from the transcription with translations",
-            },
-        },
-        "required": ["transcription", "language", "words"],
-    }
+    # Create structured output schema using Pydantic
+    response_schema = TranscriptionResult.model_json_schema()
 
     # Build prompt
     language_instruction = ""
-    if language:
-        language_instruction = f"The audio is in {language}. "
+    if source_language:
+        language_instruction = f"The audio is in {source_language}. "
     else:
         language_instruction = "Detect the language of the audio. "
 
     prompt = f"""Transcribe this audio file. {language_instruction}
-For each key word or phrase in the transcription, provide a translation to {translate_to}.
-Return the results in the specified JSON format."""
+For each key word or phrase in the transcription, provide a translation to {target_language}.
+
+Return the results in the following JSON format:
+{{
+  "transcription": "Hola, ¿cómo estás? Me llamo María y vivo en Madrid.",
+  "words": [
+    {{
+      "word_native": "hola",
+      "word_translated": "hello"
+    }},
+    {{
+      "word_native": "cómo estás",
+      "word_translated": "how are you"
+    }},
+    {{
+      "word_native": "me llamo",
+      "word_translated": "my name is"
+    }},
+    {{
+      "word_native": "Madrid",
+      "word_translated": "Madrid"
+    }}
+  ]
+}}
+
+Only include key words/phrases that would benefit from translation, not every single word.
+"""
 
     # Call Gemini via litellm
     response = litellm.completion(
@@ -139,24 +138,37 @@ Return the results in the specified JSON format."""
     # Parse response
     if response.choices:
         choice = cast(litellm.types.utils.Choices, response.choices)[0]
-        result_data = json.loads(choice.message.content)
-
-        # Convert words to TranscribedWord objects
-        words = []
-        for word_data in result_data.get("words", []):
-            words.append(
-                TranscribedWord(
-                    word=word_data["word"], translation=word_data.get("translation")
-                )
-            )
-
-        return TranscriptionResult(
-            transcription=result_data["transcription"],
-            language=result_data["language"],
-            words=words,
-        )
+        return TranscriptionResult.model_validate_json(choice.message.content)
     else:
         raise RuntimeError("No response from LLM")
+
+
+@register()
+def transcribe(
+    audio_file_path: Path, language: str | None = None, translate_to: str = "en"
+) -> TranscriptionResult:
+    """Transcribe audio file using Gemini Flash via litellm.
+
+    This is a wrapper around transcribe_bytes that reads the file and determines the MIME type.
+
+    Args:
+        audio_file_path: Path to audio file to transcribe
+        language: Language of the audio (auto-detect if not provided)
+        translate_to: Target language for translation (default: "en")
+
+    Example usage: transcribe(Path("/path/to/audio.mp3"), "es", "en")
+    """
+    if not audio_file_path.exists():
+        raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
+
+    # Read audio file and determine MIME type
+    audio_data = audio_file_path.read_bytes()
+    mime_type = get_audio_mime_type(audio_file_path)
+
+    print(f"Transcribing: {len(audio_data)} bytes of data.")
+
+    # Call the cached bytes-based function
+    return transcribe_bytes(audio_data, mime_type, language, translate_to)
 
 
 if __name__ == "__main__":

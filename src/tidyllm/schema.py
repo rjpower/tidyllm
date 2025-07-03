@@ -12,6 +12,7 @@ from typing import Any, get_args, get_origin, get_type_hints
 from uuid import UUID
 
 from pydantic import BaseModel, create_model
+from pydantic.types import Base64Bytes
 
 # make a typed dict for the json schema
 from typing_extensions import TypedDict
@@ -199,6 +200,10 @@ class FunctionDescription:
 
         for param_name, param in all_params.items():
             param_type = hints.get(param_name, Any)
+            
+            # Convert bytes to Base64Bytes for JSON serialization
+            if param_type is bytes:
+                param_type = Base64Bytes
 
             if param.default is not inspect.Parameter.empty:
                 # Parameter has default value
@@ -217,6 +222,21 @@ class FunctionDescription:
         """Construct the argument model from args & kwargs"""
         bound_args = self.sig.bind(*args, **kwargs)
         bound_args.apply_defaults()
+        
+        # Special case: function takes single Pydantic model, but we're called with it wrapped
+        if (len(bound_args.arguments) == 1 and 
+            len(self.sig.parameters) == 1):
+            
+            param_name = list(self.sig.parameters.keys())[0]
+            param_value = bound_args.arguments[param_name]
+            
+            # If the parameter value is already a Pydantic model matching the expected type
+            if isinstance(param_value, BaseModel):
+                param_annotation = list(self.sig.parameters.values())[0].annotation
+                if isinstance(param_value, param_annotation):
+                    return param_value
+        
+        # Original behavior
         args_instance = self.args_model(**bound_args.arguments)
         return args_instance
 
@@ -238,7 +258,7 @@ class FunctionDescription:
         all_params = sig.parameters
 
         if len(all_params) == 1:
-            param_name, param = next(iter(all_params.items()))
+            param_name, _ = next(iter(all_params.items()))
             param_type = hints.get(param_name, Any)
 
             if inspect.isclass(param_type) and issubclass(param_type, BaseModel):
