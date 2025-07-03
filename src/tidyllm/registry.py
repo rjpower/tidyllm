@@ -31,12 +31,16 @@ class Registry:
         self,
         func: Callable,
         doc_override: str | None = None,
+        description: str = "",
+        tags: list[str] | None = None,
     ) -> None:
         """Register a tool function and generate its schema automatically.
 
         Args:
             func: Function to register
             doc_override: Optional documentation override
+            description: Tool description
+            tags: List of tags for categorization
         """
         name = func.__name__
 
@@ -50,7 +54,7 @@ class Registry:
             return
 
         # Create FunctionDescription once at registration time
-        func_desc = FunctionDescription(func, doc_override)
+        func_desc = FunctionDescription(func, doc_override, description, tags)
 
         self._tools[name] = func_desc
         logger.info(f"Registered tool: {name}")
@@ -71,15 +75,9 @@ class Registry:
             raise KeyError(f"Tool '{name}' not found")
         return func_desc.function
 
-    def add_tool(self, tool_name: str, tool_call: Callable) -> None:
-        """Add a new tool to the registry."""
-        if tool_name in self._tools:
-            raise ValueError(f"Tool '{tool_name}' already exists in the registry")
-
-        func_desc = FunctionDescription(tool_call)
-        func_desc.name = tool_name
-        self._tools[tool_name] = func_desc
-        logger.info(f"Added tool: {tool_name}")
+    def get_schemas(self) -> list[JSONSchema]:
+        """Get OpenAI-format schemas for all tools."""
+        return [func_desc.function_schema for func_desc in self._tools.values()]
 
     def call(self, tool_name: str, arguments: dict) -> Any:
         """Execute a function call with JSON arguments."""
@@ -116,10 +114,6 @@ class Registry:
             logger.exception(e, stack_info=True)
             return ToolError(error=error)
 
-    def get_schemas(self) -> list[JSONSchema]:
-        """Get OpenAI-format schemas for all tools."""
-        return [func_desc.function_schema for func_desc in self._tools.values()]
-
     def call_with_json_response(self, name: str, args: dict, id: str) -> str:
         """Execute a tool call, returning a tool call message with the result or error."""
         try:
@@ -149,6 +143,8 @@ def register(
     *,
     doc: str | None = None,
     name: str | None = None,
+    description: str = "",
+    tags: list[str] | None = None,
 ) -> Callable[[Callable[P, T]], Callable[P, T]]:
     """
     Register a function as a tool.
@@ -160,12 +156,14 @@ def register(
         @register(doc="custom doc")
         def my_tool(...): ...
 
-        @register(name="custom_name")
+        @register(name="custom_name", description="Tool description", tags=["audio", "stream"])
         def my_tool(...): ...
 
     Args:
         doc: Override docstring (supports read_prompt())
         name: Override tool name
+        description: Tool description
+        tags: List of tags for categorization
     """
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
         @wraps(func)
@@ -175,7 +173,7 @@ def register(
         if name:
             wrapper.__name__ = name
 
-        REGISTRY.register(wrapper, doc)
+        REGISTRY.register(wrapper, doc, description, tags)
         return wrapper
 
     return decorator

@@ -3,7 +3,6 @@
 import json
 
 from tidyllm.agent import LLMAgent, LLMLogger, create_request
-from tidyllm.registry import Registry
 from tidyllm.llm import (
     AssistantMessage,
     LLMClient,

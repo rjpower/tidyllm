@@ -8,8 +8,8 @@ from typing import Any, get_origin
 import click
 from pydantic import BaseModel
 
-from tidyllm.schema import FunctionDescription
 from tidyllm.context import set_tool_context
+from tidyllm.schema import FunctionDescription
 
 
 class CliOption:

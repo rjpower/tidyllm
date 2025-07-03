@@ -9,8 +9,6 @@ import pytest
 from tidyllm.context import set_tool_context
 from tidyllm.tools.anki import (
     AnkiCard,
-    AnkiCreateArgs,
-    AnkiQueryArgs,
     anki_create,
     anki_list,
     anki_query,
@@ -72,9 +70,8 @@ def test_anki_query_with_mock_database(mock_connect, test_context):
     # Set up context to find the mock DB
     test_context.config.anki_path = Path("/mock/anki.db")
     
-    args = AnkiQueryArgs(query="hello", deck_name="Spanish", limit=10)
     with set_tool_context(test_context):
-        result = anki_query(args)
+        result = anki_query("hello", limit=10, deck_name="Spanish")
     
     assert result.query == "hello"
     # Mock doesn't work properly with anki_path, just check that it doesn't crash
@@ -104,14 +101,8 @@ def test_anki_create_basic(test_context):
         )
     ]
     
-    args = AnkiCreateArgs(
-        deck_name="Test Deck",
-        cards=cards,
-        output_path=None
-    )
-    
     with set_tool_context(test_context):
-        result = anki_create(args)
+        result = anki_create("Test Deck", cards)
     
     assert result.success is True
     assert result.cards_created == 2
@@ -136,13 +127,8 @@ def test_anki_create_with_audio(test_context):
         )
     ]
     
-    args = AnkiCreateArgs(
-        deck_name="Audio Deck",
-        cards=cards
-    )
-    
     with set_tool_context(test_context):
-        result = anki_create(args)
+        result = anki_create("Audio Deck", cards)
     
     assert result.success is True
     assert result.cards_created == 1
@@ -157,14 +143,8 @@ def test_anki_create_custom_output_path(test_context):
         AnkiCard(source_word="test", translated_word="prueba", audio_path=None)
     ]
     
-    args = AnkiCreateArgs(
-        deck_name="Custom Path Deck",
-        cards=cards,
-        output_path=custom_path
-    )
-    
     with set_tool_context(test_context):
-        result = anki_create(args)
+        result = anki_create("Custom Path Deck", cards, custom_path)
     
     assert result.success is True
     assert result.deck_path == custom_path
@@ -173,13 +153,8 @@ def test_anki_create_custom_output_path(test_context):
 
 def test_anki_create_empty_cards(test_context):
     """Test creating deck with no cards."""
-    args = AnkiCreateArgs(
-        deck_name="Empty Deck",
-        cards=[]
-    )
-    
     with set_tool_context(test_context):
-        result = anki_create(args)
+        result = anki_create("Empty Deck", [])
     
     assert result.success is True
     assert result.cards_created == 0
@@ -198,13 +173,8 @@ def test_anki_create_with_missing_audio(test_context):
         )
     ]
     
-    args = AnkiCreateArgs(
-        deck_name="Missing Audio Deck",
-        cards=cards
-    )
-    
     with set_tool_context(test_context):
-        result = anki_create(args)
+        result = anki_create("Missing Audio Deck", cards)
     
     # Should still succeed, just without audio
     assert result.success is True
@@ -234,43 +204,10 @@ def test_anki_card_model_validation():
     assert card_full.audio_path == Path("/some/audio.mp3")
 
 
-def test_anki_query_args_validation():
-    """Test AnkiQueryArgs validation."""
-    # Basic args
-    args = AnkiQueryArgs(query="test", deck_name="Test")
-    assert args.query == "test"
-    assert args.deck_name == "Test"
-    assert args.limit == 100
-    
-    # Args with all fields
-    args_full = AnkiQueryArgs(
-        query="hola",
-        deck_name="Spanish",
-        limit=50
-    )
-    assert args_full.limit == 50
+# Removed test_anki_query_args_validation since we no longer use AnkiQueryArgs
 
 
-def test_anki_create_args_validation():
-    """Test AnkiCreateArgs validation."""
-    cards = [
-        AnkiCard(source_word="test", translated_word="prueba", audio_path=None)
-    ]
-    
-    # Basic args
-    args = AnkiCreateArgs(deck_name="Test", cards=cards, output_path=None)
-    assert args.deck_name == "Test"
-    assert len(args.cards) == 1
-    assert args.output_path is None
-    
-    # Args with output path
-    output_path = Path("/custom/path.apkg")
-    args_with_path = AnkiCreateArgs(
-        deck_name="Custom",
-        cards=cards,
-        output_path=output_path
-    )
-    assert args_with_path.output_path == output_path
+# Removed test_anki_create_args_validation since we no longer use AnkiCreateArgs
 
 
 @patch('sqlite3.connect')
@@ -287,12 +224,8 @@ def test_anki_query_with_tags_filter(mock_connect, test_context):
     
     test_context.config.anki_path = Path("/mock/anki.db")
     
-    args = AnkiQueryArgs(
-        query="greeting",
-        deck_name="Spanish"
-    )
     with set_tool_context(test_context):
-        result = anki_query(args)
+        result = anki_query("greeting", deck_name="Spanish")
     
     # Should execute without error
     assert result.query == "greeting"

@@ -75,18 +75,11 @@ def discover_tools_in_directory(
 
     # Now find all tools in the registry that originated from discovered files
     discovered_tools = []
-    for tool_name in REGISTRY.list_tools():
-        tool_desc = REGISTRY.get(tool_name)
-        if tool_desc and tool_desc.function:
-            try:
-                # Get the source file of the function
-                source_file = Path(inspect.getfile(tool_desc.function)).resolve()
-                if source_file in discovered_file_paths:
-                    discovered_tools.append(tool_desc)
-                    logger.debug(f"Found tool '{tool_name}' from {source_file}")
-            except (OSError, TypeError):
-                # Some functions might not have source files (built-ins, etc.)
-                continue
+    for tool_desc in REGISTRY.functions:
+        source_file = Path(inspect.getfile(tool_desc.function)).resolve()
+        if source_file in discovered_file_paths:
+            discovered_tools.append(tool_desc)
+            logger.debug(f"Found tool '{tool_desc.name}' from {source_file}")
 
     logger.info(f"Auto-discovery completed. Found {len(discovered_tools)} tools from {len(discovered_file_paths)} files")
     return discovered_tools

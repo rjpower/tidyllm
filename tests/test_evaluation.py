@@ -4,7 +4,6 @@ from unittest.mock import Mock
 
 import pytest
 
-from tidyllm.registry import Registry
 from tidyllm.agent import LLMAgent
 from tidyllm.evaluation import (
     EvaluationContext,
@@ -20,6 +19,7 @@ from tidyllm.llm import (
     ToolCall,
     ToolMessage,
 )
+from tidyllm.registry import Registry
 from tidyllm.tools.calculator import calculator
 
 

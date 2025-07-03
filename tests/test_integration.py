@@ -6,10 +6,9 @@ from tempfile import TemporaryDirectory
 
 from pydantic import BaseModel
 
-from tidyllm.cli import generate_cli
-from tidyllm.registry import Registry, ToolError
+from tidyllm.adapters.cli import generate_cli
 from tidyllm.prompt import read_prompt
-from tidyllm.registry import REGISTRY, register
+from tidyllm.registry import REGISTRY, Registry, ToolError, register
 
 
 class FileArgs(BaseModel):

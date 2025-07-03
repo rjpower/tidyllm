@@ -284,34 +284,3 @@ class TestRegistryExecution:
         import json
         parsed = json.loads(result)
         assert "error" in parsed
-
-    def test_add_tool_method(self):
-        """Test add_tool method for dynamically adding tools."""
-        def dynamic_tool(args: RegistryTestArgs) -> dict:
-            return {"dynamic": True, "message": args.message}
-        
-        self.registry.add_tool("dynamic_tool", dynamic_tool)
-        
-        # Test it was added
-        func_desc = self.registry.get_description("dynamic_tool")
-        assert func_desc is not None
-        assert func_desc.name == "dynamic_tool"
-        
-        # Test it can be called
-        result = self.registry.call("dynamic_tool", {"message": "test"})
-        assert result == {"dynamic": True, "message": "test"}
-
-    def test_add_tool_duplicate_error(self):
-        """Test add_tool raises error for duplicate tool names."""
-        def duplicate_tool(args: RegistryTestArgs) -> dict:
-            return {"duplicate": True}
-        
-        # First addition should work
-        self.registry.add_tool("duplicate_tool", duplicate_tool)
-        
-        # Second addition should raise error
-        try:
-            self.registry.add_tool("duplicate_tool", duplicate_tool)
-            assert False, "Expected ValueError for duplicate tool"
-        except ValueError as e:
-            assert "already exists" in str(e)

@@ -10,7 +10,6 @@ from tidyllm.tools.config import Config
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.vocab_table import (
     VocabAddArgs,
-    VocabDeleteArgs,
     VocabSearchArgs,
     VocabUpdateArgs,
     vocab_add,
@@ -161,8 +160,7 @@ def test_vocab_delete_success(test_context):
         vocab_add(VocabAddArgs(word="hello", translation="hola"))
         
         # Delete it
-        args = VocabDeleteArgs(word="hello")
-        result = vocab_delete(args)
+        result = vocab_delete("hello")
         
         assert result.success is True
         assert "hello" in result.message
@@ -174,9 +172,8 @@ def test_vocab_delete_success(test_context):
 
 def test_vocab_delete_not_found(test_context):
     """Test deleting non-existent word."""
-    args = VocabDeleteArgs(word="nonexistent")
     with set_tool_context(test_context):
-        result = vocab_delete(args)
+        result = vocab_delete("nonexistent")
     
     assert result.success is False
     assert "not found" in result.message.lower()

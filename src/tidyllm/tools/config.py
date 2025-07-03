@@ -1,6 +1,5 @@
 """Configuration management for tidyllm tools."""
 
-import sqlite3
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
@@ -29,14 +28,6 @@ class Config(BaseSettings):
             discovered_path = self._autodiscover_anki_db()
             if discovered_path:
                 self.anki_path = discovered_path
-
-    def get_db_connection(self) -> sqlite3.Connection:
-        """Get a new database connection."""
-        # Ensure parent directory exists
-        self.user_db.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(self.user_db))
-        conn.row_factory = sqlite3.Row
-        return conn
 
     def ensure_notes_dir(self) -> Path:
         """Ensure notes directory exists and return it."""

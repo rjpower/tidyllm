@@ -14,6 +14,7 @@ from typing import Any, Generic, ParamSpec, Protocol, TypeVar
 
 from pydantic import BaseModel
 
+from tidyllm.context import get_tool_context
 from tidyllm.schema import FunctionDescription, parse_from_json
 
 
@@ -45,6 +46,12 @@ class DatabaseProtocol(Protocol):
         ...
 
 
+class CacheContextProtocol(Protocol):
+    """Protocol for cache context that provides database access."""
+    
+    db: DatabaseProtocol
+
+
 R = TypeVar("R")
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -72,13 +79,13 @@ class _FunctionCacheHandler(Generic[P, R]):
     """Internal handler for function caching logic."""
 
     func: Callable[P, R]
-    db: DatabaseProtocol
+    cache_context: CacheContextProtocol
     table_name: str
     description: FunctionDescription
 
-    def __init__(self, func: Callable[P, R], db: DatabaseProtocol):
+    def __init__(self, func: Callable[P, R], cache_context: CacheContextProtocol):
         self.func = func
-        self.db = db
+        self.cache_context = cache_context
         self.description = FunctionDescription(func)
         self.table_name = f"{self.description.name}_cache"
 
@@ -93,7 +100,7 @@ class _FunctionCacheHandler(Generic[P, R]):
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """
-        self.db.mutate(sql)
+        self.cache_context.db.mutate(sql)
 
     def compute_arg_hash(self, *args: P.args, **kwargs: P.kwargs) -> str:
         """Compute a hash of the function arguments."""
@@ -105,7 +112,7 @@ class _FunctionCacheHandler(Generic[P, R]):
     def lookup_cache(self, arg_hash: str) -> CacheResult[R]:
         """Single method to check cache and return result if exists."""
         sql = f"SELECT result FROM {self.table_name} WHERE arg_hash = ?"
-        cursor = self.db.query(sql, [arg_hash])
+        cursor = self.cache_context.db.query(sql, [arg_hash])
 
         row = cursor.first()
         if row:
@@ -127,82 +134,83 @@ class _FunctionCacheHandler(Generic[P, R]):
         sql = (
             f"INSERT OR REPLACE INTO {self.table_name} (arg_hash, result) VALUES (?, ?)"
         )
-        self.db.mutate(sql, [arg_hash, result_json])
+        self.cache_context.db.mutate(sql, [arg_hash, result_json])
 
 
-def cached_function(db: DatabaseProtocol):
+def cached_function(func: Callable[P, R]) -> Callable[P, R]:
     """Decorator for caching synchronous function results.
-
-    Args:
-        db: Database instance implementing DatabaseProtocol
-
-    Returns:
-        Decorator function
+    
+    Uses the current tool context to get cache configuration.
 
     Example:
-        >>> db = Database()
-        >>> @cached_function(db)
+        >>> @cached_function
         ... def expensive_computation(x: int) -> int:
         ...     return x * x
     """
+    
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        try:
+            cache_context = get_tool_context()
+        except RuntimeError:
+            # No cache context available, execute function directly
+            return func(*args, **kwargs)
+        
+        if not hasattr(cache_context, 'db'):
+            # Context doesn't have caching capability, execute function directly
+            return func(*args, **kwargs)
+            
+        handler = _FunctionCacheHandler(func, cache_context)
+        arg_hash = handler.compute_arg_hash(*args, **kwargs)
+        
+        cache_result = handler.lookup_cache(arg_hash)
+        if cache_result.exists:
+            return cache_result.value  # type: ignore
 
-    def decorator(func: Callable[P, R]) -> Callable[P, R]:
-        handler = _FunctionCacheHandler(func, db)
+        actual_result = func(*args, **kwargs)
+        handler.store_result(arg_hash, actual_result)
+        return actual_result
 
-        @wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            arg_hash = handler.compute_arg_hash(*args, **kwargs)
-
-            cache_result = handler.lookup_cache(arg_hash)
-            if cache_result.exists:
-                return cache_result.value  # type: ignore
-
-            actual_result = func(*args, **kwargs)
-            handler.store_result(arg_hash, actual_result)
-            return actual_result
-
-        return wrapper
-
-    return decorator
+    return wrapper
 
 
-def async_cached_function(db: DatabaseProtocol):
+def async_cached_function(
+    func: Callable[P, Coroutine[Any, Any, R]]
+) -> Callable[P, Coroutine[Any, Any, R]]:
     """Decorator for caching asynchronous function results.
-
-    Args:
-        db: Database instance implementing DatabaseProtocol
-
-    Returns:
-        Decorator function
+    
+    Uses the current tool context to get cache configuration.
 
     Example:
-        >>> db = Database()
-        >>> @async_cached_function(db)
+        >>> @async_cached_function
         ... async def fetch_data(url: str) -> dict:
         ...     # expensive async operation
         ...     return {"data": "result"}
     """
+    if not asyncio.iscoroutinefunction(func):
+        raise TypeError("The decorated function must be an async function (coroutine).")
 
-    def decorator(
-        func: Callable[P, Coroutine[Any, Any, R]],
-    ) -> Callable[P, Coroutine[Any, Any, R]]:
-        if not asyncio.iscoroutinefunction(func):
-            raise TypeError("The decorated function must be an async function (coroutine).")
+    @wraps(func)
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        try:
+            cache_context = get_tool_context()
+        except RuntimeError:
+            # No cache context available, execute function directly
+            return await func(*args, **kwargs)
+        
+        if not hasattr(cache_context, 'db'):
+            # Context doesn't have caching capability, execute function directly
+            return await func(*args, **kwargs)
+            
+        handler = _FunctionCacheHandler(func, cache_context)
+        arg_hash = handler.compute_arg_hash(*args, **kwargs)
 
-        handler = _FunctionCacheHandler(func, db)
+        cache_result = await asyncio.to_thread(handler.lookup_cache, arg_hash)
+        if cache_result.exists:
+            return cache_result.value  # type: ignore
 
-        @wraps(func)
-        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            arg_hash = handler.compute_arg_hash(*args, **kwargs)
+        actual_result = await func(*args, **kwargs)
+        await asyncio.to_thread(handler.store_result, arg_hash, actual_result)
+        return actual_result
 
-            cache_result = await asyncio.to_thread(handler.lookup_cache, arg_hash)
-            if cache_result.exists:
-                return cache_result.value  # type: ignore
-
-            actual_result = await func(*args, **kwargs)
-            await asyncio.to_thread(handler.store_result, arg_hash, actual_result)
-            return actual_result
-
-        return wrapper
-
-    return decorator
+    return wrapper

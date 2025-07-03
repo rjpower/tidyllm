@@ -4,17 +4,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from tidyllm.cli import multi_cli_main
+from tidyllm.adapters.cli import multi_cli_main
 from tidyllm.context import get_tool_context
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
-
-
-# Query Database Tool
-class DBQueryArgs(BaseModel):
-    """Arguments for database queries."""
-    sql: str = Field(description="SQL SELECT query")
-    params: dict[str, Any] = Field(default_factory=dict, description="Query parameters")
 
 
 class DBQueryResult(BaseModel):
@@ -26,22 +19,25 @@ class DBQueryResult(BaseModel):
 
 
 @register()
-def db_query(args: DBQueryArgs) -> DBQueryResult:
+def db_query(sql: str, params: list[Any] | None = None) -> DBQueryResult:
     """Execute SELECT queries safely.
     
-    Example usage: db_query({"sql": "SELECT * FROM vocab WHERE word LIKE ?", "params": {"%hello%"}})
+    Args:
+        sql: SQL SELECT query
+        params: Query parameters as list (optional)
+        
+    Example usage: db_query("SELECT * FROM vocab WHERE word LIKE ?", ["%hello%"])
     """
     ctx = get_tool_context()
     db = ctx.db
 
     try:
         # Only allow SELECT queries
-        if not args.sql.strip().upper().startswith("SELECT"):
+        if not sql.strip().upper().startswith("SELECT"):
             return DBQueryResult(success=False, error="Only SELECT queries are allowed")
 
         # Execute with parameters if provided
-        params = list(args.params.values()) if args.params else None
-        cursor = db.query(args.sql, params)
+        cursor = db.query(sql, params)
 
         result_rows = [dict(row.items()) for row in cursor]
 
@@ -51,11 +47,6 @@ def db_query(args: DBQueryArgs) -> DBQueryResult:
         return DBQueryResult(success=False, error=f"Database error: {str(e)}")
 
 
-# Execute Database Statements Tool
-class DBExecuteArgs(BaseModel):
-    """Arguments for database execution."""
-    sql: str = Field(description="SQL statement (INSERT, UPDATE, DELETE)")
-    params: dict[str, Any] = Field(default_factory=dict, description="Statement parameters")
 
 
 class DBExecuteResult(BaseModel):
@@ -66,23 +57,26 @@ class DBExecuteResult(BaseModel):
 
 
 @register()
-def db_execute(args: DBExecuteArgs) -> DBExecuteResult:
+def db_execute(sql: str, params: list[Any] | None = None) -> DBExecuteResult:
     """Execute INSERT, UPDATE, DELETE statements safely.
     
-    Example usage: db_execute({"sql": "INSERT INTO vocab (word, translation) VALUES (?, ?)", "params": {"hello": "hola"}})
+    Args:
+        sql: SQL statement (INSERT, UPDATE, DELETE)
+        params: Statement parameters as list (optional)
+        
+    Example usage: db_execute("INSERT INTO vocab (word, translation) VALUES (?, ?)", ["hello", "hola"])
     """
     ctx = get_tool_context()
     db = ctx.db
 
     try:
         # Disallow dangerous operations
-        sql_upper = args.sql.strip().upper()
+        sql_upper = sql.strip().upper()
         if any(keyword in sql_upper for keyword in ["DROP", "TRUNCATE", "ALTER TABLE"]):
             return DBExecuteResult(success=False, error="Dangerous operations are not allowed")
 
         # Execute with parameters if provided
-        params = list(args.params.values()) if args.params else None
-        affected_count = db.mutate(args.sql, params)
+        affected_count = db.mutate(sql, params)
 
         return DBExecuteResult(success=True, affected_count=affected_count)
 
@@ -90,10 +84,6 @@ def db_execute(args: DBExecuteArgs) -> DBExecuteResult:
         return DBExecuteResult(success=False, error=f"Database error: {str(e)}")
 
 
-# List Tables Tool
-class DBListTablesArgs(BaseModel):
-    """Arguments for listing tables."""
-    pass  # No arguments needed
 
 
 class DBListTablesResult(BaseModel):
@@ -104,12 +94,11 @@ class DBListTablesResult(BaseModel):
 
 
 @register()
-def db_list_tables(args: DBListTablesArgs) -> DBListTablesResult:
+def db_list_tables() -> DBListTablesResult:
     """List all tables in the database.
     
-    Example usage: db_list_tables({})
+    Example usage: db_list_tables()
     """
-    del args  # Unused parameter
     ctx = get_tool_context()
     db = ctx.db
 
@@ -125,10 +114,6 @@ def db_list_tables(args: DBListTablesArgs) -> DBListTablesResult:
         return DBListTablesResult(success=False, tables=[])
 
 
-# Get Schema Tool
-class DBSchemaArgs(BaseModel):
-    """Arguments for getting schema."""
-    table: str | None = Field(None, description="Specific table name (all tables if not provided)")
 
 
 class DBSchemaResult(BaseModel):
@@ -139,10 +124,13 @@ class DBSchemaResult(BaseModel):
 
 
 @register()
-def db_schema(args: DBSchemaArgs) -> DBSchemaResult:
+def db_schema(table: str | None = None) -> DBSchemaResult:
     """Get database schema information.
     
-    Example usage: db_schema({"table": "vocab"}) or db_schema({}) for all tables
+    Args:
+        table: Specific table name (all tables if not provided)
+        
+    Example usage: db_schema("vocab") or db_schema() for all tables
     """
     ctx = get_tool_context()
     db = ctx.db
@@ -152,11 +140,11 @@ def db_schema(args: DBSchemaArgs) -> DBSchemaResult:
         full_schema = db.schema()
 
         # Filter by table if specified
-        if args.table:
-            table_schema = full_schema.get_table(args.table)
+        if table:
+            table_schema = full_schema.get_table(table)
             if not table_schema:
                 return DBSchemaResult(
-                    success=False, error=f"Table '{args.table}' not found"
+                    success=False, error=f"Table '{table}' not found"
                 )
             tables_to_process = [table_schema]
         else:

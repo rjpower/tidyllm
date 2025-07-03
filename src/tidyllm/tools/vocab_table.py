@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field
 
-from tidyllm.cli import multi_cli_main
+from tidyllm.adapters.cli import multi_cli_main
 from tidyllm.context import get_tool_context
 from tidyllm.database import json_decode, json_encode
 from tidyllm.registry import register
@@ -184,10 +184,6 @@ def vocab_update(args: VocabUpdateArgs) -> VocabUpdateResult:
         return VocabUpdateResult(success=False, message=f"Database error: {str(e)}")
 
 
-# Delete Vocab Tool
-class VocabDeleteArgs(BaseModel):
-    """Arguments for deleting a vocabulary word."""
-    word: str = Field(description="Word to delete")
 
 
 class VocabDeleteResult(BaseModel):
@@ -197,21 +193,24 @@ class VocabDeleteResult(BaseModel):
 
 
 @register()
-def vocab_delete(args: VocabDeleteArgs) -> VocabDeleteResult:
+def vocab_delete(word: str) -> VocabDeleteResult:
     """Delete a vocabulary word from the database.
     
-    Example usage: vocab_delete({"word": "hello"})
+    Args:
+        word: Word to delete
+        
+    Example usage: vocab_delete("hello")
     """
     ctx = get_tool_context()
     db = ctx.db
 
     try:
-        rowcount = db.mutate("DELETE FROM vocab WHERE word = ?", (args.word,))
+        rowcount = db.mutate("DELETE FROM vocab WHERE word = ?", (word,))
 
         if rowcount == 0:
-            return VocabDeleteResult(success=False, message=f"Word not found: {args.word}")
+            return VocabDeleteResult(success=False, message=f"Word not found: {word}")
 
-        return VocabDeleteResult(success=True, message=f"Deleted word: {args.word}")
+        return VocabDeleteResult(success=True, message=f"Deleted word: {word}")
 
     except Exception as e:
         return VocabDeleteResult(success=False, message=f"Database error: {str(e)}")

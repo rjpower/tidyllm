@@ -1,13 +1,17 @@
 """FastAPI adapter for TidyLLM registry functions."""
 
 
+import logging
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar
 
+import fastapi
 from fastapi import FastAPI
 
 from tidyllm.context import set_tool_context
+
+logger = logging.getLogger(__name__)
 
 
 def create_fastapi_app(
@@ -91,11 +95,12 @@ def context_fn(func: Callable[P, R], _desc, _context) -> Callable[P, R]:
 def _create_tool_endpoint(app: FastAPI, tool_desc, context: Any):
     """Create a FastAPI endpoint for a specific tool."""
     tool_name = tool_desc.name
-    app.post(
-        f"/tools/{tool_name}",
-        summary=f"Execute {tool_name}",
-        description=tool_desc.function.__doc__ or f"Execute the {tool_name} tool",
-        tags=["tools"],
-    )(context_fn(tool_desc.function, tool_desc, context))
-
-
+    try:
+        app.post(
+            f"/tools/{tool_name}",
+            summary=f"Execute {tool_name}",
+            description=tool_desc.function.__doc__ or f"Execute the {tool_name} tool",
+            tags=["tools"],
+        )(context_fn(tool_desc.function, tool_desc, context))
+    except fastapi.exceptions.FastAPIError as e:
+        logger.warning(f"Failed to register tool {tool_name} due to error {e}")

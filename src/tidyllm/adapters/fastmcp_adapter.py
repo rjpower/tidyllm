@@ -1,9 +1,13 @@
 """FastMCP adapter for TidyLLM registry functions."""
 
+import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar
+from warnings import warn
+
+import pydantic
 
 from tidyllm.context import set_tool_context
 from tidyllm.registry import REGISTRY
@@ -11,6 +15,7 @@ from tidyllm.registry import REGISTRY
 P = ParamSpec("P")
 R = TypeVar("R")
 
+logger = logging.getLogger(__name__)
 
 def context_fn(func: Callable[P, R], _desc, _context) -> Callable[P, R]:
     @wraps(func)
@@ -54,7 +59,9 @@ def create_fastmcp_server(
     server = FastMCP(lifespan=app_lifespan)
     for tool_desc in REGISTRY.functions:
         fn = context_fn(tool_desc.function, tool_desc, context)
-        server.tool()(fn)
+        try:
+            server.tool()(fn)
+        except pydantic.errors.PydanticSchemaGenerationError:
+            logger.warning(f"Failed to register {fn.__name__}", stacklevel=1)
 
     return server
-

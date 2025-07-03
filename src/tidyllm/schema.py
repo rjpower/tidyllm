@@ -128,19 +128,32 @@ class FunctionDescription:
     function: Callable
     function_schema: JSONSchema
     name: str
+    description: str
+    tags: list[str]
 
     result_type: type
     args_model: type[BaseModel]
     args_json_schema: dict
 
-    def __init__(self, func: Callable, doc_override: str | None = None):
+    def __init__(
+        self, 
+        func: Callable, 
+        doc_override: str | None = None,
+        description: str = "",
+        tags: list[str] | None = None,
+    ):
         """Initialize function description with generated Pydantic model for validation.
 
         Args:
             func: The function to wrap
+            doc_override: Override for function documentation
+            description: Tool description
+            tags: List of tags for categorization
         """
         self.function = func
         self.name = func.__name__
+        self.description = description
+        self.tags = tags or []
 
         self.sig = inspect.signature(func)
         self.is_async = inspect.iscoroutinefunction(func)

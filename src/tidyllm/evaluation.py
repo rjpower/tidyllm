@@ -11,9 +11,9 @@ from typing import Any, ParamSpec, TypeVar, overload
 
 import click
 
-from tidyllm.registry import Registry
 from tidyllm.agent import LLMAgent
 from tidyllm.llm import LLMResponse, create_llm_client
+from tidyllm.registry import Registry
 
 P = ParamSpec("P")
 T = TypeVar("T", covariant=True)

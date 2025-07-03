@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 from pydantic import BaseModel
 
-from tidyllm.cli import generate_cli
+from tidyllm.adapters.cli import generate_cli
 
 
 class SimpleArgs(BaseModel):

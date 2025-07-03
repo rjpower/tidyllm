@@ -6,6 +6,7 @@ import pytest
 from pydantic import BaseModel
 
 from tidyllm.cache import async_cached_function, cached_function
+from tidyllm.context import set_tool_context
 from tidyllm.database import Database
 
 
@@ -14,32 +15,38 @@ class CacheTestModel(BaseModel):
     name: str
 
 
+class CacheContext:
+    """Cache context for testing."""
+    def __init__(self, db):
+        self.db = db
+
+
 @pytest.fixture
 def memory_db():
     """Create an in-memory SQLite database for testing."""
-    db = Database(":memory:")
-    db.connect()
-    return db
-
-
-@pytest.fixture
-def async_memory_db():
-    """Create a separate in-memory SQLite database for async testing."""
-    # Use check_same_thread=False to allow cross-thread access
+    # Use check_same_thread=False to allow cross-thread access for async tests
     db = Database(":memory:", check_same_thread=False)
     db.connect()
     yield db
     db.close()
 
 
+@pytest.fixture
+def cache_context(memory_db):
+    """Create a cache context and set it for the test."""
+    context = CacheContext(memory_db)
+    with set_tool_context(context):
+        yield context
+
+
 class TestCachedFunction:
     """Test cases for cached_function decorator."""
 
-    def test_basic_caching(self, memory_db):
+    def test_basic_caching(self, cache_context):
         """Test that results are cached and retrieved correctly."""
         call_count = 0
 
-        @cached_function(memory_db)
+        @cached_function
         def expensive_computation(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -60,11 +67,11 @@ class TestCachedFunction:
         assert result3 == 36
         assert call_count == 2
 
-    def test_multiple_arguments(self, memory_db):
+    def test_multiple_arguments(self, cache_context):
         """Test caching with multiple arguments."""
         call_count = 0
 
-        @cached_function(memory_db)
+        @cached_function
         def add_numbers(a: int, b: int, c: int = 0) -> int:
             nonlocal call_count
             call_count += 1
@@ -90,11 +97,11 @@ class TestCachedFunction:
         assert result4 == 7
         assert call_count == 2
 
-    def test_pydantic_model_caching(self, memory_db):
+    def test_pydantic_model_caching(self, cache_context):
         """Test caching with Pydantic model return values."""
         call_count = 0
 
-        @cached_function(memory_db)
+        @cached_function
         def create_model(value: int, name: str) -> CacheTestModel:
             nonlocal call_count
             call_count += 1
@@ -114,11 +121,11 @@ class TestCachedFunction:
         assert result2.name == "test"
         assert call_count == 1
 
-    def test_none_return_value(self, memory_db):
+    def test_none_return_value(self, cache_context):
         """Test caching when function returns None."""
         call_count = 0
 
-        @cached_function(memory_db)
+        @cached_function
         def maybe_return(should_return: bool) -> int | None:
             nonlocal call_count
             call_count += 1
@@ -139,9 +146,9 @@ class TestCachedFunction:
         assert result3 == 42
         assert call_count == 2
 
-    def test_function_metadata_preserved(self, memory_db):
+    def test_function_metadata_preserved(self, cache_context):
         """Test that @wraps preserves function metadata."""
-        @cached_function(memory_db)
+        @cached_function
         def documented_function(x: int) -> int:
             """This is a test function."""
             return x * 2
@@ -150,13 +157,13 @@ class TestCachedFunction:
         assert documented_function.__doc__ == "This is a test function."
         assert hasattr(documented_function, "__annotations__")
 
-    def test_different_functions_separate_caches(self, memory_db):
+    def test_different_functions_separate_caches(self, cache_context):
         """Test that different functions have separate cache tables."""
-        @cached_function(memory_db)
+        @cached_function
         def func_a(x: int) -> int:
             return x * 2
 
-        @cached_function(memory_db)
+        @cached_function
         def func_b(x: int) -> int:
             return x * 3
 
@@ -167,7 +174,7 @@ class TestCachedFunction:
         assert result_b == 15
 
         # Check that they have different cache tables
-        schema = memory_db.schema()
+        schema = cache_context.db.schema()
         table_names = [table.name for table in schema.tables]
         assert "func_a_cache" in table_names
         assert "func_b_cache" in table_names
@@ -177,11 +184,11 @@ class TestAsyncCachedFunction:
     """Test cases for async_cached_function decorator."""
 
     @pytest.mark.asyncio
-    async def test_basic_async_caching(self, async_memory_db):
+    async def test_basic_async_caching(self, cache_context):
         """Test that async results are cached and retrieved correctly."""
         call_count = 0
 
-        @async_cached_function(async_memory_db)
+        @async_cached_function
         async def async_computation(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -199,11 +206,11 @@ class TestAsyncCachedFunction:
         assert call_count == 1  # Function not called again
 
     @pytest.mark.asyncio
-    async def test_async_with_pydantic_model(self, async_memory_db):
+    async def test_async_with_pydantic_model(self, cache_context):
         """Test async caching with Pydantic model return values."""
         call_count = 0
 
-        @async_cached_function(async_memory_db)
+        @async_cached_function
         async def async_create_model(value: int, name: str) -> CacheTestModel:
             nonlocal call_count
             call_count += 1
@@ -225,9 +232,9 @@ class TestAsyncCachedFunction:
         assert call_count == 1
 
     @pytest.mark.asyncio
-    async def test_async_function_metadata_preserved(self, async_memory_db):
+    async def test_async_function_metadata_preserved(self, cache_context):
         """Test that @wraps preserves async function metadata."""
-        @async_cached_function(async_memory_db)
+        @async_cached_function
         async def async_documented_function(x: int) -> int:
             """This is an async test function."""
             return x * 2
@@ -236,19 +243,19 @@ class TestAsyncCachedFunction:
         assert async_documented_function.__doc__ == "This is an async test function."
         assert asyncio.iscoroutinefunction(async_documented_function)
 
-    def test_non_async_function_raises_error(self, async_memory_db):
+    def test_non_async_function_raises_error(self, cache_context):
         """Test that decorating a non-async function raises TypeError."""
         with pytest.raises(TypeError, match="must be an async function"):
-            @async_cached_function(async_memory_db)
+            @async_cached_function
             def sync_function(x: int) -> int:  # noqa: F841
                 return x * 2
 
     @pytest.mark.asyncio
-    async def test_concurrent_async_calls(self, async_memory_db):
+    async def test_concurrent_async_calls(self, cache_context):
         """Test that concurrent calls to the same cached async function work correctly."""
         call_count = 0
 
-        @async_cached_function(async_memory_db)
+        @async_cached_function
         async def slow_computation(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -273,9 +280,9 @@ class TestAsyncCachedFunction:
 class TestCacheIntegration:
     """Integration tests for the caching system."""
 
-    def test_cache_persistence_across_instances(self, memory_db):
+    def test_cache_persistence_across_instances(self, cache_context):
         """Test that cache persists across different decorator instances."""
-        @cached_function(memory_db)
+        @cached_function
         def computation_original(x: int) -> int:
             return x * 2
 
@@ -284,7 +291,7 @@ class TestCacheIntegration:
         assert result1 == 10
 
         # Create new decorator instance with same function name but different implementation
-        @cached_function(memory_db)
+        @cached_function
         def computation_original(x: int) -> int:  # noqa: F811, PLR0917
             return x * 999  # Different implementation
 
@@ -292,9 +299,9 @@ class TestCacheIntegration:
         result2 = computation_original(5)
         assert result2 == 10  # Original cached result
 
-    def test_cache_table_structure(self, memory_db):
+    def test_cache_table_structure(self, cache_context):
         """Test that cache tables are created with correct structure."""
-        @cached_function(memory_db)
+        @cached_function
         def test_func(x: int) -> int:
             return x
 
@@ -302,7 +309,7 @@ class TestCacheIntegration:
         test_func(1)
 
         # Check table exists and has correct structure
-        schema = memory_db.schema()
+        schema = cache_context.db.schema()
         cache_tables = [table for table in schema.tables if table.name.endswith("_cache")]
         assert len(cache_tables) >= 1
 
@@ -312,9 +319,9 @@ class TestCacheIntegration:
         assert "result" in column_names
         assert "created_at" in column_names
 
-    def test_argument_hashing_consistency(self, memory_db):
+    def test_argument_hashing_consistency(self, cache_context):
         """Test that argument hashing is consistent across calls."""
-        @cached_function(memory_db)
+        @cached_function
         def hash_test(a: int, b: str, c: bool = True) -> str:
             return f"{a}-{b}-{c}"
 
@@ -326,5 +333,5 @@ class TestCacheIntegration:
         assert result1 == result2 == result3 == "1-test-True"
 
         # Verify only one row in cache (same hash)
-        cursor = memory_db.query("SELECT COUNT(*) as count FROM hash_test_cache")
+        cursor = cache_context.db.query("SELECT COUNT(*) as count FROM hash_test_cache")
         assert cursor.rows[0].count == 1

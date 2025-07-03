@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from tidyllm.cli import multi_cli_main
+from tidyllm.adapters.cli import multi_cli_main
 from tidyllm.context import get_tool_context
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
@@ -139,7 +139,7 @@ def note_add(args: NoteAddArgs) -> NoteAddResult:
     Example usage: note_add({"content": "This is my note content", "title": "My Important Note", "tags": ["personal", "ideas"]})
     """
     ctx = get_tool_context()
-    notes_dir = ctx.ensure_notes_dir()
+    notes_dir = ctx.config.ensure_notes_dir()
 
     try:
         title = args.title or f"Note {datetime.now().strftime('%Y-%m-%d %H:%M')}"
@@ -170,10 +170,6 @@ def note_add(args: NoteAddArgs) -> NoteAddResult:
         return NoteAddResult(success=False, message=f"Error: {str(e)}")
 
 
-# Search Notes Tool
-class NoteSearchArgs(BaseModel):
-    """Arguments for searching notes."""
-    query: str = Field(description="Search query")
 
 
 class NoteSearchResult(BaseModel):
@@ -184,20 +180,23 @@ class NoteSearchResult(BaseModel):
 
 
 @register()
-def note_search(args: NoteSearchArgs) -> NoteSearchResult:
+def note_search(query: str) -> NoteSearchResult:
     """Search notes by content and filename using ripgrep and find.
 
-    Example usage: note_search({"query": "important meeting"})
+    Args:
+        query: Search query
+        
+    Example usage: note_search("important meeting")
     """
     ctx = get_tool_context()
-    notes_dir = ctx.ensure_notes_dir()
+    notes_dir = ctx.config.ensure_notes_dir()
 
     try:
         found_files = set()
 
         # Search content using ripgrep
         rg_result = subprocess.run(
-            ["rg", "-l", "-i", "--type", "md", args.query, str(notes_dir)],
+            ["rg", "-l", "-i", "--type", "md", query, str(notes_dir)],
             capture_output=True,
             text=True,
             check=False,
@@ -215,7 +214,7 @@ def note_search(args: NoteSearchArgs) -> NoteSearchResult:
                 "find",
                 str(notes_dir),
                 "-iname",
-                f"*{args.query}*",
+                f"*{query}*",
                 "-type",
                 "f",
                 "-name",
@@ -247,11 +246,6 @@ def note_search(args: NoteSearchArgs) -> NoteSearchResult:
         return NoteSearchResult(success=False)
 
 
-# List Notes Tool
-class NoteListArgs(BaseModel):
-    """Arguments for listing notes."""
-    tags: list[str] = Field(default_factory=list, description="Filter by tags")
-    limit: int = Field(50, description="Maximum notes to return")
 
 
 class NoteListResult(BaseModel):
@@ -262,13 +256,17 @@ class NoteListResult(BaseModel):
 
 
 @register()
-def note_list(args: NoteListArgs) -> NoteListResult:
+def note_list(tags: list[str] | None = None, limit: int = 50) -> NoteListResult:
     """List all notes, optionally filtered by tags.
 
-    Example usage: note_list({"tags": ["work"], "limit": 20}) or note_list({}) for all notes
+    Args:
+        tags: Filter by tags (optional)
+        limit: Maximum notes to return (default: 50)
+        
+    Example usage: note_list(["work"], 20) or note_list() for all notes
     """
     ctx = get_tool_context()
-    notes_dir = ctx.ensure_notes_dir()
+    notes_dir = ctx.config.ensure_notes_dir()
 
     try:
         # Find all markdown files
@@ -278,12 +276,12 @@ def note_list(args: NoteListArgs) -> NoteListResult:
         )  # Sort by modification time
 
         notes_list = []
-        for file_path in md_files[: args.limit]:
+        for file_path in md_files[:limit]:
             note = _parse_note_file(file_path)
             if note:
                 # Filter by tags if specified
-                if args.tags:
-                    if any(tag in note.tags for tag in args.tags):
+                if tags:
+                    if any(tag in note.tags for tag in tags):
                         notes_list.append(note)
                 else:
                     notes_list.append(note)
@@ -294,11 +292,6 @@ def note_list(args: NoteListArgs) -> NoteListResult:
         return NoteListResult(success=False)
 
 
-# Note Open Tool
-class NoteOpenArgs(BaseModel):
-    """Arguments for opening a note."""
-
-    query: str = Field(description="Note title or filename to open")
 
 
 class NoteOpenResult(BaseModel):
@@ -311,17 +304,20 @@ class NoteOpenResult(BaseModel):
 
 
 @register()
-def note_open(args: NoteOpenArgs) -> NoteOpenResult:
+def note_open(query: str) -> NoteOpenResult:
     """Open and display a note by title or filename.
 
-    Example usage: note_open({"query": "my important note"})
+    Args:
+        query: Note title or filename to open
+        
+    Example usage: note_open("my important note")
     """
     ctx = get_tool_context()
-    notes_dir = ctx.ensure_notes_dir()
+    notes_dir = ctx.config.ensure_notes_dir()
 
     try:
         # First try exact filename match
-        filename = args.query if args.query.endswith(".md") else f"{args.query}.md"
+        filename = query if query.endswith(".md") else f"{query}.md"
         file_path = notes_dir / filename
 
         if file_path.exists():
@@ -337,7 +333,7 @@ def note_open(args: NoteOpenArgs) -> NoteOpenResult:
         md_files = list(notes_dir.glob("*.md"))
         for file_path in md_files:
             note = _parse_note_file(file_path)
-            if note and args.query.lower() in note.title.lower():
+            if note and query.lower() in note.title.lower():
                 content = file_path.read_text()
                 return NoteOpenResult(
                     success=True,
@@ -346,17 +342,12 @@ def note_open(args: NoteOpenArgs) -> NoteOpenResult:
                     message=f"Opened: {note.title}",
                 )
 
-        return NoteOpenResult(success=False, message=f"Note not found: {args.query}")
+        return NoteOpenResult(success=False, message=f"Note not found: {query}")
 
     except Exception as e:
         return NoteOpenResult(success=False, message=f"Error: {str(e)}")
 
 
-# Note Recent Tool
-class NoteRecentArgs(BaseModel):
-    """Arguments for listing recent notes."""
-
-    limit: int = Field(10, description="Number of recent notes to show")
 
 
 class NoteRecentResult(BaseModel):
@@ -368,13 +359,16 @@ class NoteRecentResult(BaseModel):
 
 
 @register()
-def note_recent(args: NoteRecentArgs) -> NoteRecentResult:
+def note_recent(limit: int = 10) -> NoteRecentResult:
     """List recently modified notes.
 
-    Example usage: note_recent({"limit": 5})
+    Args:
+        limit: Number of recent notes to show (default: 10)
+        
+    Example usage: note_recent(5)
     """
     ctx = get_tool_context()
-    notes_dir = ctx.ensure_notes_dir()
+    notes_dir = ctx.config.ensure_notes_dir()
 
     try:
         # Find all markdown files and sort by modification time
@@ -382,7 +376,7 @@ def note_recent(args: NoteRecentArgs) -> NoteRecentResult:
         md_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
 
         notes_list = []
-        for file_path in md_files[: args.limit]:
+        for file_path in md_files[:limit]:
             note = _parse_note_file(file_path)
             if note:
                 notes_list.append(note)
@@ -393,11 +387,6 @@ def note_recent(args: NoteRecentArgs) -> NoteRecentResult:
         return NoteRecentResult(success=False)
 
 
-# Note Tags Tool
-class NoteTagsArgs(BaseModel):
-    """Arguments for listing all tags."""
-
-    pass
 
 
 class NoteTagsResult(BaseModel):
@@ -409,13 +398,13 @@ class NoteTagsResult(BaseModel):
 
 
 @register()
-def note_tags(args: NoteTagsArgs) -> NoteTagsResult:
+def note_tags() -> NoteTagsResult:
     """List all unique tags used in notes.
 
-    Example usage: note_tags({})
+    Example usage: note_tags()
     """
     ctx = get_tool_context()
-    notes_dir = ctx.ensure_notes_dir()
+    notes_dir = ctx.config.ensure_notes_dir()
 
     try:
         all_tags = set()

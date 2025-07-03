@@ -5,20 +5,6 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-# Data Models
-class CalculatorArgs(BaseModel):
-    """Arguments for calculator operations."""
-
-    operation: Literal["add", "subtract", "multiply", "divide"] = Field(
-        description="Mathematical operation to perform",
-        examples=["add", "subtract", "multiply", "divide"],
-    )
-
-    left: float = Field(description="Left operand (first number)", examples=[10, 5.5, -3.14])
-
-    right: float = Field(description="Right operand (second number)", examples=[5, 2.1, 1.41])
-
-
 class CalculatorResult(BaseModel):
     """Result of calculator operation."""
 
@@ -28,11 +14,13 @@ class CalculatorResult(BaseModel):
 
 
 # Core Implementation
-def perform_calculation(args: CalculatorArgs) -> CalculatorResult:
+def perform_calculation(operation: Literal["add", "subtract", "multiply", "divide"], left: float, right: float) -> CalculatorResult:
     """Perform the requested mathematical operation.
 
     Args:
-        args: Calculator arguments with operation and operands
+        operation: Mathematical operation to perform
+        left: Left operand (first number)
+        right: Right operand (second number)
 
     Returns:
         CalculatorResult with the computed value
@@ -40,8 +28,6 @@ def perform_calculation(args: CalculatorArgs) -> CalculatorResult:
     Raises:
         ValueError: For invalid operations or division by zero
     """
-    left, right = args.left, args.right
-    operation = args.operation
 
     if operation == "add":
         result = left + right

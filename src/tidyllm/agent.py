@@ -16,7 +16,6 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from tidyllm.registry import Registry
 from tidyllm.llm import (
     AssistantMessage,
     LLMClient,
@@ -30,6 +29,7 @@ from tidyllm.llm import (
     ToolMessage,
     UserMessage,
 )
+from tidyllm.registry import Registry
 
 
 def create_request(system_prompt: str, user_prompt: str | None = None) -> list[LLMMessage]:

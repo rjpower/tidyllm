@@ -9,7 +9,7 @@ import pytest
 from tidyllm.context import set_tool_context
 from tidyllm.tools.config import Config
 from tidyllm.tools.context import ToolContext
-from tidyllm.tools.transcribe import TranscribeArgs, get_audio_mime_type, transcribe
+from tidyllm.tools.transcribe import get_audio_mime_type, transcribe
 
 
 @pytest.fixture
@@ -55,10 +55,9 @@ def test_get_audio_mime_type():
 
 def test_transcribe_file_not_found(test_context):
     """Test transcription with non-existent file."""
-    args = TranscribeArgs(audio_file_path=Path("/nonexistent/file.mp3"), language="en", translate_to="es")
     with set_tool_context(test_context):
         with pytest.raises(FileNotFoundError, match="Audio file not found"):
-            transcribe(args)
+            transcribe(audio_file_path=Path("/nonexistent/file.mp3"), language="en", translate_to="es")
 
 
 @patch('litellm.completion')
@@ -79,13 +78,8 @@ def test_transcribe_success(mock_completion, test_context, mock_audio_file):
     """
     mock_completion.return_value = mock_response
     
-    args = TranscribeArgs(
-        audio_file_path=mock_audio_file,
-        language="en",
-        translate_to="es"
-    )
     with set_tool_context(test_context):
-        result = transcribe(args)
+        result = transcribe(audio_file_path=mock_audio_file, language="en", translate_to="es")
     
     assert result.transcription == "Hello, how are you today?"
     assert result.language == "en"
@@ -126,13 +120,8 @@ def test_transcribe_with_auto_language_detection(mock_completion, test_context, 
     """
     mock_completion.return_value = mock_response
     
-    args = TranscribeArgs(
-        audio_file_path=mock_audio_file,
-        # No language specified - should auto-detect
-        translate_to="en"
-    )
     with set_tool_context(test_context):
-        result = transcribe(args)
+        result = transcribe(audio_file_path=mock_audio_file, language=None, translate_to="en")
     
     assert result.language == "fr"
     assert "Bonjour" in result.transcription
@@ -150,10 +139,9 @@ def test_transcribe_empty_response(mock_completion, test_context, mock_audio_fil
     mock_response.choices = []
     mock_completion.return_value = mock_response
 
-    args = TranscribeArgs(audio_file_path=mock_audio_file, language="en", translate_to="es")
     with set_tool_context(test_context):
         with pytest.raises(RuntimeError, match="No response from LLM"):
-            transcribe(args)
+            transcribe(audio_file_path=mock_audio_file, language="en", translate_to="es")
 
 
 @patch('litellm.completion')
@@ -164,10 +152,9 @@ def test_transcribe_invalid_json_response(mock_completion, test_context, mock_au
     mock_response.choices[0].message.content = "Invalid JSON response"
     mock_completion.return_value = mock_response
     
-    args = TranscribeArgs(audio_file_path=mock_audio_file, language="en", translate_to="es")
     with set_tool_context(test_context):
         with pytest.raises(Exception):  # Could be JSONDecodeError or other parsing error
-            transcribe(args)
+            transcribe(audio_file_path=mock_audio_file, language="en", translate_to="es")
 
 
 @patch('litellm.completion')
@@ -175,28 +162,38 @@ def test_transcribe_llm_exception(mock_completion, test_context, mock_audio_file
     """Test handling of LLM API exception."""
     mock_completion.side_effect = Exception("API Error")
     
-    args = TranscribeArgs(audio_file_path=mock_audio_file, language="en", translate_to="es")
     with set_tool_context(test_context):
         with pytest.raises(Exception, match="API Error"):
-            transcribe(args)
+            transcribe(audio_file_path=mock_audio_file, language="en", translate_to="es")
 
 
-def test_transcribe_args_validation():
-    """Test TranscribeArgs model validation."""
-    # Basic args
-    args = TranscribeArgs(audio_file_path=Path("test.mp3"), translate_to="en")
-    assert args.audio_file_path == Path("test.mp3")
-    assert args.language is None
-    assert args.translate_to == "en"
+def test_transcribe_function_parameters(test_context):
+    """Test transcribe function parameter validation."""
+    # This test verifies that the function accepts the expected parameters
+    # Since we don't have TranscribeArgs anymore, we test the function signature directly
     
-    # Args with all fields
-    args_full = TranscribeArgs(
-        audio_file_path=Path("french.wav"),
-        language="fr",
-        translate_to="es"
-    )
-    assert args_full.language == "fr"
-    assert args_full.translate_to == "es"
+    # Test that function can be called with required parameter
+    audio_file = Path("test.mp3")
+    
+    # These calls should not raise TypeError (function signature validation)
+    with set_tool_context(test_context):
+        try:
+            # This will fail because file doesn't exist, but signature is correct
+            transcribe(audio_file_path=audio_file)
+        except FileNotFoundError:
+            pass  # Expected - file doesn't exist
+        
+        try:
+            # Test with all parameters
+            transcribe(audio_file_path=audio_file, language="fr", translate_to="es")
+        except FileNotFoundError:
+            pass  # Expected - file doesn't exist
+        
+        try:
+            # Test with explicit None language
+            transcribe(audio_file_path=audio_file, language=None, translate_to="en")
+        except FileNotFoundError:
+            pass  # Expected - file doesn't exist
 
 
 @patch('litellm.completion')
@@ -222,9 +219,8 @@ def test_transcribe_with_different_audio_formats(mock_completion, test_context):
             audio_file = Path(f.name)
         
         try:
-            args = TranscribeArgs(audio_file_path=audio_file, translate_to="en")
             with set_tool_context(test_context):
-                result = transcribe(args)
+                result = transcribe(audio_file_path=audio_file, translate_to="en")
             
             assert result.transcription == "Test transcription"
             
@@ -252,9 +248,8 @@ def test_transcribe_response_schema_validation(mock_completion, test_context, mo
     """
     mock_completion.return_value = mock_response
     
-    args = TranscribeArgs(audio_file_path=mock_audio_file, translate_to="en")
     with set_tool_context(test_context):
-        transcribe(args)
+        transcribe(audio_file_path=mock_audio_file, translate_to="en")
     
     # Verify response format was specified
     call_args = mock_completion.call_args

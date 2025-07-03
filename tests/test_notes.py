@@ -10,8 +10,6 @@ from tidyllm.tools.config import Config
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.notes import (
     NoteAddArgs,
-    NoteListArgs,
-    NoteSearchArgs,
     note_add,
     note_list,
     note_search,
@@ -76,9 +74,8 @@ def test_notes_add_without_title(test_context):
 
 def test_notes_list_empty(test_context):
     """Test listing notes in empty directory."""
-    args = NoteListArgs()
     with set_tool_context(test_context):
-        result = note_list(args)
+        result = note_list()
     
     assert result.success is True
     assert result.notes == []
@@ -93,7 +90,7 @@ def test_notes_list_with_notes(test_context):
         note_add(NoteAddArgs(title="Note 3", content="Content 3", tags=["tag1", "tag3"]))
         
         # List all notes
-        result = note_list(NoteListArgs())
+        result = note_list()
     
     assert result.success is True
     assert len(result.notes) == 3
@@ -115,7 +112,7 @@ def test_notes_list_filtered_by_tags(test_context):
         note_add(NoteAddArgs(title="Note 3", content="Content 3", tags=["python", "tutorial"]))
         
         # Filter by tag
-        result = note_list(NoteListArgs(tags=["python"]))
+        result = note_list(tags=["python"])
     
     assert result.success is True
     assert len(result.notes) == 2
@@ -134,7 +131,7 @@ def test_notes_search_basic(test_context):
         note_add(NoteAddArgs(title="Database Design", content="Python database connections"))
         
         # Search for "Python"
-        result = note_search(NoteSearchArgs(query="Python"))
+        result = note_search("Python")
     
     assert result.success is True
     assert len(result.notes) == 2  # Should find 2 notes containing "Python"
@@ -147,7 +144,7 @@ def test_notes_search_no_results(test_context):
         note_add(NoteAddArgs(title="Test", content="Simple content"))
         
         # Search for something that doesn't exist
-        result = note_search(NoteSearchArgs(query="nonexistent"))
+        result = note_search("nonexistent")
     
     assert result.success is True
     assert len(result.notes) == 0
@@ -222,7 +219,7 @@ def test_notes_list_with_limit(test_context):
             note_add(NoteAddArgs(title=f"Note {i}", content=f"Content {i}"))
         
         # List with limit
-        result = note_list(NoteListArgs(limit=3))
+        result = note_list(limit=3)
     
     assert result.success is True
     assert len(result.notes) == 3

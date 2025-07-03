@@ -9,7 +9,7 @@ import genanki
 from pydantic import BaseModel, Field
 from unidecode import unidecode
 
-from tidyllm.cli import multi_cli_main
+from tidyllm.adapters.cli import multi_cli_main
 from tidyllm.context import get_tool_context
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
@@ -114,11 +114,6 @@ class AnkiCard(BaseModel):
     audio_path: Path | None = Field(None, description="Path to audio file")
 
 
-class AnkiQueryArgs(BaseModel):
-    """Arguments for querying Anki database."""
-    query: str = Field(description="Search query to find in note fields")
-    limit: int = Field(100, description="Maximum number of cards to return")
-    deck_name: str | None = Field(None, description="Optional deck name to filter by")
 
 
 class AnkiQueryResult(BaseModel):
@@ -128,11 +123,6 @@ class AnkiQueryResult(BaseModel):
     count: int
 
 
-class AnkiCreateArgs(BaseModel):
-    """Arguments for creating Anki cards."""
-    deck_name: str = Field(description="Name of the deck to create/add to")
-    cards: list[AnkiCard] = Field(description="Cards to add to the deck")
-    output_path: Path | None = Field(None, description="Where to save the .apkg file")
 
 
 class AnkiCreateResult(BaseModel):
@@ -151,18 +141,23 @@ class AnkiListResult(BaseModel):
 
 
 @register()
-def anki_query(args: AnkiQueryArgs) -> AnkiQueryResult:
+def anki_query(query: str, limit: int = 100, deck_name: str | None = None) -> AnkiQueryResult:
     """Search for notes in Anki database by query text.
 
-    Example usage: anki_query({"query": "health", "limit": 50})
-    Example with deck filter: anki_query({"query": "health", "deck_name": "Japanese Vocabulary::N5", "limit": 20})
+    Args:
+        query: Search query to find in note fields
+        limit: Maximum number of cards to return (default: 100)
+        deck_name: Optional deck name to filter by
+
+    Example usage: anki_query("health", 50)
+    Example with deck filter: anki_query("health", 20, "Japanese Vocabulary::N5")
     """
     ctx = get_tool_context()
-    anki_db = ctx.find_anki_db()
+    anki_db = ctx.config.find_anki_db()
     if not anki_db:
         return AnkiQueryResult(
             cards=[],
-            query=args.query,
+            query=query,
             count=0
         )
 
@@ -178,15 +173,15 @@ def anki_query(args: AnkiQueryArgs) -> AnkiQueryResult:
             JOIN decks d ON c.did = d.id
             WHERE n.flds LIKE ?
         """
-        params = [f"%{args.query}%"]
+        params = [f"%{query}%"]
 
         # Optional deck filter
-        if args.deck_name:
-            search_name = args.deck_name.replace('::', '\x1f')
+        if deck_name:
+            search_name = deck_name.replace('::', '\x1f')
             sql_query += " AND d.name = ?"
             params.append(search_name)
 
-        sql_query += f" LIMIT {args.limit}"
+        sql_query += f" LIMIT {limit}"
 
         cursor.execute(sql_query, params)
         rows = cursor.fetchall()
@@ -205,7 +200,7 @@ def anki_query(args: AnkiQueryArgs) -> AnkiQueryResult:
 
         return AnkiQueryResult(
             cards=cards,
-            query=args.query,
+            query=query,
             count=len(cards)
         )
 
@@ -213,7 +208,7 @@ def anki_query(args: AnkiQueryArgs) -> AnkiQueryResult:
         print(f"Error: {e}")
         return AnkiQueryResult(
             cards=[],
-            query=args.query,
+            query=query,
             count=0
         )
     finally:
@@ -221,19 +216,24 @@ def anki_query(args: AnkiQueryArgs) -> AnkiQueryResult:
 
 
 @register()
-def anki_create(args: AnkiCreateArgs) -> AnkiCreateResult:
+def anki_create(deck_name: str, cards: list[AnkiCard], output_path: Path | None = None) -> AnkiCreateResult:
     """Create Anki flashcards using genanki.
 
-    Example usage: anki_create({"deck_name": "My Vocab", "cards": [{"source_word": "hello", "translated_word": "hola", "examples": ["Hello world"]}]})
+    Args:
+        deck_name: Name of the deck to create/add to
+        cards: Cards to add to the deck
+        output_path: Where to save the .apkg file (optional)
+
+    Example usage: anki_create("My Vocab", [AnkiCard(source_word="hello", translated_word="hola", examples=["Hello world"])])
     """
     # Generate deck ID from name
-    deck_id = abs(hash(args.deck_name)) % (10 ** 10)
-    deck = genanki.Deck(deck_id, args.deck_name)
+    deck_id = abs(hash(deck_name)) % (10 ** 10)
+    deck = genanki.Deck(deck_id, deck_name)
 
     media_files = []
 
     try:
-        for card in args.cards:
+        for card in cards:
             # Format examples as bullet points
             examples_text = ""
             if card.examples:
@@ -257,15 +257,14 @@ def anki_create(args: AnkiCreateArgs) -> AnkiCreateResult:
             )
             deck.add_note(note)
 
-        # Determine output path
-        if args.output_path:
-            output_path = args.output_path
+        # Determine output path  
+        if output_path:
             # Ensure parent directory exists
             output_path.parent.mkdir(parents=True, exist_ok=True)
         else:
             # Default to temporary directory
             temp_dir = Path(tempfile.gettempdir())
-            output_path = temp_dir / f"{args.deck_name.replace(' ', '_')}.apkg"
+            output_path = temp_dir / f"{deck_name.replace(' ', '_')}.apkg"
 
         # Create package
         package = genanki.Package(deck)
@@ -275,8 +274,8 @@ def anki_create(args: AnkiCreateArgs) -> AnkiCreateResult:
         return AnkiCreateResult(
             success=True,
             deck_path=output_path,
-            cards_created=len(args.cards),
-            message=f"Created {len(args.cards)} cards in deck '{args.deck_name}'"
+            cards_created=len(cards),
+            message=f"Created {len(cards)} cards in deck '{deck_name}'"
         )
 
     except Exception as e:
@@ -295,7 +294,7 @@ def anki_list() -> AnkiListResult:
     Example usage: anki_decks()
     """
     ctx = get_tool_context()
-    anki_db = ctx.find_anki_db()
+    anki_db = ctx.config.find_anki_db()
     if not anki_db:
         return AnkiListResult(decks=[], count=0)
 
