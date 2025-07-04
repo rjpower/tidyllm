@@ -10,7 +10,6 @@ from tidyllm.tools.config import Config
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.manage_db import (
     db_execute,
-    db_list_tables,
     db_query,
     db_schema,
 )
@@ -26,32 +25,6 @@ def test_context():
             notes_dir=temp_path / "notes",
         )
         yield ToolContext(config=config)
-
-
-def test_list_tables_empty(test_context):
-    """Test listing tables in empty database."""
-    with set_tool_context(test_context):
-        tables = db_list_tables()
-    
-    # Function completed successfully if no exception raised
-    assert tables is not None
-    # Should have zero tables in empty database
-    assert len(tables) >= 0
-
-
-def test_list_tables_with_data(test_context):
-    """Test listing tables after creating some."""
-    # Create a table first
-    with set_tool_context(test_context):
-        result = db_execute("CREATE TABLE test_table (id INTEGER PRIMARY KEY, name TEXT)")
-        # Function completed successfully if no exception raised
-        
-        # Now list tables
-        tables = db_list_tables()
-    
-    # Function completed successfully if no exception raised
-    assert tables is not None
-    assert "test_table" in tables
 
 
 def test_schema_operation(test_context):

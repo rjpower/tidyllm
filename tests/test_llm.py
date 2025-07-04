@@ -1,6 +1,7 @@
 """Test the LLM module with expected workflow."""
 
 import json
+from typing import cast
 
 from tidyllm.agent import LLMAgent, LLMLogger, create_request
 from tidyllm.llm import (
@@ -274,7 +275,7 @@ def test_message_structure():
     assert messages[1].content == "Hello"
     assert messages[2].role == Role.ASSISTANT
     assert messages[2].content == "I'll help you"
-    assert len(messages[2].tool_calls) == 1
+    assert len(cast(AssistantMessage, messages[2]).tool_calls) == 1
     assistant_msg = messages[2]
     assert isinstance(assistant_msg, AssistantMessage)
     assert assistant_msg.tool_calls[0].id == "call_123"

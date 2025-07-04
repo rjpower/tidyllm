@@ -10,8 +10,6 @@ from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 
 
-
-
 @register()
 def db_query(sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
     """Execute SELECT queries safely.
@@ -33,10 +31,6 @@ def db_query(sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
     cursor = db.query(sql, params)
 
     return [dict(row.items()) for row in cursor]
-
-
-
-
 
 
 class DBExecuteResult(BaseModel):
@@ -65,29 +59,6 @@ def db_execute(sql: str, params: list[Any] | None = None) -> DBExecuteResult:
     # Execute with parameters if provided
     affected_count = db.mutate(sql, params)
     return DBExecuteResult(affected_count=affected_count)
-
-
-
-
-
-
-@register()
-def db_list_tables() -> list[str]:
-    """List all tables in the database.
-    
-    Example usage: db_list_tables()
-    """
-    ctx = get_tool_context()
-    db = ctx.db
-
-    cursor = db.query(
-        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-    )
-    return [row["name"] for row in cursor]
-
-
-
-
 
 
 @register()

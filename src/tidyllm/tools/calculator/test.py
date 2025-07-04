@@ -6,7 +6,6 @@ from tidyllm import REGISTRY
 from tidyllm.registry import ToolError
 from tidyllm.tools.calculator import calculator
 from tidyllm.tools.calculator.lib import (
-    CalculatorArgs,
     CalculatorResult,
     perform_calculation,
 )
@@ -17,8 +16,7 @@ class TestCalculatorLib:
 
     def test_addition(self):
         """Test addition operation."""
-        args = CalculatorArgs(operation="add", left=10, right=5)
-        result = perform_calculation(args)
+        result = perform_calculation(operation="add", left=10, right=5)
 
         assert isinstance(result, CalculatorResult)
         assert result.result == 15
@@ -27,8 +25,7 @@ class TestCalculatorLib:
 
     def test_subtraction(self):
         """Test subtraction operation."""
-        args = CalculatorArgs(operation="subtract", left=10, right=3)
-        result = perform_calculation(args)
+        result = perform_calculation(operation="subtract", left=10, right=3)
 
         assert result.result == 7
         assert result.operation == "subtract"
@@ -36,38 +33,32 @@ class TestCalculatorLib:
 
     def test_multiplication(self):
         """Test multiplication operation."""
-        args = CalculatorArgs(operation="multiply", left=4, right=6)
-        result = perform_calculation(args)
+        result = perform_calculation(operation="multiply", left=4, right=6)
 
         assert result.result == 24
         assert result.operation == "multiply"
 
     def test_division(self):
         """Test division operation."""
-        args = CalculatorArgs(operation="divide", left=15, right=3)
-        result = perform_calculation(args)
+        result = perform_calculation(operation="divide", left=15, right=3)
 
         assert result.result == 5
         assert result.operation == "divide"
 
     def test_division_by_zero(self):
         """Test division by zero error."""
-        args = CalculatorArgs(operation="divide", left=10, right=0)
-
         with pytest.raises(ValueError, match="Cannot divide by zero"):
-            perform_calculation(args)
+            perform_calculation(operation="divide", left=10, right=0)
 
     def test_float_operations(self):
         """Test operations with floating point numbers."""
-        args = CalculatorArgs(operation="add", left=3.14, right=2.86)
-        result = perform_calculation(args)
+        result = perform_calculation(operation="add", left=3.14, right=2.86)
 
         assert abs(result.result - 6.0) < 0.0001  # Float precision
 
     def test_negative_numbers(self):
         """Test operations with negative numbers."""
-        args = CalculatorArgs(operation="multiply", left=-5, right=3)
-        result = perform_calculation(args)
+        result = perform_calculation(operation="multiply", left=-5, right=3)
 
         assert result.result == -15
 
@@ -101,8 +92,7 @@ class TestCalculatorTool:
 
     def test_tool_execution_success(self):
         """Test successful tool execution."""
-        args = CalculatorArgs(operation="add", left=8, right=7)
-        result = calculator(args)
+        result = calculator(operation="add", left=8, right=7)
 
         assert isinstance(result, CalculatorResult)
         assert result.result == 15
@@ -110,10 +100,8 @@ class TestCalculatorTool:
 
     def test_tool_execution_error(self):
         """Test tool execution with error."""
-        args = CalculatorArgs(operation="divide", left=10, right=0)
-
         with pytest.raises(ValueError, match="Cannot divide by zero"):
-            calculator(args)
+            calculator(operation="divide", left=10, right=0)
 
     def test_schema_generation(self):
         """Test that schema is generated correctly."""

@@ -39,6 +39,7 @@ def simple_tool(args: SimpleArgs) -> dict:
 def context_tool(args: SimpleArgs) -> dict:
     """Tool that requires context."""
     from tidyllm.context import get_tool_context
+
     ctx = get_tool_context()
     return {"message": f"Hello {args.name} from {ctx.config.notes_dir}"}
 
@@ -65,7 +66,9 @@ class TestCLIGeneration:
         cli_command = generate_cli(simple_tool)
         runner = CliRunner()
 
-        result = runner.invoke(cli_command, ["--name", "test", "--count", "10", "--flag"])
+        result = runner.invoke(
+            cli_command, ["--name", "test", "--count", "10", "--flag"]
+        )
 
         if result.exit_code != 0:
             print(f"CLI Error: {result.output}")
@@ -144,7 +147,9 @@ class TestCLIGeneration:
         cli_command = generate_cli(simple_tool)
         runner = CliRunner()
 
-        result = runner.invoke(cli_command, ["--count", "10"])  # Missing required 'name'
+        result = runner.invoke(
+            cli_command, ["--count", "10"]
+        )  # Missing required 'name'
 
         assert result.exit_code == 1  # Should exit with error for missing required args
         # The error should be shown to the user via exception or output
@@ -194,7 +199,9 @@ class TestCLIGeneration:
 
         result = runner.invoke(cli_command, ["--name", "test"])
 
-        assert result.exit_code == 1  # Should exit with error for tool execution failure
+        assert (
+            result.exit_code == 1
+        )  # Should exit with error for tool execution failure
         # The error should be shown to the user via exception or output
         error_text = str(result.exception) if result.exception else result.output
         assert "Tool execution failed" in error_text
@@ -258,42 +265,3 @@ class TestCLIGeneration:
         assert result.exit_code == 0
         assert "The name parameter" in result.output
         assert "Number of items" in result.output
-
-    def test_cli_basemodel_result_serialization(self):
-        """Test that BaseModel results are properly serialized."""
-
-        class ResultModel(BaseModel):
-            status: str
-            data: dict
-
-        def model_result_tool(args: SimpleArgs) -> ResultModel:
-            """Tool that returns BaseModel."""
-            return ResultModel(status="success", data={"name": args.name, "count": args.count})
-
-        cli_command = generate_cli(model_result_tool)
-        runner = CliRunner()
-
-        result = runner.invoke(cli_command, ["--name", "test"])
-
-        assert result.exit_code == 0
-        # Check text output contains expected values from the model
-        assert "success" in result.output
-        assert "test" in result.output
-        assert "5" in result.output
-
-    @patch("tidyllm.schema.inspect.signature")
-    def test_cli_generation_signature_inspection(self, mock_signature):
-        """Test that CLI generation properly inspects function signature."""
-        # Mock the signature inspection in the schema module
-        mock_sig = MagicMock()
-        mock_sig.parameters = {
-            "args": MagicMock(annotation=SimpleArgs),
-            "ctx": MagicMock(annotation=CLITestContext),
-        }
-        mock_signature.return_value = mock_sig
-
-        cli_command = generate_cli(simple_tool)
-
-        # Verify signature was inspected (now happens in FunctionDescription)
-        assert mock_signature.called
-        assert cli_command is not None

@@ -15,12 +15,12 @@ from tidyllm.tools.context import ToolContext
 
 class Note(BaseModel):
     """A note with metadata."""
-    file_path: str  # Path as string for JSON serialization
+    file_path: Path
     title: str
     tags: list[str] = Field(default_factory=list)
     content_preview: str
-    created_at: str  # ISO format string
-    updated_at: str  # ISO format string
+    created_at: datetime
+    updated_at: datetime
 
 
 # Add Note Tool
@@ -29,8 +29,6 @@ class NoteAddArgs(BaseModel):
     content: str = Field(description="Note content (markdown)")
     title: str | None = Field(None, description="Note title")
     tags: list[str] = Field(default_factory=list, description="Tags for the note")
-
-
 
 
 def parse_frontmatter(content: str) -> tuple[dict[str, str | list[str]], str]:
@@ -157,8 +155,6 @@ def note_add(args: NoteAddArgs) -> str:
     return str(file_path)
 
 
-
-
 class NoteSearchResult(BaseModel):
     """Result of note search."""
     notes: list[Note] = Field(default_factory=list)
@@ -228,8 +224,6 @@ def note_search(query: str) -> NoteSearchResult:
     return NoteSearchResult(notes=notes_list, count=len(notes_list))
 
 
-
-
 class NoteListResult(BaseModel):
     """Result of listing notes."""
     notes: list[Note] = Field(default_factory=list)
@@ -269,10 +263,6 @@ def note_list(tags: list[str] | None = None, limit: int = 50) -> NoteListResult:
     return NoteListResult(notes=notes_list, count=len(notes_list))
 
 
-
-
-
-
 @register()
 def note_open(query: str) -> str:
     """Open and display a note by title or filename.
@@ -302,8 +292,6 @@ def note_open(query: str) -> str:
             return content
 
     raise FileNotFoundError(f"Note not found: {query}")
-
-
 
 
 class NoteRecentResult(BaseModel):
@@ -336,8 +324,6 @@ def note_recent(limit: int = 10) -> NoteRecentResult:
             notes_list.append(note)
 
     return NoteRecentResult(notes=notes_list, count=len(notes_list))
-
-
 
 
 class NoteTagsResult(BaseModel):

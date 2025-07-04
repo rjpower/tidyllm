@@ -200,10 +200,10 @@ class TestStreamOperations:
             )
 
 
-@pytest.mark.integration
 class TestAudioPipeline:
     """Integration tests for complete audio processing pipeline."""
 
+    @pytest.mark.integration
     def test_file_to_vad_pipeline(self, test_audio_file, tool_context):
         """Test complete pipeline from file to VAD chunks."""
         pytest.importorskip("torch")

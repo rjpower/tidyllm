@@ -15,6 +15,15 @@ class CacheTestModel(BaseModel):
     name: str
 
 
+class Counter:
+    """Helper class for counting function calls in tests."""
+    def __init__(self):
+        self.count = 0
+    
+    def increment(self):
+        self.count += 1
+
+
 class CacheContext:
     """Cache context for testing."""
     def __init__(self, db):
@@ -44,67 +53,64 @@ class TestCachedFunction:
 
     def test_basic_caching(self, cache_context):
         """Test that results are cached and retrieved correctly."""
-        call_count = 0
+        counter = Counter()
 
         @cached_function
         def expensive_computation(x: int) -> int:
-            nonlocal call_count
-            call_count += 1
+            counter.increment()
             return x * x
 
         # First call should execute the function
         result1 = expensive_computation(5)
         assert result1 == 25
-        assert call_count == 1
+        assert counter.count == 1
 
         # Second call with same args should use cache
         result2 = expensive_computation(5)
         assert result2 == 25
-        assert call_count == 1  # Function not called again
+        assert counter.count == 1  # Function not called again
 
         # Different args should execute function again
         result3 = expensive_computation(6)
         assert result3 == 36
-        assert call_count == 2
+        assert counter.count == 2
 
     def test_multiple_arguments(self, cache_context):
         """Test caching with multiple arguments."""
-        call_count = 0
+        counter = Counter()
 
         @cached_function
         def add_numbers(a: int, b: int, c: int = 0) -> int:
-            nonlocal call_count
-            call_count += 1
+            counter.increment()
             return a + b + c
 
         # Test with positional arguments
         result1 = add_numbers(1, 2, 3)
         assert result1 == 6
-        assert call_count == 1
+        assert counter.count == 1
 
         # Same call should use cache
         result2 = add_numbers(1, 2, 3)
         assert result2 == 6
-        assert call_count == 1
+        assert counter.count == 1
 
         # Test with keyword arguments
         result3 = add_numbers(1, 2, c=3)
         assert result3 == 6
-        assert call_count == 1  # Should match cached result
+        assert counter.count == 1  # Should match cached result
 
         # Different arguments
         result4 = add_numbers(1, 2, 4)
         assert result4 == 7
-        assert call_count == 2
+        assert counter.count == 2
 
     def test_pydantic_model_caching(self, cache_context):
         """Test caching with Pydantic model return values."""
-        call_count = 0
+        counter = Counter()
 
         @cached_function
         def create_model(value: int, name: str) -> CacheTestModel:
-            nonlocal call_count
-            call_count += 1
+            counter.increment()
             return CacheTestModel(value=value, name=name)
 
         # First call
@@ -112,39 +118,38 @@ class TestCachedFunction:
         assert isinstance(result1, CacheTestModel)
         assert result1.value == 42
         assert result1.name == "test"
-        assert call_count == 1
+        assert counter.count == 1
 
         # Second call should use cache
         result2 = create_model(42, "test")
         assert isinstance(result2, CacheTestModel)
         assert result2.value == 42
         assert result2.name == "test"
-        assert call_count == 1
+        assert counter.count == 1
 
     def test_none_return_value(self, cache_context):
         """Test caching when function returns None."""
-        call_count = 0
+        counter = Counter()
 
         @cached_function
         def maybe_return(should_return: bool) -> int | None:
-            nonlocal call_count
-            call_count += 1
+            counter.increment()
             return 42 if should_return else None
 
         # Test None result
         result1 = maybe_return(False)
         assert result1 is None
-        assert call_count == 1
+        assert counter.count == 1
 
         # Should use cached None
         result2 = maybe_return(False)
         assert result2 is None
-        assert call_count == 1
+        assert counter.count == 1
 
         # Test non-None result
         result3 = maybe_return(True)
         assert result3 == 42
-        assert call_count == 2
+        assert counter.count == 2
 
     def test_function_metadata_preserved(self, cache_context):
         """Test that @wraps preserves function metadata."""
@@ -186,34 +191,32 @@ class TestAsyncCachedFunction:
     @pytest.mark.asyncio
     async def test_basic_async_caching(self, cache_context):
         """Test that async results are cached and retrieved correctly."""
-        call_count = 0
+        counter = Counter()
 
         @async_cached_function
         async def async_computation(x: int) -> int:
-            nonlocal call_count
-            call_count += 1
+            counter.increment()
             await asyncio.sleep(0.01)  # Simulate async work
             return x * x
 
         # First call should execute the function
         result1 = await async_computation(5)
         assert result1 == 25
-        assert call_count == 1
+        assert counter.count == 1
 
         # Second call with same args should use cache
         result2 = await async_computation(5)
         assert result2 == 25
-        assert call_count == 1  # Function not called again
+        assert counter.count == 1  # Function not called again
 
     @pytest.mark.asyncio
     async def test_async_with_pydantic_model(self, cache_context):
         """Test async caching with Pydantic model return values."""
-        call_count = 0
+        counter = Counter()
 
         @async_cached_function
         async def async_create_model(value: int, name: str) -> CacheTestModel:
-            nonlocal call_count
-            call_count += 1
+            counter.increment()
             await asyncio.sleep(0.01)
             return CacheTestModel(value=value, name=name)
 
@@ -222,14 +225,14 @@ class TestAsyncCachedFunction:
         assert isinstance(result1, CacheTestModel)
         assert result1.value == 42
         assert result1.name == "async_test"
-        assert call_count == 1
+        assert counter.count == 1
 
         # Second call should use cache
         result2 = await async_create_model(42, "async_test")
         assert isinstance(result2, CacheTestModel)
         assert result2.value == 42
         assert result2.name == "async_test"
-        assert call_count == 1
+        assert counter.count == 1
 
     @pytest.mark.asyncio
     async def test_async_function_metadata_preserved(self, cache_context):
@@ -253,28 +256,27 @@ class TestAsyncCachedFunction:
     @pytest.mark.asyncio
     async def test_concurrent_async_calls(self, cache_context):
         """Test that concurrent calls to the same cached async function work correctly."""
-        call_count = 0
+        counter = Counter()
 
         @async_cached_function
         async def slow_computation(x: int) -> int:
-            nonlocal call_count
-            call_count += 1
+            counter.increment()
             await asyncio.sleep(0.05)  # Simulate slow operation
             return x * x
 
         # Make sequential calls to avoid database contention
         result1 = await slow_computation(10)
         assert result1 == 100
-        assert call_count == 1
+        assert counter.count == 1
 
         result2 = await slow_computation(10)
         assert result2 == 100
-        assert call_count == 1  # Should use cache
+        assert counter.count == 1  # Should use cache
 
         # Test with different argument
         result3 = await slow_computation(11)
         assert result3 == 121
-        assert call_count == 2
+        assert counter.count == 2
 
 
 class TestCacheIntegration:

@@ -147,6 +147,10 @@ ignore = [
     "ISC002", # https://docs.astral.sh/ruff/rules/multi-line-implicit-string-concatenation/
 ]
 
+[tool.pyrefly]
+project-includes = ["**/*"]
+project-excludes = ["**/*venv/**/*"]
+
 
 [tool.pytest.ini_options]
 python_files = ["*.py"]
@@ -157,3 +161,6 @@ testpaths = [
 ]
 norecursedirs = []
 filterwarnings = []
+markers = [
+    "integration: marks for integration testing"
+]
