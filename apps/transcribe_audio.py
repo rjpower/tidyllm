@@ -17,6 +17,7 @@ from rich.progress import track
 from rich.table import Table
 
 from tidyllm.adapters.cli import multi_cli_main
+from tidyllm.duration import Duration
 from tidyllm.registry import register
 from tidyllm.tools.audio import chunk_by_vad_stream, chunk_to_wav_bytes
 from tidyllm.tools.audio import file as audio_file
@@ -101,7 +102,9 @@ def transcribe_audio(
     # Step 1: Segment audio using VAD
     console.print("[yellow]Segmenting audio using Voice Activity Detection...[/yellow]")
     audio_stream = audio_file(audio_path)
-    segments = chunk_by_vad_stream(audio_stream)
+    segments = chunk_by_vad_stream(
+        audio_stream, min_speech_duration=Duration.from_ms(10000)
+    )
 
     # Step 2: Transcribe each segment
     all_transcriptions = []
@@ -118,13 +121,9 @@ def transcribe_audio(
             source_language=source_language,
             target_language=target_language,
         )
-        print(
-            "Transcribed: ", segment.timestamp, segment.duration, transcription_result
-        )
-
         segment_transcription = SegmentTranscription(
             segment_index=len(all_transcriptions),
-            start_time=segment.timestamp,
+            start_time=segment.timestamp.as_sec(),
             result=transcription_result,
         )
 
@@ -285,7 +284,6 @@ def review_vocab(
             indices = [int(x.strip()) for x in selection.split(",")]
         except ValueError:
             console.print("[red]Invalid selection format[/red]")
-            raise ValueError("Invalid selection format")
 
     # Add selected words
     added_count = 0

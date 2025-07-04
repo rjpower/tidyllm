@@ -57,7 +57,9 @@ async def async_function(args: SimpleArgs) -> dict:
     return {"async": True, "name": args.name}
 
 
-def multi_param_function(name: str, count: int, tags: list[str], config: dict = None) -> dict:
+def multi_param_function(
+    name: str, count: int, tags: list[str], config: dict | None = None
+) -> dict:
     """Function with multiple parameters.
 
     Args:

@@ -1,7 +1,6 @@
 """Audio transcription tool using Gemini via litellm."""
 
 import base64
-import json
 from pathlib import Path
 from typing import cast
 
@@ -65,6 +64,8 @@ def transcribe_bytes(
     Example usage: transcribe_bytes(audio_bytes, "audio/wav", "es", "en")
     """
     ctx = get_tool_context()
+
+    print(f"Transcribing: {len(audio_data)} bytes of data.")
 
     # Encode audio data as base64
     audio_base64 = base64.b64encode(audio_data).decode("utf-8")
@@ -164,8 +165,6 @@ def transcribe(
     # Read audio file and determine MIME type
     audio_data = audio_file_path.read_bytes()
     mime_type = get_audio_mime_type(audio_file_path)
-
-    print(f"Transcribing: {len(audio_data)} bytes of data.")
 
     # Call the cached bytes-based function
     return transcribe_bytes(audio_data, mime_type, language, translate_to)

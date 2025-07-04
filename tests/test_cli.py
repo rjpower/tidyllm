@@ -1,7 +1,6 @@
 """Tests for CLI generation."""
 
 from typing import Protocol
-from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 from pydantic import BaseModel

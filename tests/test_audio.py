@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from tidyllm.context import set_tool_context
+from tidyllm.duration import Duration
 from tidyllm.tools.audio import (
     AudioChunk,
     AudioFormat,
@@ -31,7 +32,7 @@ def tool_context():
 def audio_stream(test_audio_file, tool_context):
     """Stream from test audio file."""
     with set_tool_context(tool_context):
-        return file(str(test_audio_file), seconds_per_chunk=1.0)
+        return file(str(test_audio_file), chunk_duration=Duration.from_sec(1.0))
 
 
 class TestAudioChunk:
@@ -39,10 +40,12 @@ class TestAudioChunk:
 
     def test_audio_chunk_creation(self):
         """Test creating an AudioChunk."""
-        audio_format = AudioFormat(sample_rate=16000, channels=1, dtype="int16")
-        chunk = AudioChunk(data=b"test_data", timestamp=1.5, format=audio_format)
-        assert chunk.data == b"test_data"
-        assert chunk.timestamp == 1.5
+        import numpy as np
+        audio_format = AudioFormat(sample_rate=16000, channels=1)
+        test_data = np.array([0.1, 0.2, 0.3], dtype=np.float32)
+        chunk = AudioChunk.from_array(array=test_data, timestamp=Duration.from_sec(1.5), audio_format=audio_format)
+        assert np.array_equal(chunk.as_array(), test_data)
+        assert chunk.timestamp == Duration.from_sec(1.5)
         assert chunk.sample_rate == 16000
         assert chunk.channels == 1
         assert chunk.format == audio_format
@@ -54,7 +57,7 @@ class TestAudioLoading:
     def test_file_stream_creation(self, test_audio_file, tool_context):
         """Test creating stream from audio file."""
         with set_tool_context(tool_context):
-            stream = file(str(test_audio_file), seconds_per_chunk=1.0)
+            stream = file(str(test_audio_file), chunk_duration=Duration.from_sec(1.0))
             chunks = list(stream.take(5))
             
             assert len(chunks) > 0
@@ -66,7 +69,7 @@ class TestAudioLoading:
         """Test file stream with different parameters."""
         with set_tool_context(tool_context):
             # Test with max duration
-            stream = file(str(test_audio_file), seconds_per_chunk=0.5, max_duration=1.0)
+            stream = file(str(test_audio_file), chunk_duration=Duration.from_sec(0.5), max_duration=Duration.from_sec(1.0))
             chunks = list(stream)
             
             total_duration = sum(len(chunk.data) / (chunk.sample_rate * chunk.channels * 2) 
@@ -98,7 +101,7 @@ class TestAudioProcessing:
         with set_tool_context(tool_context):
             chunk = next(iter(audio_stream))
             target_format = AudioFormat(
-                sample_rate=22050, channels=chunk.channels, dtype="int16"
+                sample_rate=22050, channels=chunk.channels
             )
 
             resampled = chunk.resample_to(target_format)
@@ -114,8 +117,8 @@ class TestAudioProcessing:
             chunk = next(iter(audio_stream))
             duration = chunk.duration
 
-            assert duration > 0
-            assert isinstance(duration, float)
+            assert duration > Duration.zero()
+            assert isinstance(duration, Duration)
 
     def test_chunk_properties(self, audio_stream, tool_context):
         """Test chunk property access."""
@@ -125,7 +128,7 @@ class TestAudioProcessing:
             # Should have basic properties
             assert chunk.sample_rate > 0
             assert chunk.channels > 0
-            assert chunk.duration > 0
+            assert chunk.duration > Duration.zero()
             assert len(chunk.data) > 0
 
 
@@ -140,7 +143,7 @@ class TestVAD:
         """Test VAD chunking."""
         with set_tool_context(tool_context):
             vad_stream = chunk_by_vad_stream(
-                audio_stream, min_speech_duration_ms=100, min_silence_duration_ms=50
+                audio_stream, min_speech_duration=Duration.from_ms(100), min_silence_duration=Duration.from_ms(50)
             )
 
             chunks = list(vad_stream.take(3))
@@ -176,7 +179,7 @@ class TestStreamOperations:
             timestamps = audio_stream.map(lambda chunk: chunk.timestamp).take(3).collect()
 
             assert len(timestamps) >= 1
-            assert all(isinstance(ts, float) for ts in timestamps)
+            assert all(isinstance(ts, Duration) for ts in timestamps)
             assert timestamps == sorted(timestamps)  # Should be in order
 
     def test_stream_filter(self, audio_stream, tool_context):
@@ -211,7 +214,7 @@ class TestAudioPipeline:
 
         with set_tool_context(tool_context):
             # Create pipeline: file -> VAD -> take first few chunks
-            audio_stream = file(str(test_audio_file), seconds_per_chunk=1.0)
+            audio_stream = file(str(test_audio_file), chunk_duration=Duration.from_sec(1.0))
             pipeline = chunk_by_vad_stream(audio_stream).take(2)
 
             chunks = list(pipeline)
