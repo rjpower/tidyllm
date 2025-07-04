@@ -31,12 +31,12 @@ def test_context():
 def test_list_tables_empty(test_context):
     """Test listing tables in empty database."""
     with set_tool_context(test_context):
-        result = db_list_tables()
+        tables = db_list_tables()
     
-    assert result.success is True
-    assert result.tables is not None
+    # Function completed successfully if no exception raised
+    assert tables is not None
     # Should have zero tables in empty database
-    assert len(result.tables) >= 0
+    assert len(tables) >= 0
 
 
 def test_list_tables_with_data(test_context):
@@ -44,14 +44,14 @@ def test_list_tables_with_data(test_context):
     # Create a table first
     with set_tool_context(test_context):
         result = db_execute("CREATE TABLE test_table (id INTEGER PRIMARY KEY, name TEXT)")
-        assert result.success is True
+        # Function completed successfully if no exception raised
         
         # Now list tables
-        result = db_list_tables()
+        tables = db_list_tables()
     
-    assert result.success is True
-    assert result.tables is not None
-    assert "test_table" in result.tables
+    # Function completed successfully if no exception raised
+    assert tables is not None
+    assert "test_table" in tables
 
 
 def test_schema_operation(test_context):
@@ -61,14 +61,14 @@ def test_schema_operation(test_context):
         db_execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT)")
         
         # Get schema
-        result = db_schema()
+        schema = db_schema()
     
-    assert result.success is True
-    assert result.db_schema is not None
-    assert "users" in result.db_schema
+    # Function completed successfully if no exception raised
+    assert schema is not None
+    assert "users" in schema
     
     # Check column details
-    users_schema = result.db_schema["users"]
+    users_schema = schema["users"]
     assert len(users_schema) == 3  # id, name, email
     
     # Find the name column
@@ -82,12 +82,11 @@ def test_execute_insert(test_context):
     # Create table
     with set_tool_context(test_context):
         result = db_execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
-        assert result.success is True
         
         # Insert data
         result = db_execute("INSERT INTO test (value) VALUES ('hello')")
     
-    assert result.success is True
+    # Function completed successfully if no exception raised
     assert result.affected_count == 1
 
 
@@ -103,13 +102,13 @@ def test_query_select(test_context):
             db_execute(sql)
         
         # Query data
-        result = db_query("SELECT * FROM test ORDER BY id")
+        rows = db_query("SELECT * FROM test ORDER BY id")
     
-    assert result.success is True
-    assert result.rows is not None
-    assert len(result.rows) == 2
-    assert result.rows[0]["value"] == "hello"
-    assert result.rows[1]["value"] == "world"
+    # Function completed successfully if no exception raised
+    assert rows is not None
+    assert len(rows) == 2
+    assert rows[0]["value"] == "hello"
+    assert rows[1]["value"] == "world"
 
 
 def test_query_with_params(test_context):
@@ -120,14 +119,14 @@ def test_query_with_params(test_context):
         db_execute("INSERT INTO test VALUES (1, 'alice'), (2, 'bob')")
         
         # Query with params
-        result = db_query(
+        rows = db_query(
             "SELECT * FROM test WHERE name = ?",
             ["alice"]
         )
     
-    assert result.success is True
-    assert len(result.rows) == 1
-    assert result.rows[0]["name"] == "alice"
+    # Function completed successfully if no exception raised
+    assert len(rows) == 1
+    assert rows[0]["name"] == "alice"
 
 
 def test_dangerous_operations_blocked(test_context):
@@ -140,40 +139,33 @@ def test_dangerous_operations_blocked(test_context):
     
     with set_tool_context(test_context):
         for sql in dangerous_operations:
-            result = db_execute(sql)
-        
-        assert result.success is False
-        assert "dangerous" in result.error.lower() or "not allowed" in result.error.lower()
+            with pytest.raises(ValueError, match="dangerous|not allowed"):
+                db_execute(sql)
 
 
 def test_non_select_in_query_operation(test_context):
     """Test that non-SELECT statements are blocked in query operation."""
     with set_tool_context(test_context):
-        result = db_query("INSERT INTO test VALUES (1, 'hack')")
-    
-    assert result.success is False
-    assert "select" in result.error.lower()
+        with pytest.raises(ValueError):
+            db_query("INSERT INTO test VALUES (1, 'hack')")
 
 
 def test_sql_error_handling(test_context):
     """Test handling of SQL errors."""
     with set_tool_context(test_context):
-        result = db_query("SELECT * FROM nonexistent_table")
-    
-    assert result.success is False
-    assert result.error is not None
-    assert "error" in result.error.lower()
+        with pytest.raises(Exception):  # Should raise some database error
+            db_query("SELECT * FROM nonexistent_table")
 
 
 def test_empty_database_schema(test_context):
     """Test schema operation on empty database."""
     with set_tool_context(test_context):
-        result = db_schema()
+        schema = db_schema()
     
-    assert result.success is True
-    assert result.db_schema is not None
+    # Function completed successfully if no exception raised
+    assert schema is not None
     # Empty database should have empty schema dict
-    assert isinstance(result.db_schema, dict)
+    assert isinstance(schema, dict)
 
 
 def test_specific_table_schema(test_context):
@@ -183,9 +175,9 @@ def test_specific_table_schema(test_context):
         db_execute("CREATE TABLE specific_test (id INTEGER PRIMARY KEY, data TEXT)")
         
         # Get schema for specific table
-        result = db_schema("specific_test")
+        schema = db_schema("specific_test")
     
-    assert result.success is True
-    assert result.db_schema is not None
-    assert "specific_test" in result.db_schema
-    assert len(result.db_schema) == 1  # Only the requested table
+    # Function completed successfully if no exception raised
+    assert schema is not None
+    assert "specific_test" in schema
+    assert len(schema) == 1  # Only the requested table

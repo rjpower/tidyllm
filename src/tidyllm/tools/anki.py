@@ -127,7 +127,6 @@ class AnkiQueryResult(BaseModel):
 
 class AnkiCreateResult(BaseModel):
     """Result of creating Anki cards."""
-    success: bool
     deck_path: Path
     cards_created: int
     message: str = ""
@@ -232,59 +231,49 @@ def anki_create(deck_name: str, cards: list[AnkiCard], output_path: Path | None 
 
     media_files = []
 
-    try:
-        for card in cards:
-            # Format examples as bullet points
-            examples_text = ""
-            if card.examples:
-                examples_text = "<br>".join(f"• {ex}" for ex in card.examples)
+    for card in cards:
+        # Format examples as bullet points
+        examples_text = ""
+        if card.examples:
+            examples_text = "<br>".join(f"• {ex}" for ex in card.examples)
 
-            # Handle audio file
-            audio_filename = None
-            if card.audio_path and card.audio_path.exists():
-                audio_filename = f"{card.source_word}_{card.audio_path.name}"
-                media_files.append(str(card.audio_path))
+        # Handle audio file
+        audio_filename = None
+        if card.audio_path and card.audio_path.exists():
+            audio_filename = f"{card.source_word}_{card.audio_path.name}"
+            media_files.append(str(card.audio_path))
 
-            # Create note
-            note = genanki.Note(
-                model=VOCAB_MODEL,
-                fields=[
-                    card.source_word,
-                    card.translated_word,
-                    examples_text,
-                    audio_filename or ""
-                ]
-            )
-            deck.add_note(note)
-
-        # Determine output path  
-        if output_path:
-            # Ensure parent directory exists
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-        else:
-            # Default to temporary directory
-            temp_dir = Path(tempfile.gettempdir())
-            output_path = temp_dir / f"{deck_name.replace(' ', '_')}.apkg"
-
-        # Create package
-        package = genanki.Package(deck)
-        package.media_files = media_files
-        package.write_to_file(str(output_path))
-
-        return AnkiCreateResult(
-            success=True,
-            deck_path=output_path,
-            cards_created=len(cards),
-            message=f"Created {len(cards)} cards in deck '{deck_name}'"
+        # Create note
+        note = genanki.Note(
+            model=VOCAB_MODEL,
+            fields=[
+                card.source_word,
+                card.translated_word,
+                examples_text,
+                audio_filename or ""
+            ]
         )
+        deck.add_note(note)
 
-    except Exception as e:
-        return AnkiCreateResult(
-            success=False,
-            deck_path=Path(),
-            cards_created=0,
-            message=f"Error creating deck: {str(e)}"
-        )
+    # Determine output path  
+    if output_path:
+        # Ensure parent directory exists
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        # Default to temporary directory
+        temp_dir = Path(tempfile.gettempdir())
+        output_path = temp_dir / f"{deck_name.replace(' ', '_')}.apkg"
+
+    # Create package
+    package = genanki.Package(deck)
+    package.media_files = media_files
+    package.write_to_file(str(output_path))
+
+    return AnkiCreateResult(
+        deck_path=output_path,
+        cards_created=len(cards),
+        message=f"Created {len(cards)} cards in deck '{deck_name}'"
+    )
 
 
 @register()

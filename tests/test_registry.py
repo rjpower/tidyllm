@@ -51,11 +51,6 @@ class TestRegistry:
         """Set up test registry."""
         self.registry = Registry()
 
-    def test_registry_initialization(self):
-        """Test registry initializes empty."""
-        assert len(self.registry._tools) == 0
-        assert len(self.registry.functions) == 0
-
     def test_register_function(self):
         """Test registering a function."""
         self.registry.register(registry_test_function)

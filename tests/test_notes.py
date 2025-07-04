@@ -37,14 +37,13 @@ def test_notes_add_basic(test_context):
     )
     
     with set_tool_context(test_context):
-        result = note_add(args)
+        file_path_str = note_add(args)
     
-    assert result.success is True
-    assert "Test Note" in result.message
-    assert result.file_path is not None
+    # Function completed successfully if no exception raised
+    assert file_path_str is not None
     
     # Verify file was created
-    file_path = Path(result.file_path)
+    file_path = Path(file_path_str)
     assert file_path.exists()
     
     # Verify content
@@ -62,13 +61,13 @@ def test_notes_add_without_title(test_context):
     )
     
     with set_tool_context(test_context):
-        result = note_add(args)
+        file_path_str = note_add(args)
     
-    assert result.success is True
-    assert result.file_path is not None
+    # Function completed successfully if no exception raised
+    assert file_path_str is not None
     
     # Should generate a default title
-    file_path = Path(result.file_path)
+    file_path = Path(file_path_str)
     assert file_path.exists()
 
 
@@ -77,7 +76,7 @@ def test_notes_list_empty(test_context):
     with set_tool_context(test_context):
         result = note_list()
     
-    assert result.success is True
+    # Function completed successfully if no exception raised
     assert result.notes == []
 
 
@@ -92,7 +91,7 @@ def test_notes_list_with_notes(test_context):
         # List all notes
         result = note_list()
     
-    assert result.success is True
+    # Function completed successfully if no exception raised
     assert len(result.notes) == 3
     
     # Verify note structure
@@ -114,7 +113,7 @@ def test_notes_list_filtered_by_tags(test_context):
         # Filter by tag
         result = note_list(tags=["python"])
     
-    assert result.success is True
+    # Function completed successfully if no exception raised
     assert len(result.notes) == 2
     
     # Verify all returned notes have the python tag
@@ -133,7 +132,7 @@ def test_notes_search_basic(test_context):
         # Search for "Python"
         result = note_search("Python")
     
-    assert result.success is True
+    # Function completed successfully if no exception raised
     assert len(result.notes) == 2  # Should find 2 notes containing "Python"
 
 
@@ -146,7 +145,7 @@ def test_notes_search_no_results(test_context):
         # Search for something that doesn't exist
         result = note_search("nonexistent")
     
-    assert result.success is True
+    # Function completed successfully if no exception raised
     assert len(result.notes) == 0
 
 
@@ -159,11 +158,11 @@ def test_notes_frontmatter_parsing(test_context):
     )
     
     with set_tool_context(test_context):
-        result = note_add(args)
-    assert result.success is True
+        file_path_str = note_add(args)
+    # Function completed successfully if no exception raised
     
     # Read the file and verify frontmatter
-    file_path = Path(result.file_path)
+    file_path = Path(file_path_str)
     content = file_path.read_text()
     
     assert content.startswith("---\n")
@@ -182,10 +181,10 @@ def test_notes_filename_sanitization(test_context):
     )
     
     with set_tool_context(test_context):
-        result = note_add(args)
-    assert result.success is True
+        file_path_str = note_add(args)
+    # Function completed successfully if no exception raised
     
-    file_path = Path(result.file_path)
+    file_path = Path(file_path_str)
     # Should not contain invalid characters
     assert "<" not in file_path.name
     assert ">" not in file_path.name
@@ -196,19 +195,19 @@ def test_notes_duplicate_titles(test_context):
     """Test handling of duplicate note titles."""
     # Add first note
     with set_tool_context(test_context):
-        result1 = note_add(NoteAddArgs(title="Duplicate", content="First note"))
-        assert result1.success is True
+        file_path1 = note_add(NoteAddArgs(title="Duplicate", content="First note"))
+        # Function completed successfully if no exception raised
         
         # Add second note with same title
-        result2 = note_add(NoteAddArgs(title="Duplicate", content="Second note"))
-    assert result2.success is True
+        file_path2 = note_add(NoteAddArgs(title="Duplicate", content="Second note"))
+    # Function completed successfully if no exception raised
     
     # Should have different file paths
-    assert result1.file_path != result2.file_path
+    assert file_path1 != file_path2
     
     # Both files should exist
-    assert Path(result1.file_path).exists()
-    assert Path(result2.file_path).exists()
+    assert Path(file_path1).exists()
+    assert Path(file_path2).exists()
 
 
 def test_notes_list_with_limit(test_context):
@@ -221,5 +220,5 @@ def test_notes_list_with_limit(test_context):
         # List with limit
         result = note_list(limit=3)
     
-    assert result.success is True
+    # Function completed successfully if no exception raised
     assert len(result.notes) == 3

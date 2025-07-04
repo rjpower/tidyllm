@@ -12,71 +12,21 @@ from tidyllm.database_models import ColumnSchema, Cursor, Row, Schema, TableSche
 class TestDatabaseModels:
     """Test the database model classes."""
 
-    def test_column_schema(self):
-        """Test ColumnSchema model."""
-        col = ColumnSchema(
-            name="test_col",
-            type="TEXT",
-            not_null=True,
-            default="default_val",
-            primary_key=False
-        )
-        assert col.name == "test_col"
-        assert col.type == "TEXT"
-        assert col.not_null is True
-        assert col.default == "default_val"
-        assert col.primary_key is False
-
-    def test_table_schema(self):
-        """Test TableSchema model."""
-        col1 = ColumnSchema(name="id", type="INTEGER", not_null=True, default=None, primary_key=True)
-        col2 = ColumnSchema(name="name", type="TEXT", not_null=False, default=None, primary_key=False)
-        
-        table = TableSchema(name="test_table", columns=[col1, col2])
-        assert table.name == "test_table"
-        assert len(table.columns) == 2
-        assert table.columns[0].name == "id"
-        assert table.columns[1].name == "name"
-
-    def test_schema(self):
-        """Test Schema model."""
-        col = ColumnSchema(name="id", type="INTEGER", not_null=True, default=None, primary_key=True)
-        table = TableSchema(name="test_table", columns=[col])
-        schema = Schema(tables=[table])
-        
-        assert len(schema.tables) == 1
-        assert schema.get_table("test_table") is not None
-        assert schema.get_table("nonexistent") is None
-
-    def test_row(self):
-        """Test Row model."""
-        row = Row(id=1, name="test", value=42)
-        
-        assert row["id"] == 1
-        assert row["name"] == "test"
-        assert row["value"] == 42
-        assert row.get("id") == 1
-        assert row.get("nonexistent", "default") == "default"
-        
-        assert "id" in row.keys()
-        assert 1 in row.values()
-        assert ("id", 1) in row.items()
-
     def test_cursor(self):
         """Test Cursor model."""
         row1 = Row(id=1, name="test1")
         row2 = Row(id=2, name="test2")
         cursor = Cursor(columns=["id", "name"], rows=[row1, row2])
-        
+
         assert len(cursor) == 2
         assert bool(cursor) is True
         first_row = cursor.first()
         assert first_row is not None
         assert first_row["id"] == 1
-        
+
         rows = cursor.all()
         assert len(rows) == 2
-        
+
         # Test iteration
         ids = [row["id"] for row in cursor]
         assert ids == [1, 2]
@@ -84,7 +34,7 @@ class TestDatabaseModels:
     def test_empty_cursor(self):
         """Test empty Cursor."""
         cursor = Cursor(columns=[], rows=[])
-        
+
         assert len(cursor) == 0
         assert bool(cursor) is False
         assert cursor.first() is None

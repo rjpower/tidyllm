@@ -331,7 +331,7 @@ def file(
     file_path: Path,
     sample_rate: int | None = None,
     max_duration: float | None = None,
-    sample_size: float = 1.0,
+    seconds_per_chunk: float = 1.0,
 ) -> Stream[AudioChunk]:
     """Stream audio from a file.
 
@@ -368,7 +368,7 @@ def file(
             sample_rate=actual_sample_rate, channels=channels, dtype="int16"
         )
         total_samples = audio_data.shape[1]
-        samples_per_chunk = int(sample_size * actual_sample_rate)
+        samples_per_chunk = int(seconds_per_chunk * actual_sample_rate)
 
         # Apply max_duration limit
         if max_duration:

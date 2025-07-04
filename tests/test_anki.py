@@ -100,11 +100,10 @@ def test_anki_create_basic(test_context):
             audio_path=None
         )
     ]
-    
+
     with set_tool_context(test_context):
         result = anki_create("Test Deck", cards)
-    
-    assert result.success is True
+
     assert result.cards_created == 2
     assert "Test Deck" in result.message
     assert result.deck_path.exists()
@@ -117,7 +116,7 @@ def test_anki_create_with_audio(test_context):
     audio_file = test_context.config.notes_dir / "hello.mp3"
     audio_file.parent.mkdir(parents=True, exist_ok=True)
     audio_file.write_bytes(b"fake audio data")
-    
+
     cards = [
         AnkiCard(
             source_word="hello",
@@ -126,11 +125,10 @@ def test_anki_create_with_audio(test_context):
             audio_path=audio_file
         )
     ]
-    
+
     with set_tool_context(test_context):
         result = anki_create("Audio Deck", cards)
-    
-    assert result.success is True
+
     assert result.cards_created == 1
     assert result.deck_path.exists()
 
@@ -138,15 +136,14 @@ def test_anki_create_with_audio(test_context):
 def test_anki_create_custom_output_path(test_context):
     """Test creating Anki deck with custom output path."""
     custom_path = test_context.config.notes_dir / "custom_deck.apkg"
-    
+
     cards = [
         AnkiCard(source_word="test", translated_word="prueba", audio_path=None)
     ]
-    
+
     with set_tool_context(test_context):
         result = anki_create("Custom Path Deck", cards, custom_path)
-    
-    assert result.success is True
+
     assert result.deck_path == custom_path
     assert custom_path.exists()
 
@@ -155,8 +152,7 @@ def test_anki_create_empty_cards(test_context):
     """Test creating deck with no cards."""
     with set_tool_context(test_context):
         result = anki_create("Empty Deck", [])
-    
-    assert result.success is True
+
     assert result.cards_created == 0
     assert result.deck_path.exists()
 
@@ -164,7 +160,7 @@ def test_anki_create_empty_cards(test_context):
 def test_anki_create_with_missing_audio(test_context):
     """Test creating deck with non-existent audio file."""
     nonexistent_audio = Path("/nonexistent/audio.mp3")
-    
+
     cards = [
         AnkiCard(
             source_word="hello",
@@ -172,12 +168,11 @@ def test_anki_create_with_missing_audio(test_context):
             audio_path=nonexistent_audio
         )
     ]
-    
+
     with set_tool_context(test_context):
         result = anki_create("Missing Audio Deck", cards)
-    
+
     # Should still succeed, just without audio
-    assert result.success is True
     assert result.cards_created == 1
 
 
@@ -186,7 +181,8 @@ def test_anki_card_model_validation():
     # Valid card
     card = AnkiCard(
         source_word="hello",
-        translated_word="hola"
+        translated_word="hola",
+        audio_path=None
     )
     assert card.source_word == "hello"
     assert card.translated_word == "hola"

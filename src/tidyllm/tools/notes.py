@@ -31,11 +31,6 @@ class NoteAddArgs(BaseModel):
     tags: list[str] = Field(default_factory=list, description="Tags for the note")
 
 
-class NoteAddResult(BaseModel):
-    """Result of adding a note."""
-    success: bool
-    message: str
-    file_path: str | None = None
 
 
 def parse_frontmatter(content: str) -> tuple[dict[str, str | list[str]], str]:
@@ -133,7 +128,7 @@ def _parse_note_file(file_path: Path) -> Note | None:
 
 
 @register()
-def note_add(args: NoteAddArgs) -> NoteAddResult:
+def note_add(args: NoteAddArgs) -> str:
     """Add a new note with markdown and frontmatter.
 
     Example usage: note_add({"content": "This is my note content", "title": "My Important Note", "tags": ["personal", "ideas"]})
@@ -141,40 +136,31 @@ def note_add(args: NoteAddArgs) -> NoteAddResult:
     ctx = get_tool_context()
     notes_dir = ctx.config.ensure_notes_dir()
 
-    try:
-        title = args.title or f"Note {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        tags = args.tags
+    title = args.title or f"Note {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    tags = args.tags
 
-        # Create filename
-        filename = sanitize_filename(title) + ".md"
+    # Create filename
+    filename = sanitize_filename(title) + ".md"
+    file_path = notes_dir / filename
+
+    # Ensure unique filename
+    counter = 1
+    while file_path.exists():
+        filename = f"{sanitize_filename(title)}_{counter}.md"
         file_path = notes_dir / filename
+        counter += 1
 
-        # Ensure unique filename
-        counter = 1
-        while file_path.exists():
-            filename = f"{sanitize_filename(title)}_{counter}.md"
-            file_path = notes_dir / filename
-            counter += 1
+    # Write file with frontmatter
+    full_content = create_frontmatter(title, tags) + args.content
+    file_path.write_text(full_content)
 
-        # Write file with frontmatter
-        full_content = create_frontmatter(title, tags) + args.content
-        file_path.write_text(full_content)
-
-        return NoteAddResult(
-            success=True, 
-            message=f"Created note: {title}",
-            file_path=str(file_path)
-        )
-
-    except Exception as e:
-        return NoteAddResult(success=False, message=f"Error: {str(e)}")
+    return str(file_path)
 
 
 
 
 class NoteSearchResult(BaseModel):
     """Result of note search."""
-    success: bool
     notes: list[Note] = Field(default_factory=list)
     count: int = 0
 
@@ -191,66 +177,61 @@ def note_search(query: str) -> NoteSearchResult:
     ctx = get_tool_context()
     notes_dir = ctx.config.ensure_notes_dir()
 
-    try:
-        found_files = set()
+    found_files = set()
 
-        # Search content using ripgrep
-        rg_result = subprocess.run(
-            ["rg", "-l", "-i", "--type", "md", query, str(notes_dir)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+    # Search content using ripgrep
+    rg_result = subprocess.run(
+        ["rg", "-l", "-i", "--type", "md", query, str(notes_dir)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
-        if rg_result.returncode == 0:  # Found content matches
-            file_paths = rg_result.stdout.strip().split("\n")
-            for file_path_str in file_paths:
-                if file_path_str:
-                    found_files.add(file_path_str)
+    if rg_result.returncode == 0:  # Found content matches
+        file_paths = rg_result.stdout.strip().split("\n")
+        for file_path_str in file_paths:
+            if file_path_str:
+                found_files.add(file_path_str)
 
-        # Search filenames using find
-        find_result = subprocess.run(
-            [
-                "find",
-                str(notes_dir),
-                "-iname",
-                f"*{query}*",
-                "-type",
-                "f",
-                "-name",
-                "*.md",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+    # Search filenames using find
+    find_result = subprocess.run(
+        [
+            "find",
+            str(notes_dir),
+            "-iname",
+            f"*{query}*",
+            "-type",
+            "f",
+            "-name",
+            "*.md",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
-        if find_result.returncode == 0:  # Found filename matches
-            file_paths = find_result.stdout.strip().split("\n")
-            for file_path_str in file_paths:
-                if file_path_str:
-                    found_files.add(file_path_str)
+    if find_result.returncode == 0:  # Found filename matches
+        file_paths = find_result.stdout.strip().split("\n")
+        for file_path_str in file_paths:
+            if file_path_str:
+                found_files.add(file_path_str)
 
-        # Parse all found files
-        notes_list = []
-        for file_path_str in found_files:
-            file_path = Path(file_path_str)
-            if file_path.exists():
-                note = _parse_note_file(file_path)
-                if note:
-                    notes_list.append(note)
+    # Parse all found files
+    notes_list = []
+    for file_path_str in found_files:
+        file_path = Path(file_path_str)
+        if file_path.exists():
+            note = _parse_note_file(file_path)
+            if note:
+                notes_list.append(note)
 
-        return NoteSearchResult(success=True, notes=notes_list, count=len(notes_list))
-
-    except Exception:
-        return NoteSearchResult(success=False)
+    return NoteSearchResult(notes=notes_list, count=len(notes_list))
 
 
 
 
 class NoteListResult(BaseModel):
     """Result of listing notes."""
-    success: bool
     notes: list[Note] = Field(default_factory=list)
     count: int = 0
 
@@ -268,43 +249,32 @@ def note_list(tags: list[str] | None = None, limit: int = 50) -> NoteListResult:
     ctx = get_tool_context()
     notes_dir = ctx.config.ensure_notes_dir()
 
-    try:
-        # Find all markdown files
-        md_files = list(notes_dir.glob("*.md"))
-        md_files.sort(
-            key=lambda f: f.stat().st_mtime, reverse=True
-        )  # Sort by modification time
+    # Find all markdown files
+    md_files = list(notes_dir.glob("*.md"))
+    md_files.sort(
+        key=lambda f: f.stat().st_mtime, reverse=True
+    )  # Sort by modification time
 
-        notes_list = []
-        for file_path in md_files[:limit]:
-            note = _parse_note_file(file_path)
-            if note:
-                # Filter by tags if specified
-                if tags:
-                    if any(tag in note.tags for tag in tags):
-                        notes_list.append(note)
-                else:
+    notes_list = []
+    for file_path in md_files[:limit]:
+        note = _parse_note_file(file_path)
+        if note:
+            # Filter by tags if specified
+            if tags:
+                if any(tag in note.tags for tag in tags):
                     notes_list.append(note)
+            else:
+                notes_list.append(note)
 
-        return NoteListResult(success=True, notes=notes_list, count=len(notes_list))
-
-    except Exception:
-        return NoteListResult(success=False)
-
+    return NoteListResult(notes=notes_list, count=len(notes_list))
 
 
 
-class NoteOpenResult(BaseModel):
-    """Result of opening a note."""
 
-    success: bool
-    content: str = ""
-    file_path: str = ""
-    message: str = ""
 
 
 @register()
-def note_open(query: str) -> NoteOpenResult:
+def note_open(query: str) -> str:
     """Open and display a note by title or filename.
 
     Args:
@@ -315,37 +285,23 @@ def note_open(query: str) -> NoteOpenResult:
     ctx = get_tool_context()
     notes_dir = ctx.config.ensure_notes_dir()
 
-    try:
-        # First try exact filename match
-        filename = query if query.endswith(".md") else f"{query}.md"
-        file_path = notes_dir / filename
+    # First try exact filename match
+    filename = query if query.endswith(".md") else f"{query}.md"
+    file_path = notes_dir / filename
 
-        if file_path.exists():
+    if file_path.exists():
+        content = file_path.read_text()
+        return content
+
+    # Try fuzzy search by title
+    md_files = list(notes_dir.glob("*.md"))
+    for file_path in md_files:
+        note = _parse_note_file(file_path)
+        if note and query.lower() in note.title.lower():
             content = file_path.read_text()
-            return NoteOpenResult(
-                success=True,
-                content=content,
-                file_path=str(file_path),
-                message=f"Opened: {file_path.name}",
-            )
+            return content
 
-        # Try fuzzy search by title
-        md_files = list(notes_dir.glob("*.md"))
-        for file_path in md_files:
-            note = _parse_note_file(file_path)
-            if note and query.lower() in note.title.lower():
-                content = file_path.read_text()
-                return NoteOpenResult(
-                    success=True,
-                    content=content,
-                    file_path=str(file_path),
-                    message=f"Opened: {note.title}",
-                )
-
-        return NoteOpenResult(success=False, message=f"Note not found: {query}")
-
-    except Exception as e:
-        return NoteOpenResult(success=False, message=f"Error: {str(e)}")
+    raise FileNotFoundError(f"Note not found: {query}")
 
 
 
@@ -353,7 +309,6 @@ def note_open(query: str) -> NoteOpenResult:
 class NoteRecentResult(BaseModel):
     """Result of listing recent notes."""
 
-    success: bool
     notes: list[Note] = Field(default_factory=list)
     count: int = 0
 
@@ -370,21 +325,17 @@ def note_recent(limit: int = 10) -> NoteRecentResult:
     ctx = get_tool_context()
     notes_dir = ctx.config.ensure_notes_dir()
 
-    try:
-        # Find all markdown files and sort by modification time
-        md_files = list(notes_dir.glob("*.md"))
-        md_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    # Find all markdown files and sort by modification time
+    md_files = list(notes_dir.glob("*.md"))
+    md_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
 
-        notes_list = []
-        for file_path in md_files[:limit]:
-            note = _parse_note_file(file_path)
-            if note:
-                notes_list.append(note)
+    notes_list = []
+    for file_path in md_files[:limit]:
+        note = _parse_note_file(file_path)
+        if note:
+            notes_list.append(note)
 
-        return NoteRecentResult(success=True, notes=notes_list, count=len(notes_list))
-
-    except Exception:
-        return NoteRecentResult(success=False)
+    return NoteRecentResult(notes=notes_list, count=len(notes_list))
 
 
 
@@ -392,7 +343,6 @@ def note_recent(limit: int = 10) -> NoteRecentResult:
 class NoteTagsResult(BaseModel):
     """Result of listing tags."""
 
-    success: bool
     tags: list[str] = Field(default_factory=list)
     count: int = 0
 
@@ -406,21 +356,17 @@ def note_tags() -> NoteTagsResult:
     ctx = get_tool_context()
     notes_dir = ctx.config.ensure_notes_dir()
 
-    try:
-        all_tags = set()
-        md_files = list(notes_dir.glob("*.md"))
+    all_tags = set()
+    md_files = list(notes_dir.glob("*.md"))
 
-        for file_path in md_files:
-            note = _parse_note_file(file_path)
-            if note:
-                all_tags.update(note.tags)
+    for file_path in md_files:
+        note = _parse_note_file(file_path)
+        if note:
+            all_tags.update(note.tags)
 
-        sorted_tags = sorted(list(all_tags))
+    sorted_tags = sorted(list(all_tags))
 
-        return NoteTagsResult(success=True, tags=sorted_tags, count=len(sorted_tags))
-
-    except Exception:
-        return NoteTagsResult(success=False)
+    return NoteTagsResult(tags=sorted_tags, count=len(sorted_tags))
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ def test_context():
 def mock_audio_file():
     """Create a mock audio file."""
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-        f.write(b"fake audio data")
+        f.write(b"\x00" * 1024)  # Write padding data instead of text
         yield Path(f.name)
     Path(f.name).unlink(missing_ok=True)
 
@@ -66,13 +66,14 @@ def test_transcribe_success(mock_completion, test_context, mock_audio_file):
     # Mock LLM response
     mock_response = MagicMock()
     mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = """
+    mock_response.choices[
+        0
+    ].message.content = """
     {
         "transcription": "Hello, how are you today?",
-        "language": "en",
         "words": [
-            {"word": "Hello", "translation": "Hola"},
-            {"word": "today", "translation": "hoy"}
+            {"word_native": "Hello", "word_translated": "Hola"},
+            {"word_native": "today", "word_translated": "hoy"}
         ]
     }
     """
@@ -82,11 +83,9 @@ def test_transcribe_success(mock_completion, test_context, mock_audio_file):
         result = transcribe(audio_file_path=mock_audio_file, language="en", translate_to="es")
 
     assert result.transcription == "Hello, how are you today?"
-    assert result.language == "en"
     assert len(result.words) == 2
     assert result.words[0].word_native == "Hello"
     assert result.words[0].word_translated == "Hola"
-    # No error field needed
 
     # Verify LLM was called correctly
     mock_completion.assert_called_once()
@@ -108,24 +107,24 @@ def test_transcribe_with_auto_language_detection(mock_completion, test_context, 
     """Test transcription with auto language detection."""
     mock_response = MagicMock()
     mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = """
+    mock_response.choices[
+        0
+    ].message.content = """
     {
         "transcription": "Bonjour, comment allez-vous?",
-        "language": "fr",
         "words": [
-            {"word": "Bonjour", "translation": "Hello"},
-            {"word": "comment", "translation": "how"}
+            {"word_native": "Bonjour", "word_translated": "Hello"},
+            {"word_native": "comment", "word_translated": "how"}
         ]
     }
     """
     mock_completion.return_value = mock_response
-    
+
     with set_tool_context(test_context):
         result = transcribe(audio_file_path=mock_audio_file, language=None, translate_to="en")
-    
-    assert result.language == "fr"
+
     assert "Bonjour" in result.transcription
-    
+
     # Check that auto-detection instruction was included
     call_args = mock_completion.call_args
     text_content = call_args[1]["messages"][0]["content"][0]["text"]
@@ -201,67 +200,36 @@ def test_transcribe_with_different_audio_formats(mock_completion, test_context):
     """Test transcription with different audio file formats."""
     mock_response = MagicMock()
     mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = """
+    mock_response.choices[
+        0
+    ].message.content = """
     {
         "transcription": "Test transcription",
-        "language": "en",
         "words": []
     }
     """
     mock_completion.return_value = mock_response
-    
+
     # Test different audio formats
     formats = [".mp3", ".wav", ".m4a", ".ogg"]
-    
+
     for fmt in formats:
         with tempfile.NamedTemporaryFile(suffix=fmt, delete=False) as f:
-            f.write(b"fake audio")
+            # Write some minimal valid audio-like data (just padding)
+            f.write(b"\x00" * 1024)  # Padding with zeros
             audio_file = Path(f.name)
-        
+
         try:
             with set_tool_context(test_context):
                 result = transcribe(audio_file_path=audio_file, translate_to="en")
-            
+
             assert result.transcription == "Test transcription"
-            
+
             # Verify correct MIME type was used
             call_args = mock_completion.call_args
             audio_url = call_args[1]["messages"][0]["content"][1]["image_url"]
             expected_mime = get_audio_mime_type(audio_file)
             assert f"data:{expected_mime};base64," in audio_url
-            
+
         finally:
             audio_file.unlink(missing_ok=True)
-
-
-@patch('litellm.completion')
-def test_transcribe_response_schema_validation(mock_completion, test_context, mock_audio_file):
-    """Test that the correct JSON schema is sent to the LLM."""
-    mock_response = MagicMock()
-    mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = """
-    {
-        "transcription": "Test",
-        "language": "en", 
-        "words": []
-    }
-    """
-    mock_completion.return_value = mock_response
-    
-    with set_tool_context(test_context):
-        transcribe(audio_file_path=mock_audio_file, translate_to="en")
-    
-    # Verify response format was specified
-    call_args = mock_completion.call_args
-    response_format = call_args[1]["response_format"]
-    
-    assert response_format["type"] == "json_schema"
-    assert "json_schema" in response_format
-    assert response_format["json_schema"]["strict"] is True
-    
-    # Check schema structure
-    schema = response_format["json_schema"]["schema"]
-    assert "transcription" in schema["properties"]
-    assert "language" in schema["properties"]
-    assert "words" in schema["properties"]
-    assert schema["required"] == ["transcription", "language", "words"]

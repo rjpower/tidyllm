@@ -49,6 +49,30 @@ class TranscribeAudioResult(BaseModel):
     target_language: str
 
 
+class DiffVocabResult(BaseModel):
+    """Result of vocabulary diffing."""
+
+    new_words: list[dict]
+    existing_count: int
+    new_count: int
+
+
+class ReviewVocabResult(BaseModel):
+    """Result of vocabulary review."""
+
+    added_count: int
+    total_words: int
+
+
+class FullPipelineResult(BaseModel):
+    """Result of full pipeline."""
+
+    total_segments: int
+    total_words: int
+    new_words: int
+    added_words: int
+
+
 @register()
 def transcribe_audio(
     audio_path: Path,
@@ -126,15 +150,6 @@ def transcribe_audio(
 
     return final_result
 
-
-class DiffVocabResult(BaseModel):
-    """Result of vocabulary diffing."""
-
-    new_words: list[dict]
-    existing_count: int
-    new_count: int
-
-
 @register()
 def diff_vocab(
     transcription_file: Path,
@@ -200,14 +215,6 @@ def diff_vocab(
     return result
 
 
-class ReviewVocabResult(BaseModel):
-    """Result of vocabulary review."""
-
-    added_count: int
-    total_words: int
-    success: bool
-
-
 @register()
 def review_vocab(
     new_words_file: Path,
@@ -220,7 +227,7 @@ def review_vocab(
         auto_add: Automatically add all words without review
 
     Returns:
-        ReviewVocabResult containing counts and success status
+        ReviewVocabResult containing counts
 
     Example: review_vocab(Path("new_words.json"), auto_add=False)
     """
@@ -235,23 +242,25 @@ def review_vocab(
 
     if not words_data:
         console.print("[yellow]No new words to review[/yellow]")
-        return ReviewVocabResult(added_count=0, total_words=0, success=True)
+        return ReviewVocabResult(added_count=0, total_words=0)
 
     if auto_add:
         # Add all words automatically
         added_count = 0
         for word_data in track(words_data, description="Adding words"):
-            result = vocab_add({
-                "word": word_data["word"],
-                "translation": word_data["translation"],
-                "tags": ["transcribed"]
-            })
-            if result.success:
+            try:
+                vocab_add({
+                    "word": word_data["word"],
+                    "translation": word_data["translation"],
+                    "tags": ["transcribed"]
+                })
                 added_count += 1
+            except Exception:
+                pass  # Skip failed additions
 
         console.print(f"[green]Added {added_count} words to vocabulary[/green]")
         return ReviewVocabResult(
-            added_count=added_count, total_words=len(words_data), success=True
+            added_count=added_count, total_words=len(words_data)
         )
 
     # Interactive review
@@ -276,29 +285,27 @@ def review_vocab(
             indices = [int(x.strip()) for x in selection.split(",")]
         except ValueError:
             console.print("[red]Invalid selection format[/red]")
-            return ReviewVocabResult(
-                added_count=0, total_words=len(words_data), success=False
-            )
+            raise ValueError("Invalid selection format")
 
     # Add selected words
     added_count = 0
     for i in indices:
         if 0 <= i < len(words_data):
             word_data = words_data[i]
-            result = vocab_add({
-                "word": word_data["word"],
-                "translation": word_data["translation"],
-                "tags": ["transcribed"]
-            })
-            if result.success:
+            try:
+                vocab_add({
+                    "word": word_data["word"],
+                    "translation": word_data["translation"],
+                    "tags": ["transcribed"]
+                })
                 added_count += 1
                 console.print(f"[green]Added:[/green] {word_data['word']} -> {word_data['translation']}")
-            else:
+            except Exception:
                 console.print(f"[red]Failed to add:[/red] {word_data['word']}")
 
     console.print(f"\n[green]Added {added_count} words to vocabulary[/green]")
     return ReviewVocabResult(
-        added_count=added_count, total_words=len(words_data), success=True
+        added_count=added_count, total_words=len(words_data)
     )
 
 
@@ -307,7 +314,6 @@ class ExportCsvResult(BaseModel):
 
     exported_count: int
     output_file: str
-    success: bool
 
 
 @register()
@@ -351,20 +357,8 @@ def export_csv(
 
     console.print(f"[green]Exported {len(words_data)} words to CSV[/green]")
     return ExportCsvResult(
-        exported_count=len(words_data), output_file=str(output_csv), success=True
+        exported_count=len(words_data), output_file=str(output_csv)
     )
-
-
-class FullPipelineResult(BaseModel):
-    """Result of full pipeline."""
-
-    total_segments: int
-    total_words: int
-    new_words: int
-    added_words: int
-    output_directory: str
-    success: bool
-
 
 @register()
 def full_pipeline(
@@ -443,8 +437,6 @@ def full_pipeline(
         total_words=transcribe_result.total_words,
         new_words=diff_result.new_count,
         added_words=review_result.added_count,
-        output_directory=str(output_dir),
-        success=True,
     )
 
 

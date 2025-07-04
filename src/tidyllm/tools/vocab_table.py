@@ -29,14 +29,8 @@ class VocabAddArgs(BaseModel):
     tags: list[str] = Field(default_factory=list, description="Tags for categorization")
 
 
-class VocabAddResult(BaseModel):
-    """Result of adding vocabulary word."""
-    success: bool
-    message: str
-
-
 @register()
-def vocab_add(args: VocabAddArgs) -> VocabAddResult:
+def vocab_add(args: VocabAddArgs) -> None:
     """Add a new vocabulary word to the database.
     
     Example usage: vocab_add({"word": "hello", "translation": "hola", "examples": ["Hello world"], "tags": ["greetings"]})
@@ -44,21 +38,16 @@ def vocab_add(args: VocabAddArgs) -> VocabAddResult:
     ctx = get_tool_context()
     db = ctx.db
 
-    try:
-        db.mutate(
-            """INSERT INTO vocab (word, translation, examples, tags) 
-               VALUES (?, ?, ?, ?)""",
-            (
-                args.word,
-                args.translation,
-                json_encode(args.examples),
-                json_encode(args.tags),
-            ),
-        )
-        return VocabAddResult(success=True, message=f"Added word: {args.word}")
-
-    except Exception as e:
-        return VocabAddResult(success=False, message=f"Database error: {str(e)}")
+    db.mutate(
+        """INSERT INTO vocab (word, translation, examples, tags) 
+            VALUES (?, ?, ?, ?)""",
+        (
+            args.word,
+            args.translation,
+            json_encode(args.examples),
+            json_encode(args.tags),
+        ),
+    )
 
 
 # Search Vocab Tool
@@ -72,7 +61,6 @@ class VocabSearchArgs(BaseModel):
 
 class VocabSearchResult(BaseModel):
     """Result of vocabulary search."""
-    success: bool
     items: list[VocabItem]
     count: int
 
@@ -86,46 +74,42 @@ def vocab_search(args: VocabSearchArgs) -> VocabSearchResult:
     ctx = get_tool_context()
     db = ctx.db
 
-    try:
-        # Build query with filters
-        where_clauses = []
-        params = []
+    # Build query with filters
+    where_clauses = []
+    params = []
 
-        if args.word:
-            where_clauses.append("word LIKE ?")
-            params.append(f"%{args.word}%")
-        if args.translation:
-            where_clauses.append("translation LIKE ?")
-            params.append(f"%{args.translation}%")
-        if args.tag:
-            where_clauses.append("tags LIKE ?")
-            params.append(f'%"{args.tag}"%')
+    if args.word:
+        where_clauses.append("word LIKE ?")
+        params.append(f"%{args.word}%")
+    if args.translation:
+        where_clauses.append("translation LIKE ?")
+        params.append(f"%{args.translation}%")
+    if args.tag:
+        where_clauses.append("tags LIKE ?")
+        params.append(f'%"{args.tag}"%')
 
-        query = "SELECT * FROM vocab"
-        if where_clauses:
-            query += " WHERE " + " AND ".join(where_clauses)
-        query += f" ORDER BY updated_at DESC LIMIT {args.limit}"
+    query = "SELECT * FROM vocab"
+    if where_clauses:
+        query += " WHERE " + " AND ".join(where_clauses)
+    query += f" ORDER BY updated_at DESC LIMIT {args.limit}"
 
-        cursor = db.query(query, params)
+    cursor = db.query(query, params)
 
-        items = []
-        for row in cursor:
-            items.append(
-                VocabItem(
-                    id=row["id"],
-                    word=row["word"],
-                    translation=row["translation"],
-                    examples=json_decode(row["examples"]),
-                    tags=json_decode(row["tags"]),
-                    created_at=row["created_at"],
-                    updated_at=row["updated_at"],
-                )
+    items = []
+    for row in cursor:
+        items.append(
+            VocabItem(
+                id=row["id"],
+                word=row["word"],
+                translation=row["translation"],
+                examples=json_decode(row["examples"]),
+                tags=json_decode(row["tags"]),
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
             )
+        )
 
-        return VocabSearchResult(success=True, items=items, count=len(items))
-
-    except Exception:
-        return VocabSearchResult(success=False, items=[], count=0)
+    return VocabSearchResult(items=items, count=len(items))
 
 
 # Update Vocab Tool
@@ -137,14 +121,10 @@ class VocabUpdateArgs(BaseModel):
     tags: list[str] | None = Field(None, description="New tags")
 
 
-class VocabUpdateResult(BaseModel):
-    """Result of updating vocabulary word."""
-    success: bool
-    message: str
 
 
 @register()
-def vocab_update(args: VocabUpdateArgs) -> VocabUpdateResult:
+def vocab_update(args: VocabUpdateArgs) -> None:
     """Update an existing vocabulary word.
     
     Example usage: vocab_update({"word": "hello", "translation": "¡hola!", "examples": ["Hello there!"]})
@@ -152,48 +132,38 @@ def vocab_update(args: VocabUpdateArgs) -> VocabUpdateResult:
     ctx = get_tool_context()
     db = ctx.db
 
-    try:
-        # Build update query dynamically
-        update_parts = []
-        params = []
+    # Build update query dynamically
+    update_parts = []
+    params = []
 
-        if args.translation is not None:
-            update_parts.append("translation = ?")
-            params.append(args.translation)
-        if args.examples is not None:
-            update_parts.append("examples = ?")
-            params.append(json_encode(args.examples))
-        if args.tags is not None:
-            update_parts.append("tags = ?")
-            params.append(json_encode(args.tags))
+    if args.translation is not None:
+        update_parts.append("translation = ?")
+        params.append(args.translation)
+    if args.examples is not None:
+        update_parts.append("examples = ?")
+        params.append(json_encode(args.examples))
+    if args.tags is not None:
+        update_parts.append("tags = ?")
+        params.append(json_encode(args.tags))
 
-        if not update_parts:
-            return VocabUpdateResult(success=False, message="No fields to update")
+    if not update_parts:
+        raise ValueError("No fields to update")
 
-        params.append(args.word)
-        rowcount = db.mutate(
-            f"UPDATE vocab SET {', '.join(update_parts)} WHERE word = ?", params
-        )
+    params.append(args.word)
+    rowcount = db.mutate(
+        f"UPDATE vocab SET {', '.join(update_parts)} WHERE word = ?", params
+    )
 
-        if rowcount == 0:
-            return VocabUpdateResult(success=False, message=f"Word not found: {args.word}")
+    if rowcount == 0:
+        raise ValueError(f"Word not found: {args.word}")
 
-        return VocabUpdateResult(success=True, message=f"Updated word: {args.word}")
-
-    except Exception as e:
-        return VocabUpdateResult(success=False, message=f"Database error: {str(e)}")
+    # Word updated successfully
 
 
-
-
-class VocabDeleteResult(BaseModel):
-    """Result of deleting vocabulary word."""
-    success: bool
-    message: str
 
 
 @register()
-def vocab_delete(word: str) -> VocabDeleteResult:
+def vocab_delete(word: str) -> None:
     """Delete a vocabulary word from the database.
     
     Args:
@@ -204,16 +174,12 @@ def vocab_delete(word: str) -> VocabDeleteResult:
     ctx = get_tool_context()
     db = ctx.db
 
-    try:
-        rowcount = db.mutate("DELETE FROM vocab WHERE word = ?", (word,))
+    rowcount = db.mutate("DELETE FROM vocab WHERE word = ?", (word,))
 
-        if rowcount == 0:
-            return VocabDeleteResult(success=False, message=f"Word not found: {word}")
+    if rowcount == 0:
+        raise ValueError(f"Word not found: {word}")
 
-        return VocabDeleteResult(success=True, message=f"Deleted word: {word}")
-
-    except Exception as e:
-        return VocabDeleteResult(success=False, message=f"Database error: {str(e)}")
+    # Word deleted successfully
 
 
 if __name__ == "__main__":
