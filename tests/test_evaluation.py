@@ -227,7 +227,7 @@ def test_run_test_with_context(evaluation_runner):
         assert context is not None
         assert hasattr(context, "llm")
 
-    result = evaluation_runner.run_test(test_with_context, "mock", use_mock=True)
+    evaluation_runner.run_test(test_with_context, "mock", use_mock=True)
     # Function completed successfully if no exception raised
 
 
@@ -239,7 +239,7 @@ def test_run_test_without_context(evaluation_runner):
         # Just a simple test without context parameter
         assert True
 
-    result = evaluation_runner.run_test(test_without_context, "mock", use_mock=True)
+    evaluation_runner.run_test(test_without_context, "mock", use_mock=True)
     # Function completed successfully if no exception raised
 
 

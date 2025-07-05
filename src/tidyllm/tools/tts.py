@@ -4,17 +4,15 @@ from pydantic.types import Base64Bytes
 
 """Text-to-speech tool using litellm."""
 
-import tempfile
+import base64
 from enum import Enum
 from pathlib import Path
-from typing import BinaryIO
 
 import litellm
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.cache import cached_function
-from tidyllm.context import get_tool_context
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 
@@ -89,54 +87,24 @@ def generate_speech(
 
     # Generate speech using litellm
     response: Any = litellm.speech(model=model, input=content, voice=voice)
-    return SpeechResult(
-        audio_bytes=response.content,
+
+    # Stream to BytesIO instead of file
+    import io
+
+    audio_buffer = io.BytesIO()
+    for chunk in response.iter_bytes():
+        audio_buffer.write(chunk)
+    audio_bytes = audio_buffer.getvalue()
+    result = SpeechResult(
+        audio_bytes=base64.b64encode(audio_bytes),
         content=content,
         voice=voice,
         provider=model,
         audio_format="mp3",
     )
 
-
-@register()
-def generate_speech_file(
-    content: str,
-    output_path: Path,
-    voice: str | None = None,
-    provider: str = "gemini",
-    auto_detect_language: bool = True
-) -> Path:
-    """Generate TTS audio and save to file.
-    
-    Args:
-        content: Text to convert to speech
-        output_path: Path to save audio file
-        voice: Voice to use (auto-detected if not provided)
-        provider: TTS provider to use
-        auto_detect_language: Whether to auto-detect language and voice
-        
-    Returns:
-        Path to saved audio file
-        
-    Example usage: generate_speech_file("Hello", Path("hello.mp3"))
-    """
-    # Generate speech
-    result = generate_speech(
-        content=content,
-        voice=voice,
-        provider=provider,
-        auto_detect_language=auto_detect_language
-    )
-    
-    # Ensure parent directory exists
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Write to file
-    output_path.write_bytes(result.audio_bytes)
-    
-    print(f"Speech saved to: {output_path}")
-    return output_path
-
+    print(len(result.audio_bytes))
+    return result
 
 if __name__ == "__main__":
     cli_main(generate_speech, context_cls=ToolContext)

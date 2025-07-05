@@ -358,6 +358,5 @@ def note_tags() -> NoteTagsResult:
 if __name__ == "__main__":
     cli_main(
         [note_add, note_search, note_list, note_open, note_recent, note_tags],
-        default_function="note_recent",
         context_cls=ToolContext,
     )

@@ -3,16 +3,18 @@
 import json
 import pickle
 import sys
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, get_origin
 
 import click
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from tidyllm.context import set_tool_context
 from tidyllm.schema import FunctionDescription
 
+warnings.filterwarnings("ignore", category=SyntaxWarning, module="pydub")
 
 class CliOption:
     """Represents a CLI option configuration."""
@@ -101,7 +103,8 @@ def collect_function_options(func_desc: FunctionDescription) -> list[CliOption]:
 
         field_type = field_info.annotation or Any
         help_text = field_info.description or f"Value for {field_name}"
-        is_required = field_info.is_required()
+        # Make options not required for Click, we'll validate manually
+        is_required = False
 
         # Determine option type
         is_flag = field_type is bool
@@ -175,15 +178,19 @@ def _generate_cli_from_description(
             # Parse CLI arguments
             args_dict = parse_cli_arguments(kwargs, func_options)
 
-        # Execute tool with context if provided
-        if context_cls:
-            context = context_cls()
-            with set_tool_context(context):
+        # Validate and execute tool
+        try:
+            if context_cls:
+                context = context_cls()
+                with set_tool_context(context):
+                    parsed_args = func_desc.validate_and_parse_args(args_dict)
+                    result = func_desc.call(**parsed_args)
+            else:
                 parsed_args = func_desc.validate_and_parse_args(args_dict)
                 result = func_desc.call(**parsed_args)
-        else:
-            parsed_args = func_desc.validate_and_parse_args(args_dict)
-            result = func_desc.call(**parsed_args)
+        except ValidationError as e:
+            click.echo(json.dumps({"error": f"Validation error: {str(e)}"}))
+            return
 
         # Output in specified format
         if output_format == "json":
@@ -196,7 +203,7 @@ def _generate_cli_from_description(
             pickled_data = pickle.dumps(result)
             sys.stdout.buffer.write(pickled_data)
         elif output_format == "raw":
-            click.echo(str(result))
+            sys.stdout.buffer.write(result)
 
     # Add all CLI options
     for option in func_options:
@@ -216,7 +223,6 @@ def generate_cli(
 
 def cli_main(
     functions: list[Callable] | Callable,
-    default_function: str | None = None,
     context_cls: type[BaseModel] | None = None,
 ):
     """Create a click CLI that dispatches to multiple functions.

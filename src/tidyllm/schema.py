@@ -137,8 +137,9 @@ class FunctionDescription:
     args_json_schema: dict
 
     def __init__(
-        self, 
-        func: Callable, 
+        self,
+        func: Callable,
+        name: str | None = None,
         doc_override: str | None = None,
         description: str = "",
         tags: list[str] | None = None,
@@ -152,7 +153,8 @@ class FunctionDescription:
             tags: List of tags for categorization
         """
         self.function = func
-        self.name = func.__name__
+        self.name = name or self.function.__name__
+
         self.description = description
         self.tags = tags or []
 
@@ -200,7 +202,7 @@ class FunctionDescription:
 
         for param_name, param in all_params.items():
             param_type = hints.get(param_name, Any)
-            
+
             # Convert bytes to Base64Bytes for JSON serialization
             if param_type is bytes:
                 param_type = Base64Bytes
@@ -213,7 +215,7 @@ class FunctionDescription:
                 field_definitions[param_name] = (param_type, ...)
 
         # Create the dynamic model
-        model_name = f"{func.__name__.title()}Args"
+        model_name = f"{self.name.title()}Args"
         return create_model(model_name, **field_definitions)
 
     def arg_model_from_args(
@@ -222,20 +224,20 @@ class FunctionDescription:
         """Construct the argument model from args & kwargs"""
         bound_args = self.sig.bind(*args, **kwargs)
         bound_args.apply_defaults()
-        
+
         # Special case: function takes single Pydantic model, but we're called with it wrapped
         if (len(bound_args.arguments) == 1 and 
             len(self.sig.parameters) == 1):
-            
+
             param_name = list(self.sig.parameters.keys())[0]
             param_value = bound_args.arguments[param_name]
-            
+
             # If the parameter value is already a Pydantic model matching the expected type
             if isinstance(param_value, BaseModel):
                 param_annotation = list(self.sig.parameters.values())[0].annotation
                 if isinstance(param_value, param_annotation):
                     return param_value
-        
+
         # Original behavior
         args_instance = self.args_model(**bound_args.arguments)
         return args_instance

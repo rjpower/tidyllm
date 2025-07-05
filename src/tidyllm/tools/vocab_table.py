@@ -181,6 +181,5 @@ def vocab_delete(word: str) -> None:
 if __name__ == "__main__":
     cli_main(
         [vocab_add, vocab_search, vocab_update, vocab_delete],
-        default_function="vocab_search",
         context_cls=ToolContext,
     )

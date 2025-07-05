@@ -31,22 +31,24 @@ console = Console()
 
 def _infer_missing_fields(request: AddCardRequest) -> AddCardRequest:
     """Infer missing fields for a vocabulary card using LLM.
-    
+
     Args:
         request: AddCardRequest with potentially missing fields
-        
+
     Returns:
         AddCardRequest with all fields completed
     """
-    from tidyllm.context import get_tool_context
-    import litellm
     import json
-    
+
+    import litellm
+
+    from tidyllm.context import get_tool_context
+
     ctx = get_tool_context()
-    
+
     # Convert request to dict for processing
     request_data = request.model_dump(exclude_unset=False)
-    
+
     prompt = f"""
 <instructions>
 Given the vocabulary item in the <input> section below, infer any missing fields.
@@ -80,21 +82,21 @@ Output a single JSON object with the completed vocabulary item.
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"}
     )
-    
+
     if not response.choices:
         raise RuntimeError("Failed to infer missing fields")
-    
+
     try:
         completed_data = json.loads(response.choices[0].message.content)
     except json.JSONDecodeError as e:
         raise ValueError(f"Failed to decode JSON response: {str(e)}")
-    
+
     # Merge with original request, preserving non-empty original values
     final_data = request_data.copy()
     for key, value in completed_data.items():
         if key in final_data and (not final_data[key] or final_data[key] == ""):
             final_data[key] = value
-    
+
     return AddCardRequest(**final_data)
 
 
@@ -363,20 +365,22 @@ def add_from_text(
     """
     console.print(f"[bold blue]Extracting vocabulary from text[/bold blue]")
     console.print(f"[blue]Text:[/blue] {text[:100]}{'...' if len(text) > 100 else ''}")
-    
+
     # Setup output directory
     if not output_dir:
         output_dir = Path(tempfile.mkdtemp(prefix="add_card_text_"))
     else:
         output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Use LLM to extract vocabulary
-    from tidyllm.context import get_tool_context
-    import litellm
     import json
-    
+
+    import litellm
+
+    from tidyllm.context import get_tool_context
+
     ctx = get_tool_context()
-    
+
     prompt = f"""Extract the most useful vocabulary words from this {source_language} text for language learners.
 
 Text: "{text}"
@@ -420,33 +424,33 @@ Return a JSON array of vocabulary items:
             }
         }
     )
-    
+
     if not response.choices:
         raise RuntimeError("Failed to extract vocabulary from text")
-    
+
     vocab_data = json.loads(response.choices[0].message.content)
-    
+
     console.print(f"[green]Extracted {len(vocab_data)} vocabulary words[/green]")
-    
+
     # Show vocabulary table
     table = Table(title="Extracted Vocabulary")
     table.add_column("Word", style="cyan")
     table.add_column("Translation", style="magenta")
     table.add_column("Reading", style="green")
-    
+
     for item in vocab_data:
         table.add_row(
             item["word"],
             item["translation"],
             item["reading"]
         )
-    
+
     console.print(table)
-    
+
     # Create cards for each vocabulary item
     cards_created = 0
     failed_cards = []
-    
+
     for i, item in enumerate(track(vocab_data, description="Creating cards")):
         try:
             if source_language == "ja" and target_language == "en":
@@ -457,7 +461,7 @@ Return a JSON array of vocabulary items:
                 term_en = item["word"]
                 term_ja = item["translation"]
                 reading_ja = item["reading"]
-            
+
             # Create individual card
             card_output_dir = output_dir / f"card_{i+1}"
             term = term_ja if source_language == "ja" else term_en
@@ -468,21 +472,21 @@ Return a JSON array of vocabulary items:
                 output_dir=card_output_dir,
             )
             cards_created += 1
-            
+
         except Exception as e:
             failed_cards.append(f"Word '{item['word']}': {str(e)}")
-    
+
     # Find the final deck path
     deck_path = output_dir / f"{deck_name.replace(' ', '_')}_vocab.apkg"
-    
+
     console.print(f"\n[bold green]Text processing complete![/bold green]")
     console.print(f"[green]Cards created: {cards_created}/{len(vocab_data)}[/green]")
-    
+
     if failed_cards:
         console.print(f"[red]Failed cards: {len(failed_cards)}[/red]")
         for failure in failed_cards:
             console.print(f"  [red]- {failure}[/red]")
-    
+
     return BatchAddResult(
         cards_created=cards_created,
         total_cards=len(vocab_data),
@@ -512,7 +516,7 @@ def review_and_add(
     Example: review_and_add(["hello:こんにちは", "thank you:ありがとう"])
     """
     console.print(f"[bold blue]Interactive review of {len(terms)} terms[/bold blue]")
-    
+
     # Parse terms
     parsed_terms = []
     for term in terms:
@@ -522,26 +526,26 @@ def review_and_add(
         else:
             # Auto-detect and translate
             parsed_terms.append({'term_en': '', 'term_ja': term.strip()})
-    
+
     # Show terms table
     table = Table(title="Terms to Review")
     table.add_column("Index", style="cyan")
     table.add_column("English", style="magenta")
     table.add_column("Japanese", style="green")
-    
+
     for i, term in enumerate(parsed_terms):
         table.add_row(
             str(i),
             term['term_en'] or '[italic]auto-detect[/italic]',
             term['term_ja']
         )
-    
+
     console.print(table)
-    
+
     # Get user selection
     console.print("\n[yellow]Enter term indices to add (comma-separated), or 'all' for all terms:[/yellow]")
     selection = console.input("Selection [all]: ") or "all"
-    
+
     if selection.lower() == "all":
         selected_terms = parsed_terms
     else:
@@ -551,38 +555,39 @@ def review_and_add(
         except ValueError:
             console.print("[red]Invalid selection format[/red]")
             return BatchAddResult(cards_created=0, total_cards=0, deck_path=Path(), failed_cards=["Invalid selection"])
-    
+
     console.print(f"[green]Selected {len(selected_terms)} terms to add[/green]")
-    
+
     # Setup output directory
     if not output_dir:
         output_dir = Path(tempfile.mkdtemp(prefix="add_card_review_"))
     else:
         output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Create cards for selected terms
     cards_created = 0
     failed_cards = []
-    
+
     for i, term in enumerate(track(selected_terms, description="Creating cards")):
         try:
             # Auto-detect missing translations if needed
             if not term['term_en']:
                 # Use LLM to translate
-                from tidyllm.context import get_tool_context
                 import litellm
-                
+
+                from tidyllm.context import get_tool_context
+
                 ctx = get_tool_context()
                 response = litellm.completion(
                     model=ctx.config.fast_model,
                     messages=[{"role": "user", "content": f"Translate '{term['term_ja']}' to English. Return only the translation."}]
                 )
-                
+
                 if response.choices:
                     term['term_en'] = response.choices[0].message.content.strip()
                 else:
                     term['term_en'] = "translation_needed"
-            
+
             # Create individual card
             card_output_dir = output_dir / f"card_{i+1}"
             main_term = term['term_ja'] or term['term_en']
@@ -593,21 +598,21 @@ def review_and_add(
                 output_dir=card_output_dir,
             )
             cards_created += 1
-            
+
         except Exception as e:
             failed_cards.append(f"Term '{term['term_ja']}': {str(e)}")
-    
+
     # Find the final deck path
     deck_path = output_dir / f"{deck_name.replace(' ', '_')}_vocab.apkg"
-    
+
     console.print(f"\n[bold green]Review complete![/bold green]")
     console.print(f"[green]Cards created: {cards_created}/{len(selected_terms)}[/green]")
-    
+
     if failed_cards:
         console.print(f"[red]Failed cards: {len(failed_cards)}[/red]")
         for failure in failed_cards:
             console.print(f"  [red]- {failure}[/red]")
-    
+
     return BatchAddResult(
         cards_created=cards_created,
         total_cards=len(selected_terms),
@@ -618,8 +623,7 @@ def review_and_add(
 
 if __name__ == "__main__":
     functions = [add_card, add_from_csv, add_from_text, review_and_add]
-    multi_cli_main(
+    cli_main(
         functions,
-        default_function="add_card",
         context_cls=ToolContext,
-    )cli_main
+    )

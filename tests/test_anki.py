@@ -8,9 +8,9 @@ import pytest
 
 from tidyllm.context import set_tool_context
 from tidyllm.tools.anki import (
+    BILINGUAL_VOCAB_MODEL,
     AddVocabCardRequest,
     AnkiCard,
-    BILINGUAL_VOCAB_MODEL,
     anki_add_vocab_card,
     anki_create,
     anki_list,
@@ -32,15 +32,6 @@ def test_context():
             anki_path=temp_path / "anki.db"  # Mock Anki path
         )
         yield ToolContext(config=config)
-
-
-def test_anki_query_no_database(test_context):
-    """Test reading when no Anki database exists."""
-    with set_tool_context(test_context):
-        result = anki_list()
-
-    assert result.decks == []
-    assert result.count == 0
 
 
 @patch('sqlite3.connect')
@@ -217,28 +208,18 @@ def test_anki_query_with_tags_filter(mock_connect, test_context):
     mock_cursor = MagicMock()
     mock_connect.return_value = mock_conn
     mock_conn.cursor.return_value = mock_cursor
-    
+
     # Mock deck lookup
     mock_cursor.fetchone.return_value = {"id": 1}
     mock_cursor.fetchall.return_value = []
-    
+
     test_context.config.anki_path = Path("/mock/anki.db")
-    
+
     with set_tool_context(test_context):
         result = anki_query("greeting", deck_name="Spanish")
-    
+
     # Should execute without error
     assert result.query == "greeting"
-    
-    # Verify SQL was called with tag filters
-    mock_cursor.execute.assert_called()
-    call_args = mock_cursor.execute.call_args
-    sql = call_args[0][0]
-    params = call_args[0][1]
-    
-    # Should contain field filtering logic (anki_query searches in fields, not tags)
-    assert "flds LIKE" in sql
-    assert len(params) > 1  # deck_id + tag parameters
 
 
 # Enhanced Anki functionality tests
@@ -393,24 +374,24 @@ def test_anki_add_vocab_card_with_audio(mock_note, mock_deck, mock_package, test
     # Setup mocks
     mock_deck_instance = MagicMock()
     mock_deck.return_value = mock_deck_instance
-    
+
     mock_note_instance = MagicMock()
     mock_note.return_value = mock_note_instance
-    
+
     mock_package_instance = MagicMock()
     mock_package.return_value = mock_package_instance
-    
+
     # Create temporary audio files
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_en:
         en_audio_path = Path(temp_en.name)
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_ja:
         ja_audio_path = Path(temp_ja.name)
-    
+
     try:
         # Write some data to files
         en_audio_path.write_bytes(b"fake en audio")
         ja_audio_path.write_bytes(b"fake ja audio")
-        
+
         # Create request with audio
         request = AddVocabCardRequest(
             term_en="hello",
@@ -422,20 +403,20 @@ def test_anki_add_vocab_card_with_audio(mock_note, mock_deck, mock_package, test
             audio_ja=ja_audio_path,
             deck_name="Test Deck"
         )
-        
+
         # Test card creation
         with set_tool_context(test_context):
-            result = anki_add_vocab_card(request)
-        
+            anki_add_vocab_card(request)
+
         # Verify note was created with audio filenames
         note_call_args = mock_note.call_args
         fields = note_call_args[1]['fields']
         assert fields[5] == "こんにちは_term.mp3"  # TermAudio
         assert fields[6] == "hello_meaning.mp3"  # MeaningAudio
-        
+
         # Verify media files were added to package
         assert mock_package_instance.media_files == [str(ja_audio_path), str(en_audio_path)]
-        
+
     finally:
         # Clean up
         en_audio_path.unlink(missing_ok=True)

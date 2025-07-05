@@ -239,7 +239,7 @@ class TestFunctionDescription:
 
 def create_test_schema(func, doc_override=None):
     """Helper to create schema using FunctionDescription."""
-    func_desc = FunctionDescription(func, doc_override)
+    func_desc = FunctionDescription(func, doc_override=doc_override)
     return func_desc.function_schema
 
 
@@ -349,7 +349,7 @@ class TestToolSchemaGeneration:
         assert params["properties"]["count"]["type"] == "integer"
         assert params["properties"]["tags"]["type"] == "array"
         assert params["properties"]["tags"]["items"]["type"] == "string"
-        assert params["properties"]["config"]["type"] == "object"
+        assert params["properties"]["config"]["type"] == "object", params
 
         # Check required parameters
         required = params.get("required", [])

@@ -104,6 +104,5 @@ def db_schema(table: str | None = None) -> dict[str, list[dict[str, str]]]:
 if __name__ == "__main__":
     cli_main(
         [db_query, db_execute, db_schema],
-        default_function="db_schema",
         context_cls=ToolContext,
     )

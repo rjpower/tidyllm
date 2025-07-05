@@ -442,6 +442,5 @@ if __name__ == "__main__":
     functions = [transcribe_audio, diff_vocab, review_vocab, export_csv, full_pipeline]
     cli_main(
         functions,
-        default_function="transcribe_audio",
         context_cls=ToolContext,
     )

@@ -2,6 +2,7 @@
 
 import sqlite3
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,29 @@ from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 
 
+class AnkiQueryResult(BaseModel):
+    """Result of querying Anki database."""
+
+    cards: list[dict[str, Any]]
+    query: str
+    count: int
+
+
+class AnkiListResult(BaseModel):
+    """Result of listing Anki decks."""
+
+    decks: list[dict[str, Any]]
+    count: int
+
+
+class AnkiCreateResult(BaseModel):
+    """Result of creating Anki cards."""
+
+    deck_path: Path
+    cards_created: int
+    message: str = ""
+
+
 def unicase_compare(x, y):
     """Custom collation function for unicase comparison."""
     x_ = unidecode(x).lower()
@@ -23,12 +47,16 @@ def unicase_compare(x, y):
     return 1 if x_ > y_ else -1 if x_ < y_ else 0
 
 
+@contextmanager
 def setup_anki_connection(anki_db_path):
     """Set up SQLite connection with custom collations for Anki database."""
     conn = sqlite3.connect(str(anki_db_path))
     conn.row_factory = sqlite3.Row
     conn.create_collation("unicase", unicase_compare)
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 # Anki model for basic vocabulary cards
 VOCAB_MODEL_ID = 1607392319  # Fixed ID for consistent model
@@ -307,16 +335,9 @@ Return only a JSON object with this format:
         # Fallback sentences
         return f"This is an example with {word}.", f"これは{translation}の例です。"
 
-
 @register()
 def anki_add_vocab_card(req: AddVocabCardRequest) -> AnkiCreateResult:
     """Create a bilingual vocabulary card with audio and add to Anki deck.
-
-    Args:
-        req: Request containing all card data
-
-    Returns:
-        AnkiCreateResult with creation details
 
     Example usage: anki_add_vocab_card(AddVocabCardRequest(...))
     """
@@ -332,7 +353,7 @@ def anki_add_vocab_card(req: AddVocabCardRequest) -> AnkiCreateResult:
         term_audio_filename = f"{req.term_ja}_term.mp3"
         media_files.append(str(req.audio_ja))
 
-    cli_mainfilename = None
+    meaning_audio_filename = None
     if req.audio_en and req.audio_en.exists():
         meaning_audio_filename = f"{req.term_en}_meaning.mp3"
         media_files.append(str(req.audio_en))
@@ -368,27 +389,6 @@ def anki_add_vocab_card(req: AddVocabCardRequest) -> AnkiCreateResult:
     )
 
 
-class AnkiQueryResult(BaseModel):
-    """Result of querying Anki database."""
-    cards: list[dict[str, Any]]
-    query: str
-    count: int
-
-
-class AnkiCreateResult(BaseModel):
-    """Result of creating Anki cards."""
-    deck_path: Path
-    cards_created: int
-    message: str = ""
-
-
-class AnkiListResult(BaseModel):
-    """Result of listing Anki decks."""
-
-    decks: list[dict[str, Any]]
-    count: int
-
-
 @register()
 def anki_query(query: str, limit: int = 100, deck_name: str | None = None) -> AnkiQueryResult:
     """Search for notes in Anki database by query text.
@@ -410,58 +410,42 @@ def anki_query(query: str, limit: int = 100, deck_name: str | None = None) -> An
             count=0
         )
 
-    conn = setup_anki_connection(anki_db)
-    cursor = conn.cursor()
-
-    try:
+    with setup_anki_connection(anki_db) as conn:
         # Build query to search in note fields
         sql_query = """
-            SELECT n.id, n.flds, n.tags, c.ord, d.name as deck_name
-            FROM notes n
-            JOIN cards c ON c.nid = n.id
-            JOIN decks d ON c.did = d.id
-            WHERE n.flds LIKE ?
-        """
+          SELECT n.id, n.flds, n.tags, c.ord, d.name as deck_name
+          FROM notes n
+          JOIN cards c ON c.nid = n.id
+          JOIN decks d ON c.did = d.id
+          WHERE n.flds LIKE ?
+      """
         params = [f"%{query}%"]
 
         # Optional deck filter
         if deck_name:
-            search_name = deck_name.replace('::', '\x1f')
+            search_name = deck_name.replace("::", "\x1f")
             sql_query += " AND d.name = ?"
             params.append(search_name)
 
         sql_query += f" LIMIT {limit}"
 
-        cursor.execute(sql_query, params)
+        cursor = conn.execute(sql_query, params)
         rows = cursor.fetchall()
 
         cards = []
         for row in rows:
-            fields = row["flds"].split('\x1f')  # Anki field separator
-            deck_name = row["deck_name"].replace('\x1f', '::')  # Format deck name
-            cards.append({
-                "id": row["id"],
-                "fields": fields,
-                "tags": row["tags"].split() if row["tags"] else [],
-                "card_type": row["ord"],
-                "deck_name": deck_name
-            })
-
-        return AnkiQueryResult(
-            cards=cards,
-            query=query,
-            count=len(cards)
-        )
-
-    except Exception as e:
-        print(f"Error: {e}")
-        return AnkiQueryResult(
-            cards=[],
-            query=query,
-            count=0
-        )
-    finally:
-        conn.close()
+            fields = row["flds"].split("\x1f")  # Anki field separator
+            deck_name = row["deck_name"].replace("\x1f", "::")  # Format deck name
+            cards.append(
+                {
+                    "id": row["id"],
+                    "fields": fields,
+                    "tags": row["tags"].split() if row["tags"] else [],
+                    "card_type": row["ord"],
+                    "deck_name": deck_name,
+                }
+            )
+        return AnkiQueryResult(cards=cards, query=query, count=len(cards))
 
 
 @register()
@@ -537,12 +521,8 @@ def anki_list() -> AnkiListResult:
     if not anki_db:
         return AnkiListResult(decks=[], count=0)
 
-    conn = setup_anki_connection(anki_db)
-    cursor = conn.cursor()
-
-    try:
-        # Get all decks with card counts using proper collation
-        cursor.execute(
+    with setup_anki_connection(anki_db) as conn:
+        cursor = conn.execute(
             """
             SELECT d.name as deck_name, 
                    COUNT(c.id) as card_count,
@@ -568,17 +548,11 @@ def anki_list() -> AnkiListResult:
                 }
             )
 
-        return AnkiListResult(decks=decks, count=len(decks))
-
-    except Exception as e:
-        print(f"Error: {e}")
-        return AnkiListResult(decks=[], count=0)
-    finally:
-        conn.close()
+    return AnkiListResult(decks=decks, count=len(decks))
 
 
 if __name__ == "__main__":
-    multi_cli_main(
+    cli_main(
         [
             anki_list,
             anki_query,
@@ -586,6 +560,5 @@ if __name__ == "__main__":
             anki_add_vocab_card,
             generate_example_sentence,
         ],
-        default_function="anki_list",
         context_cls=ToolContext,
     )

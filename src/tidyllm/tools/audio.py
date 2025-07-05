@@ -1,12 +1,13 @@
 """Audio processing functions for TidyLLM."""
 
+import io
 import queue
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import torch
 from pydantic import BaseModel
 
 from tidyllm.context import get_tool_context
@@ -113,7 +114,7 @@ def _load_vad_model():
 
 
 def find_voice_activity(
-    audio_tensor: torch.Tensor,
+    audio_array: np.array,
     vad_model,
     sample_rate: int = VAD_SAMPLE_RATE,
     min_speech_duration: Duration = MIN_SPEECH_DURATION,
@@ -123,7 +124,7 @@ def find_voice_activity(
     """Run Voice Activity Detection on audio tensor.
 
     Args:
-        audio_tensor: Audio data as torch.Tensor
+        audio_array: Numpy float32 array of audio
         vad_model: Loaded VAD model
         sample_rate: Audio sample rate
         min_speech_duration: Minimum speech duration
@@ -133,7 +134,9 @@ def find_voice_activity(
     Returns:
         List of (start, end) Duration tuples for detected speech segments
     """
+    import torch
     from silero_vad import get_speech_timestamps
+    audio_tensor = torch.from_numpy(audio_array)
 
     total_duration = min_speech_duration + min_silence_duration
     if Duration.from_samples(len(audio_tensor), sample_rate) < total_duration:
@@ -455,9 +458,8 @@ class VADBuffer:
         if len(self.audio_data) == 0 or self.start_timestamp is None:
             return []
 
-        audio_tensor = torch.from_numpy(self.audio_data)
         segments = find_voice_activity(
-            audio_tensor,
+            self.audio_data,
             self.vad_model,
             sample_rate=self.target_format.sample_rate,
             min_speech_duration=min_speech_duration,
@@ -631,3 +633,35 @@ def chunk_to_wav_bytes_tool(chunk: AudioChunk) -> bytes:
     Example: wav_data = chunk_to_wav_bytes_tool(audio_chunk)
     """
     return chunk_to_wav_bytes(chunk)
+
+
+@register(
+    name="audio.play",
+    description="Play audio from a file or stdin",
+    tags=["audio", "playback"],
+)
+def play(file_path: Path | None = None):
+    """Play audio from a file or stdin.
+
+    Args:
+        file_path: Path to audio file to play, or None to read from stdin
+    """
+    import numpy as np
+    import sounddevice as sd
+    from pydub import AudioSegment
+
+    if file_path is None:
+        s = io.BytesIO(sys.stdin.buffer.read())
+        audio = AudioSegment.from_file(s)
+    else:
+        audio = AudioSegment.from_file(file_path)
+
+    # Convert to numpy array
+    audio_data = np.array(audio.get_array_of_samples(), dtype=np.float32)
+    if audio.channels == 2:
+        audio_data = audio_data.reshape((-1, 2))
+    audio_data = audio_data / 32768.0  # Normalize from int16 to float32
+    sample_rate = audio.frame_rate
+
+    sd.play(audio_data, sample_rate)
+    sd.wait()

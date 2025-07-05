@@ -4,13 +4,12 @@
 import pytest
 from pydantic import BaseModel, Field
 
-from tidyllm import register
-
 # Skip all tests if FastAPI is not available
 fastapi = pytest.importorskip("fastapi")
 TestClient = pytest.importorskip("fastapi.testclient").TestClient
 
 from tidyllm.adapters.fastapi_adapter import create_fastapi_app
+from tidyllm.registry import register
 from tidyllm.tools.config import Config
 from tidyllm.tools.context import ToolContext
 

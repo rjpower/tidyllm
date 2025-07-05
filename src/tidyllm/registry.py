@@ -30,6 +30,7 @@ class Registry:
     def register(
         self,
         func: Callable,
+        name: str | None = None,
         doc_override: str | None = None,
         description: str = "",
         tags: list[str] | None = None,
@@ -42,7 +43,7 @@ class Registry:
             description: Tool description
             tags: List of tags for categorization
         """
-        name = func.__name__
+        name = name or func.__name__
 
         if name in self._tools:
             # warnings.warn(
@@ -54,10 +55,16 @@ class Registry:
             return
 
         # Create FunctionDescription once at registration time
-        func_desc = FunctionDescription(func, doc_override, description, tags)
+        func_desc = FunctionDescription(
+            func,
+            name=name,
+            doc_override=doc_override,
+            description=description,
+            tags=tags,
+        )
 
         self._tools[name] = func_desc
-        logger.info(f"Registered tool: {name}")
+        logger.debug(f"Registered tool: {name}")
 
     @property
     def functions(self) -> list[FunctionDescription]:
@@ -129,7 +136,7 @@ class Registry:
             return result
         except Exception as e:
             logger.exception(e, stack_info=True)
-            return json.dumps({"error": str(e), "type": type(e).__name__})
+            return json.dumps({"error": str(e), "type": type(e)})
 
 
 # Global registry instance
@@ -172,7 +179,6 @@ def register(
 
         if name:
             wrapper.__name__ = name
-
         REGISTRY.register(wrapper, doc, description, tags)
         return wrapper
 

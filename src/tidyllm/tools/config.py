@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -10,7 +11,7 @@ class Config(BaseSettings):
 
     notes_dir: Path = Path.home() / "Documents" / "Notes"
     user_db: Path = Path.home() / ".config" / "tidyllm" / "user.db"
-    anki_path: Path | None = None  # Will autodiscover if unset
+    anki_path: Path | None = Field(default=None)
     fast_model: str = "gemini/gemini-2.5-flash"
     slow_model: str = "gemini/gemini-2.5-pro"
 
@@ -20,14 +21,6 @@ class Config(BaseSettings):
         "env_file_encoding": "utf-8",
         "extra": "ignore",
     }
-
-    def model_post_init(self, __context) -> None:
-        """Post-initialization setup."""
-        # Auto-discover Anki path if not set
-        if self.anki_path is None:
-            discovered_path = self._autodiscover_anki_db()
-            if discovered_path:
-                self.anki_path = discovered_path
 
     def ensure_notes_dir(self) -> Path:
         """Ensure notes directory exists and return it."""
@@ -50,7 +43,6 @@ class Config(BaseSettings):
                 if profile_dir.is_dir():
                     collection = profile_dir / "collection.anki2"
                     if collection.exists():
-                        print("Found Anki database at:", collection)
                         return collection
 
         return None
