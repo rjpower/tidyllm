@@ -151,8 +151,6 @@ class LLMClient(ABC):
 
 
 class LiteLLMClient(LLMClient):
-    """LiteLLM client for multiple LLM providers."""
-
     def completion(
         self,
         model: str,

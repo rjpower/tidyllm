@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field
 
-from tidyllm.adapters.cli import multi_cli_main
+from tidyllm.adapters.cli import cli_main
 from tidyllm.context import get_tool_context
 from tidyllm.database import json_decode, json_encode
 from tidyllm.registry import register
@@ -121,8 +121,6 @@ class VocabUpdateArgs(BaseModel):
     tags: list[str] | None = Field(None, description="New tags")
 
 
-
-
 @register()
 def vocab_update(args: VocabUpdateArgs) -> None:
     """Update an existing vocabulary word.
@@ -160,8 +158,6 @@ def vocab_update(args: VocabUpdateArgs) -> None:
     # Word updated successfully
 
 
-
-
 @register()
 def vocab_delete(word: str) -> None:
     """Delete a vocabulary word from the database.
@@ -183,7 +179,7 @@ def vocab_delete(word: str) -> None:
 
 
 if __name__ == "__main__":
-    multi_cli_main(
+    cli_main(
         [vocab_add, vocab_search, vocab_update, vocab_delete],
         default_function="vocab_search",
         context_cls=ToolContext,

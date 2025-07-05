@@ -60,7 +60,7 @@ def create_click_option(option: CliOption):
             click_param_name,
             is_flag=True,
             help=option.help_text,
-            required=False,
+            required=option.required,
         )
     elif option.multiple:
         return click.option(
@@ -85,7 +85,7 @@ def create_click_option(option: CliOption):
             click_param_name,
             type=click_type,
             help=option.help_text,
-            required=False,
+            required=option.required,
         )
 
 
@@ -140,22 +140,9 @@ def parse_cli_arguments(
     return args_dict
 
 
-def generate_cli(func: Callable, context_cls: type[BaseModel] = None) -> click.Command:
-    """Generate a Click CLI for a registered tool using FunctionDescription."""
-    func_desc = FunctionDescription(func)
-    return _generate_cli_from_description(func_desc, context_cls)
-
-
-def cli_main(func: Callable, context_cls: type[BaseModel] = None):
-    try:
-        generate_cli(func, context_cls)(standalone_mode=False)
-    except Exception as _:
-        import traceback
-        click.echo(traceback.format_exc())
-        click.echo(json.dumps({"error": "An error occurred while generating CLI"}))
-
-
-def _generate_cli_from_description(func_desc: FunctionDescription, context_cls: type[BaseModel] = None) -> click.Command:
+def _generate_cli_from_description(
+    func_desc: FunctionDescription, context_cls: type[BaseModel] | None = None
+) -> click.Command:
     """Generate CLI from a FunctionDescription."""
 
     # Collect CLI options from function arguments
@@ -188,11 +175,11 @@ def _generate_cli_from_description(func_desc: FunctionDescription, context_cls: 
 
         # Output as JSON
         if isinstance(result, BaseModel):
-            output = result.model_dump()
+            output = result.model_dump_json(indent=2)
         else:
-            output = result
+            output = json.dumps(result, indent=2)
 
-        click.echo(json.dumps(output))
+        click.echo(output)
 
     # Add all CLI options
     for option in func_options:
@@ -202,7 +189,19 @@ def _generate_cli_from_description(func_desc: FunctionDescription, context_cls: 
     return cli
 
 
-def multi_cli_main(functions: list[Callable], default_function: str | None = None, context_cls: type[BaseModel] = None):
+def generate_cli(
+    func: Callable, context_cls: type[BaseModel] | None = None
+) -> click.Command:
+    """Generate a Click CLI for a registered tool using FunctionDescription."""
+    func_desc = FunctionDescription(func)
+    return _generate_cli_from_description(func_desc, context_cls)
+
+
+def cli_main(
+    functions: list[Callable] | Callable,
+    default_function: str | None = None,
+    context_cls: type[BaseModel] | None = None,
+):
     """Create a click CLI that dispatches to multiple functions.
 
     Args:
@@ -211,28 +210,22 @@ def multi_cli_main(functions: list[Callable], default_function: str | None = Non
         context_cls: Context class to instantiate for each function call
     """
 
+    if not isinstance(functions, list):
+        functions = [functions]
+
+    if default_function is None:
+        default_function = functions[0].__name__
+
     @click.group(invoke_without_command=True)
     @click.pass_context
     def cli(ctx):
         """Multi-function CLI."""
         if ctx.invoked_subcommand is None:
-            if default_function and default_function in functions:
-                # Invoke default function
-                ctx.invoke(cli.commands[default_function])
-            else:
-                # Show help
-                click.echo(ctx.get_help())
+            ctx.invoke(cli.commands[default_function])
 
-    # Add subcommands for each function
     for func in functions:
         func_desc = FunctionDescription(func)
         cmd = _generate_cli_from_description(func_desc, context_cls)
         cli.add_command(cmd)
 
-    try:
-        cli(standalone_mode=False)
-    except Exception as e:
-        import traceback
-
-        click.echo(traceback.format_exc())
-        click.echo(json.dumps({"error": f"CLI error: {str(e)}"}))
+    cli(standalone_mode=True)

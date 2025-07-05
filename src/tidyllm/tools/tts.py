@@ -1,6 +1,11 @@
+from typing import Any
+
+from pydantic.types import Base64Bytes
+
 """Text-to-speech tool using litellm."""
 
 import tempfile
+from enum import Enum
 from pathlib import Path
 from typing import BinaryIO
 
@@ -14,119 +19,82 @@ from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 
 
+class Voice(Enum):
+    ZEPHYR = "Zephyr"
+    PUCK = "Puck"
+    CHARON = "Charon"
+    KORE = "Kore"
+    FENRIR = "Fenrir"
+    LEDA = "Leda"
+    ORUS = "Orus"
+    AOEDE = "Aoede"
+    CALLIRRHOE = "Callirrhoe"
+    AUTONOE = "Autonoe"
+    ENCELADUS = "Enceladus"
+    IAPETUS = "Iapetus"
+    UMBRIEL = "Umbriel"
+    ALGIEBA = "Algieba"
+    DESPINA = "Despina"
+    ERINOME = "Erinome"
+    ALGENIB = "Algenib"
+    RASALGETHI = "Rasalgethi"
+    LAOMEDEIA = "Laomedeia"
+    ACHERNAR = "Achernar"
+    ALNILAM = "Alnilam"
+    SCHEDAR = "Schedar"
+    GACRUX = "Gacrux"
+    PULCHERRIMA = "Pulcherrima"
+    ACHIRD = "Achird"
+    ZUBENELGENUBI = "Zubenelgenubi"
+    VINDEMIATRIX = "Vindemiatrix"
+    SADACHBIA = "Sadachbia"
+    SADALTAGER = "Sadaltager"
+    SULAFAT = "Sulafat"
+
+
 class SpeechResult(BaseModel):
     """Result of TTS generation."""
-    audio_bytes: bytes
+    audio_bytes: Base64Bytes
     content: str
-    voice: str
+    voice: Voice
     provider: str
     audio_format: str = "mp3"
-
-
-def detect_language_and_voice(content: str) -> tuple[str, str]:
-    """Detect language and select appropriate voice using LLM."""
-    ctx = get_tool_context()
-    
-    response = litellm.completion(
-        model=ctx.config.fast_model,
-        messages=[
-            {
-                "role": "user",
-                "content": f"""Detect the language of this text and suggest an appropriate voice code: "{content}"
-
-Return only a JSON object with this format:
-{{
-    "language": "en",
-    "voice": "en-US-Neural2-C"
-}}
-
-Common voice codes:
-- English: en-US-Neural2-C, en-US-Neural2-D
-- Japanese: ja-JP-Neural2-C, ja-JP-Neural2-D
-- Spanish: es-ES-Neural2-C, es-ES-Neural2-D
-- French: fr-FR-Neural2-C, fr-FR-Neural2-D
-- German: de-DE-Neural2-C, de-DE-Neural2-D"""
-            }
-        ],
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "language_detection",
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "language": {"type": "string"},
-                        "voice": {"type": "string"}
-                    },
-                    "required": ["language", "voice"]
-                },
-                "strict": True
-            }
-        }
-    )
-    
-    if response.choices:
-        import json
-        result = json.loads(response.choices[0].message.content)
-        return result["language"], result["voice"]
-    else:
-        return "en", "en-US-Neural2-C"
 
 
 @register()
 @cached_function
 def generate_speech(
     content: str,
-    voice: str | None = None,
-    provider: str = "gemini",
-    auto_detect_language: bool = True
+    voice: Voice = Voice.ZEPHYR,
+    language: str = "",
+    model: str = "gemini/gemini-2.5-flash-preview-tts",
 ) -> SpeechResult:
     """Generate TTS audio for text using litellm.
-    
+
     Args:
         content: Text to convert to speech
         voice: Voice to use (auto-detected if not provided)
         provider: TTS provider to use
         auto_detect_language: Whether to auto-detect language and voice
-        
+
     Returns:
         SpeechResult with audio bytes and metadata
-        
+
     Example usage: generate_speech("Hello world", "en-US-Neural2-C")
     """
-    # Auto-detect language and voice if not provided
-    if voice is None and auto_detect_language:
-        _, voice = detect_language_and_voice(content)
-    elif voice is None:
-        voice = "en-US-Neural2-C"
-    
-    # Determine model based on provider
-    if provider == "gemini":
-        model = "gemini/gemini-2.5-flash-preview-tts"
-    else:
-        model = f"{provider}-tts"
-    
     print(f"Generating speech: {len(content)} characters with voice {voice}")
-    
+
+    if language != "":
+        content = f"Say the following in {language}: '{content}'"
+
     # Generate speech using litellm
-    response = litellm.speech(
-        model=model,
-        input=content,
-        voice=voice
-    )
-    
-    # Get audio bytes
-    with tempfile.NamedTemporaryFile() as temp_file:
-        temp_path = Path(temp_file.name)
-        response.stream_to_file(temp_path)
-        audio_bytes = temp_path.read_bytes()
-    
+    response: Any = litellm.speech(model=model, input=content, voice=voice)
     return SpeechResult(
-        audio_bytes=audio_bytes,
+        audio_bytes=response.content,
         content=content,
         voice=voice,
-        provider=provider,
-        audio_format="mp3"
+        provider=model,
+        audio_format="mp3",
     )
 
 

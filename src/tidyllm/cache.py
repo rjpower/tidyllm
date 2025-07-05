@@ -117,9 +117,7 @@ class _FunctionCacheHandler(Generic[P, R]):
         row = cursor.first()
         if row:
             result_data = json.loads(row.result)
-            parsed_result = parse_from_json(
-                result_data["result"], self.description.result_type
-            )
+            parsed_result = parse_from_json(result_data, self.description.result_type)
             return CacheResult.hit(parsed_result)
 
         return CacheResult.miss()
@@ -127,10 +125,9 @@ class _FunctionCacheHandler(Generic[P, R]):
     def store_result(self, arg_hash: str, result_data: R):
         """Store result in cache."""
         if isinstance(result_data, BaseModel):
-            result_data = result_data.model_dump() # type: ignore
-
-        result = {"result": result_data}
-        result_json = json.dumps(result)
+            result_json = result_data.model_dump_json()
+        else:
+            result_json = json.dumps(result_data)
         sql = (
             f"INSERT OR REPLACE INTO {self.table_name} (arg_hash, result) VALUES (?, ?)"
         )

@@ -16,7 +16,7 @@ from rich.console import Console
 from rich.progress import track
 from rich.table import Table
 
-from tidyllm.adapters.cli import multi_cli_main
+from tidyllm.adapters.cli import cli_main
 from tidyllm.duration import Duration
 from tidyllm.registry import register
 from tidyllm.tools.audio import chunk_by_vad_stream, chunk_to_wav_bytes
@@ -440,7 +440,7 @@ def full_pipeline(
 
 if __name__ == "__main__":
     functions = [transcribe_audio, diff_vocab, review_vocab, export_csv, full_pipeline]
-    multi_cli_main(
+    cli_main(
         functions,
         default_function="transcribe_audio",
         context_cls=ToolContext,
