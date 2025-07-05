@@ -12,7 +12,6 @@ logging.basicConfig(
 from tidyllm.adapters.cli import cli_main
 from tidyllm.discover import discover_tools_in_package
 from tidyllm.registry import REGISTRY
-from tidyllm.tools.config import Config
 from tidyllm.tools.context import ToolContext
 
 

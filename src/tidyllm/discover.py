@@ -2,7 +2,6 @@
 
 import importlib
 import importlib.util
-import inspect
 import logging
 import sys
 from pathlib import Path

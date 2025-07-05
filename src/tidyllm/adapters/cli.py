@@ -3,7 +3,6 @@
 import json
 import pickle
 import sys
-import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, get_origin
@@ -246,4 +245,12 @@ def cli_main(
         cmd = _generate_cli_from_description(func_desc, context_cls)
         cli.add_command(cmd)
 
+    import logging
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname).1s %(asctime)s %(filename)s:%(lineno)d - %(message)s",
+        datefmt="%H:%M:%S",
+        handlers=[logging.StreamHandler()],
+    )
     cli(standalone_mode=True)

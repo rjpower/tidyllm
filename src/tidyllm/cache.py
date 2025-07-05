@@ -7,6 +7,7 @@ supporting both synchronous and asynchronous functions.
 import asyncio
 import hashlib
 import json
+import logging
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from functools import wraps
@@ -17,6 +18,7 @@ from pydantic import BaseModel
 from tidyllm.context import get_tool_context
 from tidyllm.schema import FunctionDescription, parse_from_json
 
+logger = logging.getLogger(__name__)
 
 class DatabaseProtocol(Protocol):
     """Protocol defining the minimal database interface required for caching."""
@@ -144,7 +146,7 @@ def cached_function(func: Callable[P, R]) -> Callable[P, R]:
         ... def expensive_computation(x: int) -> int:
         ...     return x * x
     """
-    
+
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         try:
@@ -152,18 +154,16 @@ def cached_function(func: Callable[P, R]) -> Callable[P, R]:
         except RuntimeError:
             # No cache context available, execute function directly
             return func(*args, **kwargs)
-        
-        if not hasattr(cache_context, 'db'):
-            # Context doesn't have caching capability, execute function directly
-            return func(*args, **kwargs)
-            
+
         handler = _FunctionCacheHandler(func, cache_context)
         arg_hash = handler.compute_arg_hash(*args, **kwargs)
-        
+
         cache_result = handler.lookup_cache(arg_hash)
         if cache_result.exists:
+            logger.debug(f"Cache hit for {func.__name__}")
             return cache_result.value  # type: ignore
 
+        logger.debug(f"Cache miss for {func.__name__}")
         actual_result = func(*args, **kwargs)
         handler.store_result(arg_hash, actual_result)
         return actual_result
@@ -194,18 +194,16 @@ def async_cached_function(
         except RuntimeError:
             # No cache context available, execute function directly
             return await func(*args, **kwargs)
-        
-        if not hasattr(cache_context, 'db'):
-            # Context doesn't have caching capability, execute function directly
-            return await func(*args, **kwargs)
-            
+
         handler = _FunctionCacheHandler(func, cache_context)
         arg_hash = handler.compute_arg_hash(*args, **kwargs)
 
-        cache_result = await asyncio.to_thread(handler.lookup_cache, arg_hash)
+        cache_result = handler.lookup_cache(arg_hash)
         if cache_result.exists:
+            logger.debug(f"Cache hit for {func.__name__}")
             return cache_result.value  # type: ignore
 
+        logger.debug(f"Cache miss for {func.__name__}")
         actual_result = await func(*args, **kwargs)
         await asyncio.to_thread(handler.store_result, arg_hash, actual_result)
         return actual_result

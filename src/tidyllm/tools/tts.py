@@ -6,7 +6,6 @@ from pydantic.types import Base64Bytes
 
 import base64
 from enum import Enum
-from pathlib import Path
 
 import litellm
 from pydantic import BaseModel

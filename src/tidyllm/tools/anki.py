@@ -1,13 +1,17 @@
 """Anki flashcard management tool."""
 
+import hashlib
+import shutil
 import sqlite3
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import genanki
 import litellm
+import litellm.types
+import litellm.types.utils
 from pydantic import BaseModel, Field
 from unidecode import unidecode
 
@@ -58,81 +62,6 @@ def setup_anki_connection(anki_db_path):
     finally:
         conn.close()
 
-# Anki model for basic vocabulary cards
-VOCAB_MODEL_ID = 1607392319  # Fixed ID for consistent model
-VOCAB_MODEL = genanki.Model(
-    VOCAB_MODEL_ID,
-    'TidyLLM Vocabulary Card',
-    fields=[
-        {'name': 'Word'},
-        {'name': 'Translation'},
-        {'name': 'Examples'},
-        {'name': 'Audio'},
-    ],
-    templates=[
-        {
-            'name': 'Word → Translation',
-            'qfmt': '''
-                <div class="word">{{Word}}</div>
-                {{#Audio}}<div class="audio">[sound:{{Audio}}]</div>{{/Audio}}
-            ''',
-            'afmt': '''
-                {{FrontSide}}
-                <hr id="answer">
-                <div class="translation">{{Translation}}</div>
-                {{#Examples}}<div class="examples">{{Examples}}</div>{{/Examples}}
-            ''',
-        },
-        {
-            'name': 'Translation → Word',
-            'qfmt': '<div class="translation">{{Translation}}</div>',
-            'afmt': '''
-                {{FrontSide}}
-                <hr id="answer">
-                <div class="word">{{Word}}</div>
-                {{#Audio}}<div class="audio">[sound:{{Audio}}]</div>{{/Audio}}
-                {{#Examples}}<div class="examples">{{Examples}}</div>{{/Examples}}
-            ''',
-        },
-    ],
-    css='''
-        .card {
-            font-family: arial;
-            font-size: 20px;
-            text-align: center;
-            color: black;
-            background-color: white;
-            max-width: 600px;
-            margin: 0 auto;
-        }
-        .word {
-            font-size: 28px;
-            font-weight: bold;
-            color: #1a73e8;
-            margin: 20px 0;
-        }
-        .translation {
-            font-size: 24px;
-            color: #333;
-            margin: 20px 0;
-        }
-        .examples {
-            font-size: 18px;
-            color: #666;
-            font-style: italic;
-            margin-top: 20px;
-            text-align: left;
-            padding: 0 20px;
-        }
-        .audio {
-            margin: 10px 0;
-        }
-        hr#answer {
-            margin: 20px 0;
-            border: 1px solid #ccc;
-        }
-    '''
-)
 
 # Enhanced bilingual vocabulary model with audio support
 BILINGUAL_VOCAB_MODEL_ID = 1607392320  # Fixed ID for bilingual model
@@ -153,32 +82,32 @@ BILINGUAL_VOCAB_MODEL = genanki.Model(
             "name": "Term → Meaning",
             "qfmt": """
                 <div class="term">{{Term}}</div>
-                {{#Reading}}<div class="reading">{{Reading}}</div>{{/Reading}}
-                {{#TermAudio}}<div class="audio">[sound:{{TermAudio}}]</div>{{/TermAudio}}
+                {{TermAudio}}
+                <div class="example">{{Example}}</div>
             """,
             "afmt": """
                 {{FrontSide}}
                 <hr id="answer">
+                {{MeaningAudio}}
+                <div class="reading">{{Reading}}</div>
                 <div class="meaning">{{Meaning}}</div>
-                {{#MeaningAudio}}<div class="audio">[sound:{{MeaningAudio}}]</div>{{/MeaningAudio}}
-                {{#Example}}<div class="example">{{Example}}</div>{{/Example}}
-                {{#ExampleTranslation}}<div class="example-translation">{{ExampleTranslation}}</div>{{/ExampleTranslation}}
+                <div class="example-translation">{{ExampleTranslation}}</div>
             """,
         },
         {
             "name": "Meaning → Term",
             "qfmt": """
                 <div class="meaning">{{Meaning}}</div>
-                {{#MeaningAudio}}<div class="audio">[sound:{{MeaningAudio}}]</div>{{/MeaningAudio}}
+                {{MeaningAudio}}
+                <div class="example-translation">{{ExampleTranslation}}</div>
             """,
             "afmt": """
                 {{FrontSide}}
                 <hr id="answer">
                 <div class="term">{{Term}}</div>
-                {{#Reading}}<div class="reading">{{Reading}}</div>{{/Reading}}
-                {{#TermAudio}}<div class="audio">[sound:{{TermAudio}}]</div>{{/TermAudio}}
-                {{#Example}}<div class="example">{{Example}}</div>{{/Example}}
-                {{#ExampleTranslation}}<div class="example-translation">{{ExampleTranslation}}</div>{{/ExampleTranslation}}
+                {{TermAudio}}
+                <div class="reading">{{Reading}}</div>
+                <div class="example">{{Example}}</div>
             """,
         },
     ],
@@ -246,6 +175,7 @@ BILINGUAL_VOCAB_MODEL = genanki.Model(
 
 class AnkiCard(BaseModel):
     """A vocabulary card to add to Anki."""
+
     source_word: str = Field(description="Word in source language")
     translated_word: str = Field(description="Translation of the word")
     examples: list[str] = Field(default_factory=list, description="Example sentences")
@@ -264,7 +194,20 @@ class AddVocabCardRequest(BaseModel):
     sentence_ja: str = Field(description="Japanese example sentence")
     audio_en: Path | None = Field(None, description="Path to English audio file")
     audio_ja: Path | None = Field(None, description="Path to Japanese audio file")
+
+
+class AddVocabCardsRequest(BaseModel):
+    """Request to add multiple bilingual vocabulary cards with audio."""
+
+    cards: list[AddVocabCardRequest] = Field(description="List of vocabulary cards to add")
     deck_name: str = Field(description="Name of the Anki deck")
+
+
+class ExampleSentenceResponse(BaseModel):
+    """Response model for generated example sentences."""
+
+    source_sentence: str
+    target_sentence: str
 
 
 @register()
@@ -313,27 +256,88 @@ Return only a JSON object with this format:
             "type": "json_schema",
             "json_schema": {
                 "name": "example_sentences",
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "source_sentence": {"type": "string"},
-                        "target_sentence": {"type": "string"},
-                    },
-                    "required": ["source_sentence", "target_sentence"],
-                },
+                "schema": ExampleSentenceResponse.model_json_schema(),
                 "strict": True,
             },
         },
     )
 
-    if response.choices:
-        import json
+    response = cast(litellm.types.utils.ModelResponse, response)
 
-        result = json.loads(response.choices[0].message.content)
-        return result["source_sentence"], result["target_sentence"]
-    else:
-        # Fallback sentences
-        return f"This is an example with {word}.", f"これは{translation}の例です。"
+    return ExampleSentenceResponse.model_validate_json(
+        response.choices[0].message.content  # type: ignore
+    )  # type: ignore
+
+
+@register()
+def anki_add_vocab_cards(req: AddVocabCardsRequest) -> AnkiCreateResult:
+    """Create multiple bilingual vocabulary cards with audio and add to Anki deck.
+
+    Example usage: anki_add_vocab_cards(AddVocabCardsRequest(cards=[...], deck_name="My Deck"))
+    """
+    # Generate deck ID from name
+    deck_id = abs(hash(req.deck_name)) % (10**10)
+    deck = genanki.Deck(deck_id, req.deck_name)
+
+    # Create temporary directory for media files
+    temp_dir = tempfile.TemporaryDirectory()
+    media_files = []
+
+    def _add_audio(audio_path: Path, term: str) -> str:
+        """Add audio file to package with content-based filename."""
+        if not audio_path or not audio_path.exists():
+            return ""
+
+        # Create a unique filename based on content hash
+        audio_filename = f"audio_{hashlib.md5(term.encode()).hexdigest()[:8]}.mp3"
+        temp_audio_path = Path(temp_dir.name) / audio_filename
+        shutil.copy2(audio_path, temp_audio_path)
+        media_files.append(temp_audio_path)
+
+        return f"[sound:{audio_filename}]"
+
+    # Process each card
+    for card in req.cards:
+        # Handle audio files
+        term_audio_field = _add_audio(card.audio_ja, card.term_ja)
+        meaning_audio_field = _add_audio(card.audio_en, card.term_en)
+
+        # Create bilingual note using the enhanced model
+        note = genanki.Note(
+            model=BILINGUAL_VOCAB_MODEL,
+            fields=[
+                card.term_ja,  # Term
+                card.reading_ja,  # Reading
+                card.term_en,  # Meaning
+                card.sentence_ja,  # Example
+                card.sentence_en,  # ExampleTranslation
+                term_audio_field,  # TermAudio
+                meaning_audio_field,  # MeaningAudio
+            ],
+        )
+        deck.add_note(note)
+
+    # Determine output path in temp directory
+    output_temp_dir = Path(tempfile.gettempdir())
+    output_path = output_temp_dir / f"{req.deck_name.replace(' ', '_')}_vocab.apkg"
+
+    # Create package with media files
+    package = genanki.Package(deck)
+    if media_files:
+        package.media_files = media_files
+
+    try:
+        package.write_to_file(str(output_path))
+
+        return AnkiCreateResult(
+            deck_path=output_path,
+            cards_created=len(req.cards),
+            message=f"Created {len(req.cards)} bilingual vocab cards in deck '{req.deck_name}'",
+        )
+    finally:
+        # Clean up temporary directory
+        temp_dir.cleanup()
+
 
 @register()
 def anki_add_vocab_card(req: AddVocabCardRequest) -> AnkiCreateResult:
@@ -341,56 +345,15 @@ def anki_add_vocab_card(req: AddVocabCardRequest) -> AnkiCreateResult:
 
     Example usage: anki_add_vocab_card(AddVocabCardRequest(...))
     """
-    # Generate deck ID from name
-    deck_id = abs(hash(req.deck_name)) % (10**10)
-    deck = genanki.Deck(deck_id, req.deck_name)
-
-    media_files = []
-
-    # Handle audio files
-    term_audio_filename = None
-    if req.audio_ja and req.audio_ja.exists():
-        term_audio_filename = f"{req.term_ja}_term.mp3"
-        media_files.append(str(req.audio_ja))
-
-    meaning_audio_filename = None
-    if req.audio_en and req.audio_en.exists():
-        meaning_audio_filename = f"{req.term_en}_meaning.mp3"
-        media_files.append(str(req.audio_en))
-
-    # Create bilingual note using the enhanced model
-    note = genanki.Note(
-        model=BILINGUAL_VOCAB_MODEL,
-        fields=[
-            req.term_ja,  # Term
-            req.reading_ja,  # Reading
-            req.term_en,  # Meaning
-            req.sentence_ja,  # Example
-            req.sentence_en,  # ExampleTranslation
-            term_audio_filename or "",  # TermAudio
-            meaning_audio_filename or "",  # MeaningAudio
-        ],
-    )
-    deck.add_note(note)
-
-    # Determine output path in temp directory
-    temp_dir = Path(tempfile.gettempdir())
-    output_path = temp_dir / f"{req.deck_name.replace(' ', '_')}_vocab.apkg"
-
-    # Create package with media files
-    package = genanki.Package(deck)
-    package.media_files = media_files
-    package.write_to_file(str(output_path))
-
-    return AnkiCreateResult(
-        deck_path=output_path,
-        cards_created=1,
-        message=f"Created bilingual vocab card for '{req.term_ja}' / '{req.term_en}' in deck '{req.deck_name}'",
-    )
+    # Use the batch function with a single card
+    cards_req = AddVocabCardsRequest(cards=[req], deck_name="Japanese Vocabulary")
+    return anki_add_vocab_cards(cards_req)
 
 
 @register()
-def anki_query(query: str, limit: int = 100, deck_name: str | None = None) -> AnkiQueryResult:
+def anki_query(
+    query: str, limit: int = 100, deck_name: str | None = None
+) -> AnkiQueryResult:
     """Search for notes in Anki database by query text.
 
     Args:
@@ -404,11 +367,7 @@ def anki_query(query: str, limit: int = 100, deck_name: str | None = None) -> An
     ctx = get_tool_context()
     anki_db = ctx.config.find_anki_db()
     if not anki_db:
-        return AnkiQueryResult(
-            cards=[],
-            query=query,
-            count=0
-        )
+        return AnkiQueryResult(cards=[], query=query, count=0)
 
     with setup_anki_connection(anki_db) as conn:
         # Build query to search in note fields
@@ -446,68 +405,6 @@ def anki_query(query: str, limit: int = 100, deck_name: str | None = None) -> An
                 }
             )
         return AnkiQueryResult(cards=cards, query=query, count=len(cards))
-
-
-@register()
-def anki_create(deck_name: str, cards: list[AnkiCard], output_path: Path | None = None) -> AnkiCreateResult:
-    """Create Anki flashcards using genanki.
-
-    Args:
-        deck_name: Name of the deck to create/add to
-        cards: Cards to add to the deck
-        output_path: Where to save the .apkg file (optional)
-
-    Example usage: anki_create("My Vocab", [AnkiCard(source_word="hello", translated_word="hola", examples=["Hello world"])])
-    """
-    # Generate deck ID from name
-    deck_id = abs(hash(deck_name)) % (10 ** 10)
-    deck = genanki.Deck(deck_id, deck_name)
-
-    media_files = []
-
-    for card in cards:
-        # Format examples as bullet points
-        examples_text = ""
-        if card.examples:
-            examples_text = "<br>".join(f"• {ex}" for ex in card.examples)
-
-        # Handle audio file
-        audio_filename = None
-        if card.audio_path and card.audio_path.exists():
-            audio_filename = f"{card.source_word}_{card.audio_path.name}"
-            media_files.append(str(card.audio_path))
-
-        # Create note
-        note = genanki.Note(
-            model=VOCAB_MODEL,
-            fields=[
-                card.source_word,
-                card.translated_word,
-                examples_text,
-                audio_filename or ""
-            ]
-        )
-        deck.add_note(note)
-
-    # Determine output path  
-    if output_path:
-        # Ensure parent directory exists
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-    else:
-        # Default to temporary directory
-        temp_dir = Path(tempfile.gettempdir())
-        output_path = temp_dir / f"{deck_name.replace(' ', '_')}.apkg"
-
-    # Create package
-    package = genanki.Package(deck)
-    package.media_files = media_files
-    package.write_to_file(str(output_path))
-
-    return AnkiCreateResult(
-        deck_path=output_path,
-        cards_created=len(cards),
-        message=f"Created {len(cards)} cards in deck '{deck_name}'"
-    )
 
 
 @register()
@@ -556,8 +453,8 @@ if __name__ == "__main__":
         [
             anki_list,
             anki_query,
-            anki_create,
             anki_add_vocab_card,
+            anki_add_vocab_cards,
             generate_example_sentence,
         ],
         context_cls=ToolContext,

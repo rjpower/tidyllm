@@ -3,7 +3,7 @@
 from click.testing import CliRunner
 from pydantic import BaseModel
 
-from tidyllm.adapters.cli import generate_cli, cli_main
+from tidyllm.adapters.cli import cli_main, generate_cli
 
 
 class SimpleArgs(BaseModel):
@@ -98,8 +98,8 @@ class TestCLIGeneration:
     
     def test_multi_function_cli(self):
         """Test CLI main with multiple functions."""
-        import io
         import contextlib
+        import io
         
         # Capture stdout to test multi-function CLI
         stdout_capture = io.StringIO()
