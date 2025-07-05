@@ -74,8 +74,8 @@ audio = [
 
 [project.scripts]
 # Add script entry points here:
-tidyllm = "tidyllm:main"
 tidyllm-mcp = "tidyllm.adapters.fastmcp_adapter:run_tidyllm_mcp_server"
+tidyllm = "scripts.tidyllm:main"
 
 
 # ---- Build system ----
@@ -99,8 +99,7 @@ style = "pep440"
 bump = "true"
 
 [tool.hatch.build.targets.wheel]
-# The source location for the package.
-packages = ["src/tidyllm"]
+packages = ["src/tidyllm", "scripts"]
 
 
 # ---- Settings ----

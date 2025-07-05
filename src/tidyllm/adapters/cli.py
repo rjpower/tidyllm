@@ -1,6 +1,8 @@
 """CLI generation from function signatures."""
 
 import json
+import pickle
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, get_origin
@@ -148,10 +150,20 @@ def _generate_cli_from_description(
     # Collect CLI options from function arguments
     func_options = collect_function_options(func_desc)
 
-    @click.command(name=func_desc.name)
+    # Get the first line of the tool's docstring for the CLI help
+    tool_doc = func_desc.description or "CLI for tool"
+    first_line = tool_doc.split('\n')[0].strip()
+
+    @click.command(name=func_desc.name, help=first_line)
     @click.option("--json", "json_input", help="JSON input for all arguments")
-    def cli(json_input: str | None, **kwargs):
-        """Auto-generated CLI for tool."""
+    @click.option(
+        "--format",
+        "output_format",
+        type=click.Choice(["json", "pickle", "raw"]),
+        default="json",
+        help="Output format",
+    )
+    def cli(json_input: str | None, output_format: str, **kwargs):
         if json_input:
             # Parse JSON input
             try:
@@ -173,13 +185,18 @@ def _generate_cli_from_description(
             parsed_args = func_desc.validate_and_parse_args(args_dict)
             result = func_desc.call(**parsed_args)
 
-        # Output as JSON
-        if isinstance(result, BaseModel):
-            output = result.model_dump_json(indent=2)
-        else:
-            output = json.dumps(result, indent=2)
-
-        click.echo(output)
+        # Output in specified format
+        if output_format == "json":
+            if isinstance(result, BaseModel):
+                output = result.model_dump_json(indent=2)
+            else:
+                output = json.dumps(result, indent=2)
+            click.echo(output)
+        elif output_format == "pickle":
+            pickled_data = pickle.dumps(result)
+            sys.stdout.buffer.write(pickled_data)
+        elif output_format == "raw":
+            click.echo(str(result))
 
     # Add all CLI options
     for option in func_options:
@@ -213,15 +230,11 @@ def cli_main(
     if not isinstance(functions, list):
         functions = [functions]
 
-    if default_function is None:
-        default_function = functions[0].__name__
-
-    @click.group(invoke_without_command=True)
+    @click.group()
     @click.pass_context
     def cli(ctx):
         """Multi-function CLI."""
-        if ctx.invoked_subcommand is None:
-            ctx.invoke(cli.commands[default_function])
+        pass
 
     for func in functions:
         func_desc = FunctionDescription(func)
