@@ -4,6 +4,7 @@ import io
 import queue
 import sys
 import time
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,6 +23,11 @@ MIN_SPEECH_DURATION = Duration.from_ms(1000)
 MIN_SILENCE_DURATION = Duration.from_ms(250)
 SPEECH_THRESHOLD = 0.5
 DEFAULT_CHUNK_DURATION = Duration.from_ms(1000)
+
+warnings.filterwarnings("ignore", category=SyntaxWarning, module="pydub")
+warnings.filterwarnings("ignore", module="sunau")
+warnings.filterwarnings("ignore", module="audiooop")
+warnings.filterwarnings("ignore", module="aifc")
 
 
 @dataclass

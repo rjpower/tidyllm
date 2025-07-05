@@ -14,7 +14,6 @@ from pydantic import BaseModel, ValidationError
 from tidyllm.context import set_tool_context
 from tidyllm.schema import FunctionDescription
 
-warnings.filterwarnings("ignore", category=SyntaxWarning, module="pydub")
 
 class CliOption:
     """Represents a CLI option configuration."""

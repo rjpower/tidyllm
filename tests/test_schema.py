@@ -349,7 +349,11 @@ class TestToolSchemaGeneration:
         assert params["properties"]["count"]["type"] == "integer"
         assert params["properties"]["tags"]["type"] == "array"
         assert params["properties"]["tags"]["items"]["type"] == "string"
-        assert params["properties"]["config"]["type"] == "object", params
+        # Check that config is properly typed as optional object
+        config_prop = params["properties"]["config"]
+        assert "anyOf" in config_prop
+        assert any(item.get("type") == "object" for item in config_prop["anyOf"])
+        assert any(item.get("type") == "null" for item in config_prop["anyOf"])
 
         # Check required parameters
         required = params.get("required", [])
