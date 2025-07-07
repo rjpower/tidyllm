@@ -31,44 +31,33 @@ def tool_context():
 
 
 @pytest.fixture
-def mock_desktop():
-    """Create mock RPA Desktop instance."""
-    with patch('tidyllm.tools.desktop._get_desktop') as mock_get_desktop:
-        mock_desktop_instance = Mock()
-        mock_get_desktop.return_value = mock_desktop_instance
-        yield mock_desktop_instance
+def mock_applescript():
+    """Create mock AppleScript execution."""
+    with patch('tidyllm.tools.desktop.subprocess.run') as mock_run:
+        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+        yield mock_run
 
 
-def test_window_focus_success(tool_context, mock_desktop):
+def test_window_focus_success(tool_context, mock_applescript):
     """Test successful window focus."""
     with set_tool_context(tool_context):
         window_focus("Anki")  # Should not raise exception
-        mock_desktop.open_dialog.assert_called_once_with("Anki")
+        mock_applescript.assert_called_with(['osascript', '-e', 'tell application "Anki" to activate'], capture_output=True)
 
 
-def test_window_focus_failure(tool_context, mock_desktop):
+def test_window_focus_failure(tool_context, mock_applescript):
     """Test window focus failure."""
-    mock_desktop.open_dialog.side_effect = Exception("Window not found")
+    mock_applescript.return_value = Mock(returncode=1)
     
     with set_tool_context(tool_context):
-        with pytest.raises(Exception, match="Window not found"):
+        with pytest.raises(ValueError, match="Could not focus window/application"):
             window_focus("NonExistentApp")
 
 
-def test_window_list_success(tool_context, mock_desktop):
+def test_window_list_success(tool_context, mock_applescript):
     """Test successful window listing."""
-    # Mock window elements
-    mock_element1 = Mock()
-    mock_element1.name = "Window 1"
-    mock_element1.handle = "123"
-    mock_element1.process_id = 456
-    
-    mock_element2 = Mock()
-    mock_element2.name = "Window 2"
-    mock_element2.handle = "789"
-    mock_element2.process_id = 101
-    
-    mock_desktop.get_window_elements.return_value = [mock_element1, mock_element2]
+    # Mock AppleScript output
+    mock_applescript.return_value = Mock(returncode=0, stdout="App1|Window 1, App2|Window 2")
     
     with set_tool_context(tool_context):
         result = window_list()
@@ -76,13 +65,13 @@ def test_window_list_success(tool_context, mock_desktop):
         assert isinstance(result, WindowListResult)
         assert result.count == 2
         assert len(result.windows) == 2
-        assert result.windows[0].title == "Window 1"
-        assert result.windows[1].title == "Window 2"
+        assert result.windows[0].title == "App1 - Window 1"
+        assert result.windows[1].title == "App2 - Window 2"
 
 
-def test_window_list_empty(tool_context, mock_desktop):
+def test_window_list_empty(tool_context, mock_applescript):
     """Test window listing when no windows found."""
-    mock_desktop.get_window_elements.return_value = []
+    mock_applescript.return_value = Mock(returncode=0, stdout="")
     
     with set_tool_context(tool_context):
         result = window_list()
@@ -92,62 +81,60 @@ def test_window_list_empty(tool_context, mock_desktop):
         assert len(result.windows) == 0
 
 
-def test_window_close_success(tool_context, mock_desktop):
+def test_window_close_success(tool_context, mock_applescript):
     """Test successful window close."""
     with set_tool_context(tool_context):
         window_close("Anki")  # Should not raise exception
-        mock_desktop.open_dialog.assert_called_once_with("Anki")
-        mock_desktop.send_keys.assert_called_once_with("alt+f4")
+        mock_applescript.assert_called_with(['osascript', '-e', 'tell application "Anki" to quit'], capture_output=True)
 
 
-def test_element_click_ocr(tool_context, mock_desktop):
-    """Test clicking element using OCR."""
+def test_element_click_success(tool_context, mock_applescript):
+    """Test clicking element successfully."""
     with set_tool_context(tool_context):
-        element_click('ocr:"Import"')  # Should not raise exception
-        mock_desktop.click.assert_called_once_with('ocr:"Import"')
+        element_click('Import')  # Should not raise exception
+        # Check that AppleScript was called to click the button
+        assert mock_applescript.called
 
 
-def test_element_click_with_window(tool_context, mock_desktop):
+def test_element_click_with_window(tool_context, mock_applescript):
     """Test clicking element with window focus."""
     with set_tool_context(tool_context):
-        element_click('ocr:"Import"', window_query="Anki")  # Should not raise exception
-        mock_desktop.open_dialog.assert_called_once_with("Anki")
-        mock_desktop.click.assert_called_once_with('ocr:"Import"')
+        element_click('Import', window_query="Anki")  # Should not raise exception
+        # Check that AppleScript was called for both window focus and click
+        assert mock_applescript.call_count >= 2
 
 
-def test_element_click_name(tool_context, mock_desktop):
-    """Test clicking element using name locator."""
-    with set_tool_context(tool_context):
-        element_click('name:"OK Button"')  # Should not raise exception
-        mock_desktop.click.assert_called_once_with('name:OK Button')
-
-
-def test_element_click_default_ocr(tool_context, mock_desktop):
-    """Test clicking element with default OCR."""
-    with set_tool_context(tool_context):
-        element_click('Submit')  # Should not raise exception
-        mock_desktop.click.assert_called_once_with('ocr:"Submit"')
-
-
-def test_element_fill_success(tool_context, mock_desktop):
-    """Test filling element with text."""
-    with set_tool_context(tool_context):
-        element_fill('ocr:"Username"', 'testuser')  # Should not raise exception
-        mock_desktop.click.assert_called_once_with('ocr:"Username"')
-        mock_desktop.send_keys.assert_any_call("ctrl+a")
-        mock_desktop.send_keys.assert_any_call("testuser")
-
-
-def test_element_get_text_success(tool_context, mock_desktop):
-    """Test getting text from element."""
-    mock_element = Mock()
-    mock_desktop.get_element.return_value = mock_element
-    mock_desktop.get_element_rich_text.return_value = "Sample text"
-    mock_desktop.is_element_visible.return_value = True
-    mock_desktop.is_element_enabled.return_value = True
+def test_element_click_failure(tool_context, mock_applescript):
+    """Test clicking element failure."""
+    mock_applescript.return_value = Mock(returncode=1)
     
     with set_tool_context(tool_context):
-        result = element_get_text('name:"Status Label"')
+        with pytest.raises(ValueError, match="Could not click element"):
+            element_click('NonExistentButton')
+
+
+def test_element_fill_success(tool_context, mock_applescript):
+    """Test filling element with text."""
+    with set_tool_context(tool_context):
+        element_fill('Username', 'testuser')  # Should not raise exception
+        assert mock_applescript.called
+
+
+def test_element_fill_failure(tool_context, mock_applescript):
+    """Test filling element failure."""
+    mock_applescript.return_value = Mock(returncode=1)
+    
+    with set_tool_context(tool_context):
+        with pytest.raises(ValueError, match="Could not fill text field"):
+            element_fill('NonExistentField', 'testuser')
+
+
+def test_element_get_text_success(tool_context, mock_applescript):
+    """Test getting text from element."""
+    mock_applescript.return_value = Mock(returncode=0, stdout="Sample text")
+    
+    with set_tool_context(tool_context):
+        result = element_get_text('Status Label')
         
         assert isinstance(result, ElementInfo)
         assert result.text == "Sample text"
@@ -155,71 +142,74 @@ def test_element_get_text_success(tool_context, mock_desktop):
         assert result.enabled is True
 
 
-def test_element_get_text_ocr_fallback(tool_context, mock_desktop):
-    """Test getting text from OCR element (fallback)."""
+def test_element_get_text_failure(tool_context, mock_applescript):
+    """Test getting text from element failure."""
+    mock_applescript.return_value = Mock(returncode=1)
+    
     with set_tool_context(tool_context):
-        result = element_get_text('ocr:"Status Text"')
+        result = element_get_text('NonExistentLabel')
         
         assert isinstance(result, ElementInfo)
-        assert result.text == 'ocr:"Status Text"'
-        assert result.visible is True
-        assert result.enabled is True
+        assert result.text == ""
+        assert result.visible is False
+        assert result.enabled is False
 
 
-def test_send_keys_success(tool_context, mock_desktop):
+def test_send_keys_success(tool_context, mock_applescript):
     """Test sending keys successfully."""
     with set_tool_context(tool_context):
-        send_keys('ctrl+c')  # Should not raise exception
-        mock_desktop.send_keys.assert_called_once_with('ctrl+c')
+        send_keys('cmd+c')  # Should not raise exception
+        assert mock_applescript.called
 
 
-def test_send_keys_with_window(tool_context, mock_desktop):
+def test_send_keys_with_window(tool_context, mock_applescript):
     """Test sending keys with window focus."""
     with set_tool_context(tool_context):
         send_keys('Hello', window_query="Notepad")  # Should not raise exception
-        mock_desktop.open_dialog.assert_called_once_with("Notepad")
-        mock_desktop.send_keys.assert_called_once_with('Hello')
+        assert mock_applescript.call_count >= 2
 
 
-def test_mouse_click_coords_success(tool_context, mock_desktop):
+def test_mouse_click_coords_success(tool_context, mock_applescript):
     """Test mouse click at coordinates."""
     with set_tool_context(tool_context):
         mouse_click_coords(100, 200)  # Should not raise exception
-        mock_desktop.mouse_click.assert_called_once_with(100, 200)
+        assert mock_applescript.called
 
 
-def test_take_screenshot_success(tool_context, mock_desktop):
+def test_take_screenshot_success(tool_context, mock_applescript):
     """Test taking screenshot successfully."""
     with set_tool_context(tool_context):
         result = take_screenshot("test.png")
         
-        assert result == "test.png"
-        mock_desktop.take_screenshot.assert_called_once_with("test.png")
+        assert result.endswith("test.png")
+        assert mock_applescript.called
 
 
-def test_take_screenshot_auto_filename(tool_context, mock_desktop):
+def test_take_screenshot_auto_filename(tool_context, mock_applescript):
     """Test taking screenshot with auto-generated filename."""
     with set_tool_context(tool_context):
         result = take_screenshot()
         
-        assert result.startswith("screenshot_")
+        assert "screenshot_" in result
         assert result.endswith(".png")
 
 
-def test_wait_for_element_success(tool_context, mock_desktop):
+def test_wait_for_element_success(tool_context, mock_applescript):
     """Test waiting for element successfully."""
+    mock_applescript.return_value = Mock(returncode=0, stdout="true")
+    
     with set_tool_context(tool_context):
-        wait_for_element('ocr:"Import"', timeout=1)  # Should not raise exception
-        mock_desktop.click.assert_called_with('ocr:"Import"', dry_run=True)
+        wait_for_element('Import', timeout=1)  # Should not raise exception
+        assert mock_applescript.called
 
 
-def test_wait_for_element_timeout(tool_context, mock_desktop):
+def test_wait_for_element_timeout(tool_context, mock_applescript):
     """Test waiting for element timeout."""
-    mock_desktop.click.side_effect = Exception("Element not found")
+    mock_applescript.return_value = Mock(returncode=1, stdout="false")
     
     with set_tool_context(tool_context):
         with pytest.raises(TimeoutError, match="Timeout waiting for element"):
-            wait_for_element('ocr:"NonExistent"', timeout=1)
+            wait_for_element('NonExistent', timeout=1)
 
 
 def test_wait_for_seconds_success(tool_context):
@@ -276,26 +266,29 @@ def test_open_file_not_found(tool_context):
             open_file('/nonexistent/file.apkg')
 
 
-def test_anki_import_workflow(tool_context, mock_desktop):
+def test_anki_import_workflow(tool_context, mock_applescript):
     """Test the complete Anki import workflow."""
+    # Mock successful AppleScript calls
+    mock_applescript.return_value = Mock(returncode=0, stdout="true")
+    
     with set_tool_context(tool_context):
         # Step 1: Open the .apkg file
         with patch('pathlib.Path.exists', return_value=True):
-            with patch('subprocess.run'):
+            with patch('subprocess.run') as mock_subprocess:
                 with patch('platform.system', return_value="Darwin"):
                     open_file('/path/to/foo.apkg')  # Should not raise exception
         
         # Step 2: Wait for Anki window to appear
-        wait_for_element('ocr:"Import File"', timeout=10)  # Should not raise exception
+        wait_for_element('Import File', timeout=10)  # Should not raise exception
         
         # Step 3: Focus Anki window
         window_focus("Anki")  # Should not raise exception
         
         # Step 4: Click Import button
-        element_click('ocr:"Import"')  # Should not raise exception
+        element_click('Import')  # Should not raise exception
         
         # Step 5: Wait for import to finish
-        wait_for_element('ocr:"Import complete"', timeout=60)  # Should not raise exception
+        wait_for_element('Import complete', timeout=60)  # Should not raise exception
         
         # Step 6: Close Anki
         window_close("Anki")  # Should not raise exception

@@ -11,18 +11,19 @@ import pytest
 def extract_json_from_output(stdout: str) -> dict:
     """Extract JSON from command output that may contain other text."""
     stdout = stdout.strip()
-    
+
     # Find the JSON part (starts with { and ends with })
     json_start = stdout.rfind('{')
     if json_start == -1:
         pytest.fail(f"No JSON found in output: {stdout}")
-    
+
     json_output = stdout[json_start:]
-    
+
     try:
         return json.loads(json_output)
     except json.JSONDecodeError:
         pytest.fail(f"Could not parse JSON from output: {json_output}")
+        raise
 
 
 def test_add_card_integration_command():
@@ -107,4 +108,3 @@ def test_add_card_integration_japanese_term():
         # Check it has the expected structure
         assert 'collection.anki2' in zip_file.namelist()
         assert 'media' in zip_file.namelist()
-

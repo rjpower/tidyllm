@@ -249,7 +249,8 @@ class TestAsyncCachedFunction:
     def test_non_async_function_raises_error(self, cache_context):
         """Test that decorating a non-async function raises TypeError."""
         with pytest.raises(TypeError, match="must be an async function"):
-            @async_cached_function
+
+            @async_cached_function  # type: ignore
             def sync_function(x: int) -> int:  # noqa: F841
                 return x * 2
 
