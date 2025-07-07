@@ -1,6 +1,5 @@
 """Desktop automation tools using AppleScript for macOS."""
 
-import json
 import subprocess
 import time
 from pathlib import Path

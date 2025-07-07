@@ -1,26 +1,26 @@
 """Tests for desktop automation tools."""
 
-import pytest
 from unittest.mock import Mock, patch
-from pathlib import Path
+
+import pytest
 
 from tidyllm.context import set_tool_context
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.desktop import (
-    window_focus,
-    window_list,
-    window_close,
+    ElementInfo,
+    WindowListResult,
     element_click,
     element_fill,
     element_get_text,
-    send_keys,
     mouse_click_coords,
+    open_file,
+    send_keys,
     take_screenshot,
     wait_for_element,
     wait_for_seconds,
-    open_file,
-    WindowListResult,
-    ElementInfo,
+    window_close,
+    window_focus,
+    window_list,
 )
 
 
@@ -274,7 +274,7 @@ def test_anki_import_workflow(tool_context, mock_applescript):
     with set_tool_context(tool_context):
         # Step 1: Open the .apkg file
         with patch('pathlib.Path.exists', return_value=True):
-            with patch('subprocess.run') as mock_subprocess:
+            with patch('subprocess.run'):
                 with patch('platform.system', return_value="Darwin"):
                     open_file('/path/to/foo.apkg')  # Should not raise exception
         

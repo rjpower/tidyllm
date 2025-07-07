@@ -8,7 +8,7 @@ from enum import Enum
 from typing import Any, Protocol, cast
 
 import litellm
-from litellm.types.utils import ModelResponse, ModelResponseStream
+from litellm.types.utils import ModelResponseStream
 from pydantic import BaseModel
 
 from tidyllm.schema import JSONSchema

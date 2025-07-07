@@ -1,4 +1,4 @@
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterator
 from itertools import tee
 from typing import Any, Generic, TypeVar
 

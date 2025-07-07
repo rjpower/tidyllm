@@ -11,8 +11,8 @@ from tidyllm.tools.anki import (
     BILINGUAL_VOCAB_MODEL,
     AddVocabCardRequest,
     anki_add_vocab_card,
-    anki_query,
     anki_list,
+    anki_query,
     generate_example_sentence,
 )
 from tidyllm.tools.config import Config
