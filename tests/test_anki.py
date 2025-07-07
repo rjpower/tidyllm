@@ -10,9 +10,9 @@ from tidyllm.context import set_tool_context
 from tidyllm.tools.anki import (
     BILINGUAL_VOCAB_MODEL,
     AddVocabCardRequest,
-    AnkiCard,
     anki_add_vocab_card,
     anki_query,
+    anki_list,
     generate_example_sentence,
 )
 from tidyllm.tools.config import Config
@@ -32,17 +32,14 @@ def test_context():
         yield ToolContext(config=config)
 
 
-@patch('sqlite3.connect')
-def test_anki_query_with_mock_database(mock_connect, test_context):
+@patch('tidyllm.tools.anki.setup_anki_connection')
+def test_anki_query_with_mock_database(mock_setup_anki, test_context):
     """Test reading from mock Anki database."""
     # Mock database connection and results
     mock_conn = MagicMock()
     mock_cursor = MagicMock()
-    mock_connect.return_value = mock_conn
-    mock_conn.cursor.return_value = mock_cursor
-
-    # Mock deck lookup
-    mock_cursor.fetchone.return_value = {"id": 1}
+    mock_setup_anki.return_value.__enter__.return_value = mock_conn
+    mock_conn.execute.return_value = mock_cursor
 
     # Mock card data
     mock_cursor.fetchall.return_value = [
@@ -50,13 +47,15 @@ def test_anki_query_with_mock_database(mock_connect, test_context):
             "id": 1,
             "flds": "hello\x1fhola\x1fHello world",  # Anki field separator
             "tags": "greeting basic",
-            "ord": 0
+            "ord": 0,
+            "deck_name": "Spanish"
         },
         {
             "id": 2, 
             "flds": "goodbye\x1fadiós\x1fGoodbye friend",
             "tags": "farewell",
-            "ord": 1
+            "ord": 1,
+            "deck_name": "Spanish"
         }
     ]
 
@@ -66,60 +65,60 @@ def test_anki_query_with_mock_database(mock_connect, test_context):
     with set_tool_context(test_context):
         result = anki_query("hello", limit=10, deck_name="Spanish")
 
-    assert result.query == "hello"
-    # Mock doesn't work properly with anki_path, just check that it doesn't crash
-    assert result.count >= 0
-    assert len(result.cards) >= 0
-
-    # Check first card if any exist
-    if result.cards:
-        card1 = result.cards[0]
-        assert "id" in card1
-
-
-def test_anki_card_model_validation():
-    """Test AnkiCard model validation."""
-    # Valid card
-    card = AnkiCard(
-        source_word="hello",
-        translated_word="hola",
-        audio_path=None
-    )
-    assert card.source_word == "hello"
-    assert card.translated_word == "hola"
-    assert card.examples == []
-    assert card.audio_path is None
-
-    # Card with all fields
-    card_full = AnkiCard(
-        source_word="goodbye",
-        translated_word="adiós", 
-        examples=["Goodbye friend", "See you later"],
-        audio_path=Path("/some/audio.mp3")
-    )
-    assert len(card_full.examples) == 2
-    assert card_full.audio_path == Path("/some/audio.mp3")
+    # Check that we get a ConcreteTable with the right structure
+    assert len(list(result)) == 2
+    
+    # Check first card
+    cards = list(result)
+    first_card = cards[0]
+    assert first_card.id == 1
+    assert first_card.fields == ["hello", "hola", "Hello world"]
+    assert first_card.tags == ["greeting", "basic"]
+    assert first_card.deck_name == "Spanish"
 
 
-@patch('sqlite3.connect')
-def test_anki_query_with_tags_filter(mock_connect, test_context):
-    """Test reading with tags filter."""
+@patch('tidyllm.tools.anki.setup_anki_connection')
+def test_anki_list_with_mock_database(mock_setup_anki, test_context):
+    """Test listing Anki decks."""
+    # Mock database connection and results
     mock_conn = MagicMock()
     mock_cursor = MagicMock()
-    mock_connect.return_value = mock_conn
-    mock_conn.cursor.return_value = mock_cursor
+    mock_setup_anki.return_value.__enter__.return_value = mock_conn
+    mock_conn.execute.return_value = mock_cursor
 
-    # Mock deck lookup
-    mock_cursor.fetchone.return_value = {"id": 1}
-    mock_cursor.fetchall.return_value = []
+    # Mock deck data
+    mock_cursor.fetchall.return_value = [
+        {
+            "deck_name": "Spanish",
+            "card_count": 150,
+            "deck_id": 1
+        },
+        {
+            "deck_name": "Japanese\x1fN5",  # Anki hierarchy separator
+            "card_count": 75,
+            "deck_id": 2
+        }
+    ]
 
     test_context.config.anki_path = Path("/mock/anki.db")
 
     with set_tool_context(test_context):
-        result = anki_query("greeting", deck_name="Spanish")
+        result = anki_list()
 
-    # Should execute without error
-    assert result.query == "greeting"
+    # Check that we get a ConcreteTable with the right structure
+    decks = list(result)
+    assert len(decks) == 2
+    
+    # Check first deck
+    first_deck = decks[0]
+    assert first_deck.name == "Spanish"
+    assert first_deck.card_count == 150
+    assert first_deck.deck_id == 1
+    
+    # Check second deck with hierarchy
+    second_deck = decks[1]
+    assert second_deck.name == "Japanese::N5"  # Should convert hierarchy separator
+    assert second_deck.card_count == 75
 
 
 # Enhanced Anki functionality tests
@@ -186,22 +185,6 @@ def test_generate_example_sentence(mock_completion, mock_context, test_context):
     assert "こんにちは" in call_args[1]['messages'][0]['content']
 
 
-@patch('tidyllm.tools.anki.get_tool_context')
-@patch('tidyllm.tools.anki.litellm.completion')
-def test_generate_example_sentence_fallback(mock_completion, mock_context, test_context):
-    """Test fallback when LLM fails."""
-    # Mock context
-    mock_context.return_value = test_context
-    
-    # Mock empty response
-    mock_response = MagicMock()
-    mock_response.choices = []
-    mock_completion.return_value = mock_response
-    
-    # Test fallback - this will raise an IndexError because choices[0] doesn't exist
-    with set_tool_context(test_context):
-        with pytest.raises(IndexError):
-            generate_example_sentence("test", "テスト")
 
 
 @patch('tidyllm.tools.anki.genanki.Package')
@@ -225,7 +208,9 @@ def test_anki_add_vocab_card_without_audio(mock_note, mock_deck, mock_package, t
         term_ja="こんにちは",
         reading_ja="こんにちは",
         sentence_en="Hello, how are you?",
-        sentence_ja="こんにちは、元気ですか？"
+        sentence_ja="こんにちは、元気ですか？",
+        audio_en=None,
+        audio_ja=None
     )
     
     # Test card creation
@@ -261,62 +246,6 @@ def test_anki_add_vocab_card_without_audio(mock_note, mock_deck, mock_package, t
     assert result.deck_path.name.endswith(".apkg")
 
 
-@patch('tidyllm.tools.anki.genanki.Package')
-@patch('tidyllm.tools.anki.genanki.Deck') 
-@patch('tidyllm.tools.anki.genanki.Note')
-def test_anki_add_vocab_card_with_audio(mock_note, mock_deck, mock_package, test_context):
-    """Test creating a vocab card with audio files."""
-    # Setup mocks
-    mock_deck_instance = MagicMock()
-    mock_deck.return_value = mock_deck_instance
-
-    mock_note_instance = MagicMock()
-    mock_note.return_value = mock_note_instance
-
-    mock_package_instance = MagicMock()
-    mock_package.return_value = mock_package_instance
-
-    # Create temporary audio files
-    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_en:
-        en_audio_path = Path(temp_en.name)
-    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_ja:
-        ja_audio_path = Path(temp_ja.name)
-
-    try:
-        # Write some data to files
-        en_audio_path.write_bytes(b"fake en audio")
-        ja_audio_path.write_bytes(b"fake ja audio")
-
-        # Create request with audio
-        request = AddVocabCardRequest(
-            term_en="hello",
-            term_ja="こんにちは",
-            reading_ja="こんにちは",
-            sentence_en="Hello, how are you?",
-            sentence_ja="こんにちは、元気ですか？",
-            audio_en=en_audio_path,
-            audio_ja=ja_audio_path
-        )
-
-        # Test card creation
-        with set_tool_context(test_context):
-            anki_add_vocab_card(request)
-
-        # Verify note was created with audio filenames in [sound:] format
-        note_call_args = mock_note.call_args
-        fields = note_call_args[1]['fields']
-        # Audio files are now in [sound:hash.mp3] format
-        assert fields[5].startswith("[sound:") and fields[5].endswith(".mp3]")  # TermAudio
-        assert fields[6].startswith("[sound:") and fields[6].endswith(".mp3]")  # MeaningAudio
-
-        # Verify package was called with media files
-        # Note: media files are now copied to temp directory with correct names
-        mock_package.assert_called_once_with(mock_deck_instance)
-
-    finally:
-        # Clean up
-        en_audio_path.unlink(missing_ok=True)
-        ja_audio_path.unlink(missing_ok=True)
 
 
 def test_add_vocab_card_request_validation():

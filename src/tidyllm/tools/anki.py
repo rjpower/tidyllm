@@ -17,16 +17,9 @@ from unidecode import unidecode
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.context import get_tool_context
+from tidyllm.data import ConcreteTable, Table
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
-
-
-class AnkiQueryResult(BaseModel):
-    """Result of querying Anki database."""
-
-    cards: list[dict[str, Any]]
-    query: str
-    count: int
 
 
 class AnkiListResult(BaseModel):
@@ -42,6 +35,24 @@ class AnkiCreateResult(BaseModel):
     deck_path: Path
     cards_created: int
     message: str = ""
+
+
+class AnkiCard(BaseModel):
+    """Represents an Anki card from the database."""
+
+    id: int
+    fields: list[str]
+    tags: list[str]
+    card_type: int
+    deck_name: str
+
+
+class AnkiDeck(BaseModel):
+    """Represents an Anki deck."""
+
+    name: str
+    card_count: int
+    deck_id: int
 
 
 def unicase_compare(x, y):
@@ -173,15 +184,6 @@ BILINGUAL_VOCAB_MODEL = genanki.Model(
 )
 
 
-class AnkiCard(BaseModel):
-    """A vocabulary card to add to Anki."""
-
-    source_word: str = Field(description="Word in source language")
-    translated_word: str = Field(description="Translation of the word")
-    examples: list[str] = Field(default_factory=list, description="Example sentences")
-    audio_path: Path | None = Field(None, description="Path to audio file")
-
-
 class AddVocabCardRequest(BaseModel):
     """Request to add a bilingual vocabulary card with audio."""
 
@@ -217,7 +219,7 @@ def generate_example_sentence(
     source_language: str = "en",
     target_language: str = "ja",
     difficulty: str = "intermediate",
-) -> tuple[str, str]:
+) -> ExampleSentenceResponse:
     """Generate example sentences for a vocabulary word using LLM.
 
     Args:
@@ -351,9 +353,7 @@ def anki_add_vocab_card(req: AddVocabCardRequest) -> AnkiCreateResult:
 
 
 @register()
-def anki_query(
-    query: str, limit: int = 100, deck_name: str | None = None
-) -> AnkiQueryResult:
+def anki_query(query: str, limit: int = 100, deck_name: str | None = None) -> Table:
     """Search for notes in Anki database by query text.
 
     Args:
@@ -367,7 +367,7 @@ def anki_query(
     ctx = get_tool_context()
     anki_db = ctx.config.find_anki_db()
     if not anki_db:
-        return AnkiQueryResult(cards=[], query=query, count=0)
+        return ConcreteTable.empty()
 
     with setup_anki_connection(anki_db) as conn:
         # Build query to search in note fields
@@ -396,19 +396,19 @@ def anki_query(
             fields = row["flds"].split("\x1f")  # Anki field separator
             deck_name = row["deck_name"].replace("\x1f", "::")  # Format deck name
             cards.append(
-                {
-                    "id": row["id"],
-                    "fields": fields,
-                    "tags": row["tags"].split() if row["tags"] else [],
-                    "card_type": row["ord"],
-                    "deck_name": deck_name,
-                }
+                AnkiCard(
+                    id=row["id"],
+                    fields=fields,
+                    tags=row["tags"].split() if row["tags"] else [],
+                    card_type=row["ord"],
+                    deck_name=deck_name,
+                )
             )
-        return AnkiQueryResult(cards=cards, query=query, count=len(cards))
+        return ConcreteTable.from_pydantic(cards)
 
 
 @register()
-def anki_list() -> AnkiListResult:
+def anki_list() -> Table:
     """List all available Anki decks with their card counts (alias for anki_list).
 
     Example usage: anki_decks()
@@ -416,7 +416,7 @@ def anki_list() -> AnkiListResult:
     ctx = get_tool_context()
     anki_db = ctx.config.find_anki_db()
     if not anki_db:
-        return AnkiListResult(decks=[], count=0)
+        return ConcreteTable.empty()
 
     with setup_anki_connection(anki_db) as conn:
         cursor = conn.execute(
@@ -438,14 +438,14 @@ def anki_list() -> AnkiListResult:
                 "\x1f", "::"
             )  # Replace hierarchy separator with ::
             decks.append(
-                {
-                    "name": deck_name,
-                    "card_count": row["card_count"],
-                    "deck_id": row["deck_id"],
-                }
+                AnkiDeck(
+                    name=deck_name,
+                    card_count=row["card_count"],
+                    deck_id=row["deck_id"],
+                )
             )
 
-    return AnkiListResult(decks=decks, count=len(decks))
+    return ConcreteTable.from_pydantic(decks)
 
 
 if __name__ == "__main__":

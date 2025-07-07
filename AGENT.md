@@ -1,6 +1,70 @@
 # AGENT.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with this repository.
+## Architecture Overview
+
+**tidyllm** is a Python library for LLM tool management with automatic schema generation, CLI creation, and adapter integrations for FastAPI and FastMCP.
+
+It provides a wide variety of tools revolving around a shared _data model_ which
+generalizes SQL table schemas. That is, all tools implicitly can output a
+_table_ with an extended SQL schema. The use of a common data model simplfies
+reasoning about tools and joining the output of one tool to another. Schemas are
+modeled using Pydantic data models in Python.
+
+Using a common data model also allows us to build shared utilities which can be
+used in any tool. For example, the `ui.py` library provides common visualization
+and editing functions which can be used without modification by any tool.
+Example uses might be presenting the output from a tool to the user, or asking
+the user to select one or more items from a list. 
+
+## Schemas and Data Model
+
+The `tidyllm` ecosystem is organized around a set of _tools_, effectively
+functions, which can be exported either as CLI applications, API calls or via
+MCP to AI agents. Following SQL conventions, functions can be one of the following types:
+
+* `scalar` functions operate on a single (potentially nested) value and return a similar value
+* `table-valued` functions return a table
+* `row` functions accept and return a row from a table
+
+Functions indicate the types they accept and return types using Python
+annotations. Exported functions must use a type from the `data` package:
+
+* `Table`
+* `Sequence`
+* Python primitive type supported by Pydantic
+* A Pydantic object
+
+### Serialization
+`tidyllm` automatically handles serialization of supported types. Serialization is
+handled by the `serialization` package. `tidyllm` can serialize objects to a variety 
+of output formats, including CSV, JSON and `pickle`. By default `tidyllm` generates
+"self-documenting" serialization outputs, where the object schema is encoded along with the object.
+
+For example, let's assume we have a Pydantic object:
+
+class Audio(BaseModel):
+  data: bytes
+  mimetype: str
+
+We would serialize this to JSON as:
+
+```
+{ 
+    "data": "<base64 encoding of data>",  
+    "mimetype": "audio/mp3",
+    "__schema": {
+        "name": "package.Audio",
+        "fields": {
+            "data": "tidyllm.bytes",
+            "mimetype": "tidyllm.str"
+        }
+    }
+}
+```
+
+The additional schema information allows us to handle data types like binary
+strings correctly and to recover the original object when feeding the data back
+to the generating program (as is common with e.g. tool calling LLMs).
 
 ## Development Commands
 
@@ -8,12 +72,6 @@ Use `uv` for all package management and execution:
 
 - Individual test runs: `uv run pytest -s path/to/test.py`
 - Full test suite: `uv run pytest`
-
-**IMPORTANT**: Always run `uv run pytest` after making changes to verify nothing is broken.
-
-## Architecture Overview
-
-**tidyllm** is a Python library for LLM tool management with automatic schema generation, CLI creation, and adapter integrations for FastAPI and FastMCP.
 
 ### Core Components
 
@@ -156,7 +214,6 @@ def test_tool(tool_context):
 - Use `tool_context` fixture with `ToolContext()`
 - Wrap tests in `with set_tool_context(tool_context):`
 - Each test gets fresh database state
-- Test count: 217 tests covering all components
 
 ## Code Standards
 

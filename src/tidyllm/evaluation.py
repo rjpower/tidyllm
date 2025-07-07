@@ -7,12 +7,12 @@ import traceback
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any, ParamSpec, TypeVar, overload
+from typing import Any, ParamSpec, TypeVar, cast, overload
 
 import click
 
 from tidyllm.agent import LLMAgent
-from tidyllm.llm import LLMResponse, create_llm_client
+from tidyllm.llm import AssistantMessage, LLMResponse, Role, create_llm_client
 from tidyllm.registry import Registry
 
 P = ParamSpec("P")
@@ -136,8 +136,8 @@ class EvaluationContext:
         # Collect all tool calls from assistant messages
         all_tool_calls = []
         for msg in response.messages:
-            if msg.role.value == "assistant":
-                all_tool_calls.extend(msg.tool_calls)
+            if msg.role == Role.ASSISTANT:
+                all_tool_calls.extend(cast(AssistantMessage, msg).tool_calls)
 
         if any(tool_call.tool_name == expected_tool for tool_call in all_tool_calls):
             self._assertions_passed += 1
@@ -221,13 +221,12 @@ class EvaluationRunner:
 
         return tests
 
-    def run_test(self, test_func: Callable, model: str, use_mock: bool = False) -> EvaluationResult:
+    def run_test(self, test_func: Callable, model: str) -> EvaluationResult:
         """Run a single evaluation test.
 
         Args:
             test_func: Test function to execute
             model: LLM model to use for testing
-            use_mock: Whether to use a mock LLM client for testing
 
         Returns:
             EvaluationResult with test execution details
@@ -236,13 +235,7 @@ class EvaluationRunner:
         test_name = getattr(test_func, "__name__", str(test_func))
 
         try:
-            # Create LLM client and helper
-            if use_mock:
-                from tidyllm.llm import MockLLMClient
-
-                llm_client = MockLLMClient()
-            else:
-                llm_client = create_llm_client("litellm")
+            llm_client = create_llm_client("litellm")
 
             llm_agent = LLMAgent(
                 model=model,
@@ -275,7 +268,7 @@ class EvaluationRunner:
         except Exception as e:
             traceback.print_exc()
             duration_ms = int((time.time() - start_time) * 1000)
-            
+
             return EvaluationResult(
                 test_name=test_name,
                 success=False,
@@ -289,14 +282,12 @@ class EvaluationRunner:
         self,
         tests: list[Callable],
         model: str,
-        use_mock: bool = False,
     ) -> list[EvaluationResult]:
         """Run multiple evaluation tests and collect results.
 
         Args:
             tests: List of test functions to execute
             model: LLM model to use for testing
-            use_mock: Whether to use a mock LLM client for testing
 
         Returns:
             List of EvaluationResult objects
@@ -304,7 +295,7 @@ class EvaluationRunner:
         results = []
 
         for test_func in tests:
-            result = self.run_test(test_func, model, use_mock)
+            result = self.run_test(test_func, model)
             results.append(result)
 
             # Print progress
@@ -316,14 +307,13 @@ class EvaluationRunner:
         return results
 
     def run_tests_parallel(
-        self, tests: list[Callable], model: str, use_mock: bool = False, max_workers: int = None
+        self, tests: list[Callable], model: str, max_workers: int = None
     ) -> list[EvaluationResult]:
         """Run multiple evaluation tests in parallel.
 
         Args:
             tests: List of test functions to execute
             model: LLM model to use for testing
-            use_mock: Whether to use a mock LLM client for testing
             max_workers: Maximum number of parallel workers
 
         Returns:
@@ -333,7 +323,7 @@ class EvaluationRunner:
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             # Submit all tests
             future_to_test = {
-                executor.submit(self.run_test, test, model, use_mock): test for test in tests
+                executor.submit(self.run_test, test, model): test for test in tests
             }
 
             # Process results as they complete
@@ -418,9 +408,9 @@ class EvaluationRunner:
 
             # Run tests
             if parallel:
-                results = self.run_tests_parallel(tests_to_run, model, use_mock=False)
+                results = self.run_tests_parallel(tests_to_run, model)
             else:
-                results = self.run_tests(tests_to_run, model, use_mock=False)
+                results = self.run_tests(tests_to_run, model)
 
             # Print summary
             self.print_summary(results)
@@ -436,7 +426,6 @@ def run_evaluations(
     function_library: Registry,
     model: str,
     test_modules: list[Any] | None = None,
-    mock_client: bool = False,
 ) -> list[EvaluationResult]:
     """Convenience function to run evaluations.
 
@@ -445,7 +434,6 @@ def run_evaluations(
         model: LLM model to use for testing
         test_modules: List of modules containing evaluation tests
         test_path: Path to discover tests from
-        mock_client: Whether to use mock LLM client
 
     Returns:
         List of EvaluationResult objects
@@ -463,7 +451,7 @@ def run_evaluations(
         return []
 
     # Run tests
-    results = runner.run_tests(tests, model, mock_client)
+    results = runner.run_tests(tests, model)
     runner.print_summary(results)
 
     return results

@@ -152,12 +152,3 @@ def create_stream_from_iterator(
     iterator = iterator_factory()
     return Stream(iterator=iterator, cleanup=cleanup)
 
-
-def iterable_to_stream(iterable: Iterable[Any]) -> Stream[Any]:
-    """Convert an iterable to a stream."""
-    return Stream(iterable)
-
-
-def stream_to_iterable(stream: Stream[Any]) -> Iterable[Any]:
-    """Convert a stream to an iterable."""
-    return stream._iterator

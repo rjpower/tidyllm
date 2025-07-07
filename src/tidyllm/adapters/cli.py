@@ -11,6 +11,7 @@ import click
 from pydantic import BaseModel, ValidationError
 
 from tidyllm.context import set_tool_context
+from tidyllm.data import to_json_value
 from tidyllm.schema import FunctionDescription
 
 
@@ -82,11 +83,8 @@ def add_cli_options(cli_func: click.Command, func_desc: FunctionDescription) -> 
 def output_result(result: Any, format: str) -> None:
     """Output result in specified format."""
     if format == "json":
-        if isinstance(result, BaseModel):
-            output = result.model_dump_json(indent=2)
-        else:
-            output = json.dumps(result, indent=2)
-        click.echo(output)
+        result = to_json_value(result)
+        click.echo(json.dumps(result, indent=2))
     elif format == "pickle":
         sys.stdout.buffer.write(pickle.dumps(result))
     elif format == "raw":

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.context import get_tool_context
+from tidyllm.data import ConcreteTable, Table
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 
@@ -91,38 +92,35 @@ def sanitize_filename(title: str) -> str:
     return safe_title
 
 
-def _parse_note_file(file_path: Path) -> Note | None:
+def _parse_note_file(file_path: Path) -> Note:
     """Parse a note file and extract metadata."""
-    try:
-        content = file_path.read_text()
-        frontmatter, body = parse_frontmatter(content)
+    content = file_path.read_text()
+    frontmatter, body = parse_frontmatter(content)
 
-        # Extract title from frontmatter or use filename
-        title = frontmatter.get("title", file_path.stem.replace("_", " "))
+    # Extract title from frontmatter or use filename
+    title = frontmatter.get("title", file_path.stem.replace("_", " "))
 
-        # Extract tags from frontmatter
-        tags = frontmatter.get("tags", [])
-        if isinstance(tags, str):
-            tags = [tags]
+    # Extract tags from frontmatter
+    tags = frontmatter.get("tags", [])
+    if isinstance(tags, str):
+        tags = [tags]
 
-        # Get file timestamps
-        stat = file_path.stat()
-        created_at = datetime.fromtimestamp(stat.st_ctime).isoformat()
-        updated_at = datetime.fromtimestamp(stat.st_mtime).isoformat()
+    # Get file timestamps
+    stat = file_path.stat()
+    created_at = datetime.fromtimestamp(stat.st_ctime).isoformat()
+    updated_at = datetime.fromtimestamp(stat.st_mtime).isoformat()
 
-        # Create content preview
-        content_preview = body[:200].replace("\n", " ").strip()
+    # Create content preview
+    content_preview = body[:200].replace("\n", " ").strip()
 
-        return Note(
-            file_path=str(file_path),
-            title=title,
-            tags=tags,
-            content_preview=content_preview,
-            created_at=created_at,
-            updated_at=updated_at,
-        )
-    except Exception:
-        return None
+    return Note(
+        file_path=str(file_path),
+        title=title,
+        tags=tags,
+        content_preview=content_preview,
+        created_at=created_at,
+        updated_at=updated_at,
+    )
 
 
 @register()
@@ -155,14 +153,8 @@ def note_add(args: NoteAddArgs) -> str:
     return str(file_path)
 
 
-class NoteSearchResult(BaseModel):
-    """Result of note search."""
-    notes: list[Note] = Field(default_factory=list)
-    count: int = 0
-
-
 @register()
-def note_search(query: str) -> NoteSearchResult:
+def note_search(query: str) -> Table:
     """Search notes by content and filename using ripgrep and find.
 
     Args:
@@ -216,22 +208,17 @@ def note_search(query: str) -> NoteSearchResult:
     notes_list = []
     for file_path_str in found_files:
         file_path = Path(file_path_str)
-        if file_path.exists():
-            note = _parse_note_file(file_path)
-            if note:
-                notes_list.append(note)
+        if not file_path.exists():
+            continue
 
-    return NoteSearchResult(notes=notes_list, count=len(notes_list))
+        note = _parse_note_file(file_path)
+        notes_list.append(note)
 
-
-class NoteListResult(BaseModel):
-    """Result of listing notes."""
-    notes: list[Note] = Field(default_factory=list)
-    count: int = 0
+    return ConcreteTable.from_pydantic(notes_list)
 
 
 @register()
-def note_list(tags: list[str] | None = None, limit: int = 50) -> NoteListResult:
+def note_list(tags: list[str] | None = None, limit: int = 50) -> Table:
     """List all notes, optionally filtered by tags.
 
     Args:
@@ -252,25 +239,23 @@ def note_list(tags: list[str] | None = None, limit: int = 50) -> NoteListResult:
     notes_list = []
     for file_path in md_files[:limit]:
         note = _parse_note_file(file_path)
-        if note:
-            # Filter by tags if specified
-            if tags:
-                if any(tag in note.tags for tag in tags):
-                    notes_list.append(note)
-            else:
+        if tags:
+            if any(tag in note.tags for tag in tags):
                 notes_list.append(note)
+        else:
+            notes_list.append(note)
 
-    return NoteListResult(notes=notes_list, count=len(notes_list))
+    return ConcreteTable.from_pydantic(notes_list)
 
 
 @register()
-def note_open(query: str) -> str:
+def note_read_content(query: str) -> str:
     """Open and display a note by title or filename.
 
     Args:
         query: Note title or filename to open
-        
-    Example usage: note_open("my important note")
+
+    Example usage: note_read_content("my important note")
     """
     ctx = get_tool_context()
     notes_dir = ctx.config.ensure_notes_dir()
@@ -287,22 +272,15 @@ def note_open(query: str) -> str:
     md_files = list(notes_dir.glob("*.md"))
     for file_path in md_files:
         note = _parse_note_file(file_path)
-        if note and query.lower() in note.title.lower():
+        if query.lower() in note.title.lower():
             content = file_path.read_text()
             return content
 
     raise FileNotFoundError(f"Note not found: {query}")
 
 
-class NoteRecentResult(BaseModel):
-    """Result of listing recent notes."""
-
-    notes: list[Note] = Field(default_factory=list)
-    count: int = 0
-
-
 @register()
-def note_recent(limit: int = 10) -> NoteRecentResult:
+def note_recent(limit: int = 10) -> Table:
     """List recently modified notes.
 
     Args:
@@ -320,21 +298,13 @@ def note_recent(limit: int = 10) -> NoteRecentResult:
     notes_list = []
     for file_path in md_files[:limit]:
         note = _parse_note_file(file_path)
-        if note:
-            notes_list.append(note)
+        notes_list.append(note)
 
-    return NoteRecentResult(notes=notes_list, count=len(notes_list))
-
-
-class NoteTagsResult(BaseModel):
-    """Result of listing tags."""
-
-    tags: list[str] = Field(default_factory=list)
-    count: int = 0
+    return ConcreteTable.from_pydantic(notes_list)
 
 
 @register()
-def note_tags() -> NoteTagsResult:
+def note_tags() -> list[str]:
     """List all unique tags used in notes.
 
     Example usage: note_tags()
@@ -347,16 +317,15 @@ def note_tags() -> NoteTagsResult:
 
     for file_path in md_files:
         note = _parse_note_file(file_path)
-        if note:
-            all_tags.update(note.tags)
+        all_tags.update(note.tags)
 
-    sorted_tags = sorted(list(all_tags))
-
-    return NoteTagsResult(tags=sorted_tags, count=len(sorted_tags))
+    all_tags = list(all_tags)
+    all_tags.sort()
+    return all_tags
 
 
 if __name__ == "__main__":
     cli_main(
-        [note_add, note_search, note_list, note_open, note_recent, note_tags],
+        [note_add, note_search, note_list, note_read_content, note_recent, note_tags],
         context_cls=ToolContext,
     )

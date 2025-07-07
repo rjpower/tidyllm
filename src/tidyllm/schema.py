@@ -1,20 +1,12 @@
 """Function schema extraction and JSON schema generation."""
 
 import asyncio
-import base64
 import inspect
-import warnings
 from collections.abc import Callable, Iterable
-from datetime import date, datetime, time
-from decimal import Decimal
-from pathlib import Path
-from typing import Any, get_args, get_origin, get_type_hints
-from uuid import UUID
+from typing import Any, get_type_hints
 
 from pydantic import BaseModel, create_model
 from pydantic.types import Base64Bytes
-
-# make a typed dict for the json schema
 from typing_extensions import TypedDict
 
 from tidyllm.docstring import (
@@ -53,74 +45,6 @@ def generate_tool_schema(args_json_schema: dict, name: str, doc: str) -> JSONSch
     schema = enhance_schema_with_docs(schema, doc)  # type: ignore
 
     return schema
-
-
-def parse_from_json(result: Any, result_type: type) -> Any:
-    """Parse a result from JSON to the specified type using Pydantic conventions."""
-
-    if result is None:
-        return None
-
-    # Handle Pydantic models
-    if inspect.isclass(result_type) and issubclass(result_type, BaseModel):
-        return result_type.model_validate(result)
-
-    # Get origin and args for generic types
-    origin = get_origin(result_type)
-    args = get_args(result_type)
-
-    # Handle list types
-    if origin is list:
-        if not isinstance(result, list):
-            raise ValueError(f"Expected list, got {type(result)}")
-        item_type = args[0] if args else Any
-        return [parse_from_json(item, item_type) for item in result]
-
-    # Handle dict types
-    if origin is dict:
-        if not isinstance(result, dict):
-            raise ValueError(f"Expected dict, got {type(result)}")
-        value_type = args[1] if len(args) > 1 else Any
-        return {
-            key: parse_from_json(value, value_type) for key, value in result.items()
-        }
-
-    if origin is set:
-        if not isinstance(result, list):
-            raise ValueError(f"Expected list for set, got {type(result)}")
-        item_type = args[0] if args else Any
-        return {parse_from_json(item, item_type) for item in result}
-
-    # Handle primitive types
-    if result_type is int:
-        return int(result)
-    elif result_type is float:
-        return float(result)
-    elif result_type is str:
-        return str(result)
-    elif result_type is bool:
-        return bool(result)
-    elif result_type is datetime:
-        return datetime.fromisoformat(result.replace("Z", "+00:00"))
-    elif result_type is date:
-        return date.fromisoformat(result)
-    elif result_type is time:
-        return time.fromisoformat(result)
-    elif result_type is bytes:
-        return base64.b64decode(result)
-    elif result_type is Decimal:
-        return Decimal(str(result))
-    elif result_type is UUID:
-        return UUID(result)
-    elif result_type is Path:
-        return Path(result)
-    else:
-        warnings.warn(
-            f"Unsupported result type: {result_type}. Returning raw result: {result}",
-            UserWarning,
-            stacklevel=2,
-        )
-        return result
 
 
 class FunctionDescription:

@@ -77,7 +77,7 @@ def test_notes_list_empty(test_context):
         result = note_list()
     
     # Function completed successfully if no exception raised
-    assert result.notes == []
+    assert list(result) == []
 
 
 def test_notes_list_with_notes(test_context):
@@ -92,10 +92,11 @@ def test_notes_list_with_notes(test_context):
         result = note_list()
     
     # Function completed successfully if no exception raised
-    assert len(result.notes) == 3
+    notes = list(result)
+    assert len(notes) == 3
     
     # Verify note structure
-    note = result.notes[0]
+    note = notes[0]
     assert hasattr(note, 'title')
     assert hasattr(note, 'file_path')
     assert hasattr(note, 'tags')
@@ -114,10 +115,11 @@ def test_notes_list_filtered_by_tags(test_context):
         result = note_list(tags=["python"])
     
     # Function completed successfully if no exception raised
-    assert len(result.notes) == 2
+    notes = list(result)
+    assert len(notes) == 2
     
     # Verify all returned notes have the python tag
-    for note in result.notes:
+    for note in notes:
         assert "python" in note.tags
 
 
@@ -133,7 +135,8 @@ def test_notes_search_basic(test_context):
         result = note_search("Python")
     
     # Function completed successfully if no exception raised
-    assert len(result.notes) == 2  # Should find 2 notes containing "Python"
+    notes = list(result)
+    assert len(notes) == 2  # Should find 2 notes containing "Python"
 
 
 def test_notes_search_no_results(test_context):
@@ -146,7 +149,8 @@ def test_notes_search_no_results(test_context):
         result = note_search("nonexistent")
     
     # Function completed successfully if no exception raised
-    assert len(result.notes) == 0
+    notes = list(result)
+    assert len(notes) == 0
 
 
 def test_notes_frontmatter_parsing(test_context):
@@ -221,4 +225,5 @@ def test_notes_list_with_limit(test_context):
         result = note_list(limit=3)
     
     # Function completed successfully if no exception raised
-    assert len(result.notes) == 3
+    notes = list(result)
+    assert len(notes) == 3

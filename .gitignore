@@ -3,6 +3,7 @@ CLAUDE.md
 AGENTS.md
 
 # Additions to standard GitHub .gitignore:
+.DS_Store
 *.bak
 *.orig
 tmp/

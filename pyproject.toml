@@ -45,6 +45,7 @@ dependencies = [
     "griffe>=1.7.3",
     "litellm>=1.73.6",
     "mcp[cli]>=1.10.1",
+    "pyarrow>=20.0.0",
     "pydantic>=2.11.7",
     "pydantic-settings>=2.2.1",
     "pytest>=8.4.1",
