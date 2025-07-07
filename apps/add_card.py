@@ -16,16 +16,16 @@ from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
 from rich.console import Console
 from rich.progress import track
-from rich.table import Table as RichTable
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.cache import cached_function
 from tidyllm.context import get_tool_context
-from tidyllm.data import ConcreteTable, Table
+from tidyllm.linq import Table
+
+# ConcreteTable is now an alias for Table
 from tidyllm.registry import register
 from tidyllm.tools.anki import (
     AddVocabCardRequest,
-    AnkiCreateResult,
     anki_add_vocab_cards,
 )
 from tidyllm.tools.context import ToolContext
@@ -369,7 +369,7 @@ def add_from_csv(
         return
 
     # Create Table[AddCardRequest]
-    card_requests_table = ConcreteTable.from_pydantic(card_requests)
+    card_requests_table = Table.from_pydantic(card_requests)
 
     # Always use the unified pipeline
     review_and_add(card_requests_table, deck_name, interactive=interactive)
@@ -483,7 +483,7 @@ Return a JSON object with vocabulary items:
         )
 
     review_and_add(
-        ConcreteTable.from_pydantic(card_requests),
+        Table.from_pydantic(card_requests),
         deck_name,
         output_dir,
         interactive=interactive,

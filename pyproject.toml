@@ -116,6 +116,8 @@ packages = ["src/tidyllm", "scripts"]
 [tool.ruff]
 # Set as desired, typically 88 (black standard) or 100 (wide).
 line-length = 100
+exclude = ["tests/"]
+
 
 [tool.ruff.lint]
 select = [

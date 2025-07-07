@@ -4,8 +4,10 @@ from pydantic import BaseModel, Field
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.context import get_tool_context
-from tidyllm.data import ConcreteTable, Table
+
+# Table is now an alias for Table
 from tidyllm.database import json_decode, json_encode
+from tidyllm.linq import Table
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 
@@ -116,7 +118,7 @@ def vocab_search(
             )
         )
 
-    return ConcreteTable.from_pydantic(items)
+    return Table.from_pydantic(items)
 
 
 @register()

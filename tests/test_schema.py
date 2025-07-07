@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from tidyllm.docstring import extract_function_docs
-from tidyllm.schema import (
+from tidyllm.function_schema import (
     FunctionDescription,
 )
 

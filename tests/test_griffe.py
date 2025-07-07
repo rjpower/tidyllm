@@ -168,7 +168,7 @@ class TestGriffeIntegrationWithSchema:
 
     def test_griffe_enhances_schema_generation(self):
         """Test that griffe docs enhance schema generation."""
-        from tidyllm.schema import FunctionDescription
+        from tidyllm.function_schema import FunctionDescription
 
         # Generate schema with griffe integration
         func_desc = FunctionDescription(documented_function)
@@ -188,7 +188,7 @@ class TestGriffeIntegrationWithSchema:
 
     def test_griffe_works_with_pydantic_models(self):
         """Test griffe integration with Pydantic model parameters."""
-        from tidyllm.schema import FunctionDescription
+        from tidyllm.function_schema import FunctionDescription
 
         func_desc = FunctionDescription(pydantic_function)
         schema = func_desc.function_schema
@@ -200,7 +200,7 @@ class TestGriffeIntegrationWithSchema:
 
     def test_griffe_fallback_behavior(self):
         """Test that schema generation works when griffe fails."""
-        from tidyllm.schema import FunctionDescription
+        from tidyllm.function_schema import FunctionDescription
 
         # Should not fail even if griffe can't parse
         func_desc = FunctionDescription(no_docstring_function)

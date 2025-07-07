@@ -12,7 +12,7 @@ from pydantic import BaseModel, ValidationError
 
 from tidyllm.context import set_tool_context
 from tidyllm.data import to_json_value
-from tidyllm.schema import FunctionDescription
+from tidyllm.function_schema import FunctionDescription
 
 
 def get_click_type(annotation: type) -> Any:

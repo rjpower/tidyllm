@@ -66,7 +66,9 @@ def extract_function_docs(func: Callable) -> dict[str, Any]:
     return extract_docs_from_string(func.__doc__ or "")
 
 
-def enhance_schema_with_docs(schema: dict[str, Any], docstring_text: str | None = None) -> dict[str, Any]:
+def update_schema_with_docstring(
+    schema: dict[str, Any], docstring_text: str | None = None
+) -> dict[str, Any]:
     """Enhance existing schema with griffe-extracted documentation.
 
     Args:
@@ -78,8 +80,7 @@ def enhance_schema_with_docs(schema: dict[str, Any], docstring_text: str | None 
     """
     if not docstring_text:
         return schema
-        
-    # Extract docs from docstring text
+
     func_docs = extract_docs_from_string(docstring_text)
 
     # Enhance function description if not already set

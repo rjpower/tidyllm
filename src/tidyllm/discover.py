@@ -6,8 +6,8 @@ import logging
 import sys
 from pathlib import Path
 
+from tidyllm.function_schema import FunctionDescription
 from tidyllm.registry import REGISTRY
-from tidyllm.schema import FunctionDescription
 
 logger = logging.getLogger(__name__)
 

@@ -9,7 +9,9 @@ from pydantic import BaseModel, Field
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.context import get_tool_context
-from tidyllm.data import ConcreteTable, Table
+from tidyllm.linq import Table
+
+# Table is now an alias for Table
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 
@@ -214,7 +216,7 @@ def note_search(query: str) -> Table:
         note = _parse_note_file(file_path)
         notes_list.append(note)
 
-    return ConcreteTable.from_pydantic(notes_list)
+    return Table.from_pydantic(notes_list)
 
 
 @register()
@@ -245,7 +247,7 @@ def note_list(tags: list[str] | None = None, limit: int = 50) -> Table:
         else:
             notes_list.append(note)
 
-    return ConcreteTable.from_pydantic(notes_list)
+    return Table.from_pydantic(notes_list)
 
 
 @register()
@@ -300,7 +302,7 @@ def note_recent(limit: int = 10) -> Table:
         note = _parse_note_file(file_path)
         notes_list.append(note)
 
-    return ConcreteTable.from_pydantic(notes_list)
+    return Table.from_pydantic(notes_list)
 
 
 @register()

@@ -17,7 +17,9 @@ from unidecode import unidecode
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.context import get_tool_context
-from tidyllm.data import ConcreteTable, Table
+from tidyllm.linq import Table
+
+# Table is now an alias for Table
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 
@@ -373,7 +375,7 @@ def anki_query(query: str, limit: int = 100, deck_name: str | None = None) -> Ta
     ctx = get_tool_context()
     anki_db = ctx.config.find_anki_db()
     if not anki_db:
-        return ConcreteTable.empty()
+        return Table.empty()
 
     with setup_anki_connection(anki_db) as conn:
         # Build query to search in note fields
@@ -410,7 +412,7 @@ def anki_query(query: str, limit: int = 100, deck_name: str | None = None) -> Ta
                     deck_name=deck_name,
                 )
             )
-        return ConcreteTable.from_pydantic(cards)
+        return Table.from_pydantic(cards)
 
 
 @register()
@@ -422,7 +424,7 @@ def anki_list() -> Table:
     ctx = get_tool_context()
     anki_db = ctx.config.find_anki_db()
     if not anki_db:
-        return ConcreteTable.empty()
+        return Table.empty()
 
     with setup_anki_connection(anki_db) as conn:
         cursor = conn.execute(
@@ -451,7 +453,7 @@ def anki_list() -> Table:
                 )
             )
 
-    return ConcreteTable.from_pydantic(decks)
+    return Table.from_pydantic(decks)
 
 
 if __name__ == "__main__":

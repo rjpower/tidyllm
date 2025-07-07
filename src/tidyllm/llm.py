@@ -11,7 +11,7 @@ import litellm
 from litellm.types.utils import ModelResponseStream
 from pydantic import BaseModel
 
-from tidyllm.schema import JSONSchema
+from tidyllm.function_schema import JSONSchema
 
 
 class StreamWriter(Protocol):

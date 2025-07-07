@@ -7,7 +7,9 @@ import questionary
 from rich.console import Console
 from rich.table import Table as RichTable
 
-from tidyllm.data import ConcreteTable, Table
+from tidyllm.linq import Table
+
+# Table is now an alias for Table
 
 console = Console()
 
@@ -41,7 +43,7 @@ def select_ui(
         New table containing only selected rows
         
     Example:
-        >>> data = ConcreteTable.from_dict(
+        >>> data = Table.from_dict(
         ...     {"name": str, "age": int},
         ...     [{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]
         ... )
@@ -50,18 +52,18 @@ def select_ui(
     # Check empty table
     if len(table) == 0:
         console.print("[yellow]No items to select[/yellow]")
-        return ConcreteTable.empty()
-    
+        return Table.empty()
+
     # Determine columns
     columns_to_show = display_columns or list(table.columns.keys())
-    
+
     # Show preview if requested
     if show_preview and not compact:
         _show_preview_table(table, title, columns_to_show, formatter)
-    
+
     # Build choices
     choices = _build_choices(table, columns_to_show, formatter, compact)
-    
+
     # Show interactive selector
     try:
         selected_indices = _run_selector(
@@ -70,22 +72,22 @@ def select_ui(
             multi_select,
             pre_selected
         )
-        
+
         if selected_indices is None:
-            return ConcreteTable.empty()
-        
+            return Table.empty()
+
         # Build result
         selected_rows = [table[i] for i in selected_indices]
-        
+
         # Show summary
         if not compact:
             console.print(f"\n[green]✓ Selected {len(selected_rows)} item(s)[/green]")
-        
-        return ConcreteTable(columns=table.columns, rows=selected_rows)
-        
+
+        return Table(_columns=table.columns, _rows=selected_rows)
+
     except (KeyboardInterrupt, EOFError):
         console.print("\n[yellow]Selection cancelled[/yellow]")
-        return ConcreteTable.empty()
+        return Table.empty()
 
 
 def _show_preview_table(

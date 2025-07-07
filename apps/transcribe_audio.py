@@ -16,9 +16,12 @@ from rich.console import Console
 from rich.progress import track
 
 from tidyllm.adapters.cli import cli_main
-from tidyllm.data import ConcreteTable, Table, to_json_value
+
+# ConcreteTable is now an alias for Table
 from tidyllm.duration import Duration
+from tidyllm.linq import Table
 from tidyllm.registry import register
+from tidyllm.serialization import to_json_value
 from tidyllm.tools.audio import audio_file, chunk_by_vad_stream, chunk_to_wav_bytes
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.transcribe import (
@@ -196,7 +199,7 @@ def diff_vocab(
     console.print(f"[yellow]{existing_count} words already in database[/yellow]")
 
     # Create ConcreteTable
-    new_words_table = ConcreteTable.from_pydantic(new_vocab_words)
+    new_words_table = Table.from_pydantic(new_vocab_words)
 
     if output:
         with open(output, "w") as f:

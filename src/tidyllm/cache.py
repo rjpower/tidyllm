@@ -16,8 +16,8 @@ from typing import Any, Generic, ParamSpec, Protocol, TypeVar
 from pydantic import BaseModel
 
 from tidyllm.context import get_tool_context
-from tidyllm.data import parse_from_json
-from tidyllm.schema import FunctionDescription
+from tidyllm.function_schema import FunctionDescription
+from tidyllm.serialization import parse_from_json
 
 logger = logging.getLogger(__name__)
 

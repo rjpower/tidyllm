@@ -9,7 +9,7 @@ from typing import Any, ParamSpec, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from tidyllm.schema import FunctionDescription, JSONSchema
+from tidyllm.function_schema import FunctionDescription, JSONSchema
 
 logger = logging.getLogger(__name__)
 
