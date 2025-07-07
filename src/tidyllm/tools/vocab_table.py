@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.context import get_tool_context
+from tidyllm.data import ConcreteTable, Table
 from tidyllm.database import json_decode, json_encode
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
@@ -20,56 +21,62 @@ class VocabItem(BaseModel):
     updated_at: str  # ISO format string
 
 
-# Add Vocab Word Tool
-class VocabAddArgs(BaseModel):
-    """Arguments for adding a vocabulary word."""
-    word: str = Field(description="Word to add")
-    translation: str = Field(description="Translation of the word")
-    examples: list[str] = Field(default_factory=list, description="Example sentences")
-    tags: list[str] = Field(default_factory=list, description="Tags for categorization")
-
-
 @register()
-def vocab_add(args: VocabAddArgs) -> None:
+def vocab_add(
+    word: str,
+    translation: str,
+    examples: list[str] | None = None,
+    tags: list[str] | None = None,
+) -> None:
     """Add a new vocabulary word to the database.
     
-    Example usage: vocab_add({"word": "hello", "translation": "hola", "examples": ["Hello world"], "tags": ["greetings"]})
+    Args:
+        word: Word to add
+        translation: Translation of the word
+        examples: Example sentences (optional)
+        tags: Tags for categorization (optional)
+    
+    Example usage: vocab_add("hello", "hola", ["Hello world"], ["greetings"])
     """
     ctx = get_tool_context()
     db = ctx.db
+
+    if examples is None:
+        examples = []
+    if tags is None:
+        tags = []
 
     db.mutate(
         """INSERT INTO vocab (word, translation, examples, tags) 
             VALUES (?, ?, ?, ?)""",
         (
-            args.word,
-            args.translation,
-            json_encode(args.examples),
-            json_encode(args.tags),
+            word,
+            translation,
+            json_encode(examples),
+            json_encode(tags),
         ),
     )
 
 
-# Search Vocab Tool
-class VocabSearchArgs(BaseModel):
-    """Arguments for searching vocabulary."""
-    word: str | None = Field(None, description="Search by word (partial match)")
-    translation: str | None = Field(None, description="Search by translation (partial match)")
-    tag: str | None = Field(None, description="Search by tag")
-    limit: int = Field(50, description="Maximum results to return")
-
-
-class VocabSearchResult(BaseModel):
-    """Result of vocabulary search."""
-    items: list[VocabItem]
-    count: int
-
-
 @register()
-def vocab_search(args: VocabSearchArgs) -> VocabSearchResult:
+def vocab_search(
+    word: str | None = None,
+    translation: str | None = None,
+    tag: str | None = None,
+    limit: int = 50,
+) -> Table:
     """Search vocabulary words in the database.
     
-    Example usage: vocab_search({"word": "hel", "limit": 10}) or vocab_search({"tag": "verbs"})
+    Args:
+        word: Search by word (partial match)
+        translation: Search by translation (partial match)
+        tag: Search by tag
+        limit: Maximum results to return
+    
+    Returns:
+        Table containing matching vocabulary items
+    
+    Example usage: vocab_search(word="hel", limit=10) or vocab_search(tag="verbs")
     """
     ctx = get_tool_context()
     db = ctx.db
@@ -78,20 +85,20 @@ def vocab_search(args: VocabSearchArgs) -> VocabSearchResult:
     where_clauses = []
     params = []
 
-    if args.word:
+    if word:
         where_clauses.append("word LIKE ?")
-        params.append(f"%{args.word}%")
-    if args.translation:
+        params.append(f"%{word}%")
+    if translation:
         where_clauses.append("translation LIKE ?")
-        params.append(f"%{args.translation}%")
-    if args.tag:
+        params.append(f"%{translation}%")
+    if tag:
         where_clauses.append("tags LIKE ?")
-        params.append(f'%"{args.tag}"%')
+        params.append(f'%"{tag}"%')
 
     query = "SELECT * FROM vocab"
     if where_clauses:
         query += " WHERE " + " AND ".join(where_clauses)
-    query += f" ORDER BY updated_at DESC LIMIT {args.limit}"
+    query += f" ORDER BY updated_at DESC LIMIT {limit}"
 
     cursor = db.query(query, params)
 
@@ -109,23 +116,25 @@ def vocab_search(args: VocabSearchArgs) -> VocabSearchResult:
             )
         )
 
-    return VocabSearchResult(items=items, count=len(items))
-
-
-# Update Vocab Tool
-class VocabUpdateArgs(BaseModel):
-    """Arguments for updating a vocabulary word."""
-    word: str = Field(description="Word to update")
-    translation: str | None = Field(None, description="New translation")
-    examples: list[str] | None = Field(None, description="New example sentences")
-    tags: list[str] | None = Field(None, description="New tags")
+    return ConcreteTable.from_pydantic(items)
 
 
 @register()
-def vocab_update(args: VocabUpdateArgs) -> None:
+def vocab_update(
+    word: str,
+    translation: str | None = None,
+    examples: list[str] | None = None,
+    tags: list[str] | None = None,
+) -> None:
     """Update an existing vocabulary word.
     
-    Example usage: vocab_update({"word": "hello", "translation": "¡hola!", "examples": ["Hello there!"]})
+    Args:
+        word: Word to update
+        translation: New translation (optional)
+        examples: New example sentences (optional)
+        tags: New tags (optional)
+    
+    Example usage: vocab_update("hello", translation="¡hola!", examples=["Hello there!"])
     """
     ctx = get_tool_context()
     db = ctx.db
@@ -134,28 +143,26 @@ def vocab_update(args: VocabUpdateArgs) -> None:
     update_parts = []
     params = []
 
-    if args.translation is not None:
+    if translation is not None:
         update_parts.append("translation = ?")
-        params.append(args.translation)
-    if args.examples is not None:
+        params.append(translation)
+    if examples is not None:
         update_parts.append("examples = ?")
-        params.append(json_encode(args.examples))
-    if args.tags is not None:
+        params.append(json_encode(examples))
+    if tags is not None:
         update_parts.append("tags = ?")
-        params.append(json_encode(args.tags))
+        params.append(json_encode(tags))
 
     if not update_parts:
         raise ValueError("No fields to update")
 
-    params.append(args.word)
+    params.append(word)
     rowcount = db.mutate(
         f"UPDATE vocab SET {', '.join(update_parts)} WHERE word = ?", params
     )
 
     if rowcount == 0:
-        raise ValueError(f"Word not found: {args.word}")
-
-    # Word updated successfully
+        raise ValueError(f"Word not found: {word}")
 
 
 @register()

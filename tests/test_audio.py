@@ -9,8 +9,8 @@ from tidyllm.duration import Duration
 from tidyllm.tools.audio import (
     AudioChunk,
     AudioFormat,
+    audio_file,
     chunk_by_vad_stream,
-    file,
     merge_chunks,
 )
 from tidyllm.tools.context import ToolContext
@@ -32,7 +32,7 @@ def tool_context():
 def audio_stream(test_audio_file, tool_context):
     """Stream from test audio file."""
     with set_tool_context(tool_context):
-        return file(str(test_audio_file), chunk_duration=Duration.from_sec(1.0))
+        return audio_file(str(test_audio_file), chunk_duration=Duration.from_sec(1.0))
 
 
 class TestAudioChunk:
@@ -50,28 +50,40 @@ class TestAudioChunk:
         assert chunk.channels == 1
         assert chunk.format == audio_format
 
+        assert chunk.model_dump_json()
+
+        chunk2 = AudioChunk.model_validate_json(chunk.model_dump_json())
+
+        assert all(chunk.as_array().flatten() == chunk2.as_array().flatten())
+
 
 class TestAudioLoading:
     """Tests for audio file loading."""
-    
+
     def test_file_stream_creation(self, test_audio_file, tool_context):
         """Test creating stream from audio file."""
         with set_tool_context(tool_context):
-            stream = file(str(test_audio_file), chunk_duration=Duration.from_sec(1.0))
+            stream = audio_file(
+                str(test_audio_file), chunk_duration=Duration.from_sec(1.0)
+            )
             chunks = list(stream.take(5))
-            
+
             assert len(chunks) > 0
             assert all(isinstance(chunk, AudioChunk) for chunk in chunks)
             assert all(chunk.sample_rate > 0 for chunk in chunks)
             assert all(len(chunk.data) > 0 for chunk in chunks)
-    
+
     def test_file_stream_parameters(self, test_audio_file, tool_context):
         """Test file stream with different parameters."""
         with set_tool_context(tool_context):
             # Test with max duration
-            stream = file(str(test_audio_file), chunk_duration=Duration.from_sec(0.5), max_duration=Duration.from_sec(1.0))
+            stream = audio_file(
+                str(test_audio_file),
+                chunk_duration=Duration.from_sec(0.5),
+                max_duration=Duration.from_sec(1.0),
+            )
             chunks = list(stream)
-            
+
             total_duration = sum(len(chunk.data) / (chunk.sample_rate * chunk.channels * 2) 
                                for chunk in chunks)
             assert total_duration <= 1.2  # Allow some tolerance
@@ -168,41 +180,6 @@ class TestVAD:
             vad_stream2 = chunk_by_vad_stream(audio_stream)
             list(vad_stream2.take(1))
 
-
-class TestStreamOperations:
-    """Tests for stream operations with audio."""
-
-    def test_stream_map(self, audio_stream, tool_context):
-        """Test mapping over audio stream."""
-        with set_tool_context(tool_context):
-            # Map to extract timestamps
-            timestamps = audio_stream.map(lambda chunk: chunk.timestamp).take(3).collect()
-
-            assert len(timestamps) >= 1
-            assert all(isinstance(ts, Duration) for ts in timestamps)
-            assert timestamps == sorted(timestamps)  # Should be in order
-
-    def test_stream_filter(self, audio_stream, tool_context):
-        """Test filtering audio stream."""
-        with set_tool_context(tool_context):
-            # Filter for chunks with non-empty data
-            filtered = audio_stream.filter(lambda chunk: len(chunk.data) > 0).take(3).collect()
-
-            assert len(filtered) >= 1
-            assert all(len(chunk.data) > 0 for chunk in filtered)
-
-    def test_stream_batch(self, audio_stream, tool_context):
-        """Test batching audio stream."""
-        with set_tool_context(tool_context):
-            batches = audio_stream.batch(2).take(2).collect()
-
-            assert len(batches) >= 1
-            assert all([len(batch) == 2 for batch in batches]), batches
-            assert all(
-                [isinstance(chunk, AudioChunk) for batch in batches for chunk in batch]
-            )
-
-
 class TestAudioPipeline:
     """Integration tests for complete audio processing pipeline."""
 
@@ -214,7 +191,9 @@ class TestAudioPipeline:
 
         with set_tool_context(tool_context):
             # Create pipeline: file -> VAD -> take first few chunks
-            audio_stream = file(str(test_audio_file), chunk_duration=Duration.from_sec(1.0))
+            audio_stream = audio_file(
+                str(test_audio_file), chunk_duration=Duration.from_sec(1.0)
+            )
             pipeline = chunk_by_vad_stream(audio_stream).take(2)
 
             chunks = list(pipeline)

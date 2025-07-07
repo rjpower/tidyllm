@@ -3,15 +3,41 @@
 import asyncio
 import inspect
 from collections.abc import Callable, Iterable
-from typing import Any, get_type_hints
+from typing import Annotated, Any, get_type_hints
 
 from pydantic import BaseModel, create_model
+from pydantic.functional_serializers import WrapSerializer
+from pydantic.functional_validators import WrapValidator
 from pydantic.types import Base64Bytes
 from typing_extensions import TypedDict
 
+from tidyllm.data import ConcreteTable, Table
 from tidyllm.docstring import (
     enhance_schema_with_docs,
 )
+
+
+def validate_table(v, handler, info):
+    """Validate and convert dict back to ConcreteTable."""
+    if isinstance(v, dict) and "columns" in v and "rows" in v:
+        return ConcreteTable(columns=v["columns"], rows=v["rows"])
+    elif hasattr(v, "columns") and hasattr(v, "__iter__"):  # Table-like object
+        return v
+    else:
+        return handler(v)
+
+
+def serialize_table(v, handler, info):
+    """Serialize Table to dict format."""
+    return {"columns": v.columns, "rows": [row for row in v]}
+
+
+# Create annotated Table type for Pydantic
+PydanticTable = Annotated[
+    dict,  # Use dict as base type for JSON schema
+    WrapValidator(validate_table),
+    WrapSerializer(serialize_table),
+]
 
 
 class FunctionSchema(TypedDict):
@@ -127,9 +153,12 @@ class FunctionDescription:
         for param_name, param in all_params.items():
             param_type = hints.get(param_name, Any)
 
-            # Convert bytes to Base64Bytes for JSON serialization
+            # Convert special types for JSON serialization
             if param_type is bytes:
                 param_type = Base64Bytes
+            elif param_type is Table:
+                # Use annotated Table type for proper serialization
+                param_type = PydanticTable
 
             if param.default is not inspect.Parameter.empty:
                 # Parameter has default value
@@ -192,6 +221,7 @@ class FunctionDescription:
                 return {param_name: validated_model}
 
         # Multiple parameters or single primitive - return field values
+        # The annotated types handle conversion automatically
         return validated_model.model_dump()
 
     def call(self, *args, **kwargs) -> Any:

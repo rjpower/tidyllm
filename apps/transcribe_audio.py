@@ -14,13 +14,12 @@ from pathlib import Path
 from pydantic import BaseModel
 from rich.console import Console
 from rich.progress import track
-from rich.table import Table
 
 from tidyllm.adapters.cli import cli_main
+from tidyllm.data import ConcreteTable, Table, to_json_value
 from tidyllm.duration import Duration
 from tidyllm.registry import register
-from tidyllm.tools.audio import chunk_by_vad_stream, chunk_to_wav_bytes
-from tidyllm.tools.audio import file as audio_file
+from tidyllm.tools.audio import audio_file, chunk_by_vad_stream, chunk_to_wav_bytes
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.transcribe import (
     TranscribedWord,
@@ -28,8 +27,16 @@ from tidyllm.tools.transcribe import (
     transcribe_bytes,
 )
 from tidyllm.tools.vocab_table import vocab_add, vocab_search
+from tidyllm.ui.selection import select_ui
 
 console = Console()
+
+
+class VocabWord(BaseModel):
+    """A vocabulary word with translation."""
+
+    word: str
+    translation: str
 
 
 class SegmentTranscription(BaseModel):
@@ -50,28 +57,12 @@ class TranscribeAudioResult(BaseModel):
     target_language: str
 
 
-class DiffVocabResult(BaseModel):
-    """Result of vocabulary diffing."""
-
-    new_words: list[dict]
-    existing_count: int
-    new_count: int
-
-
-class ReviewVocabResult(BaseModel):
-    """Result of vocabulary review."""
-
-    added_count: int
-    total_words: int
-
-
 class FullPipelineResult(BaseModel):
     """Result of full pipeline."""
 
     total_segments: int
     total_words: int
     new_words: int
-    added_words: int
 
 
 @register()
@@ -111,6 +102,7 @@ def transcribe_audio(
     all_words = []
 
     for segment in track(segments, description="Transcribing segments"):
+        print(segment.timestamp)
         # Convert AudioChunk to WAV bytes (no temporary files!)
         wav_bytes = chunk_to_wav_bytes(segment)
 
@@ -149,11 +141,12 @@ def transcribe_audio(
 
     return final_result
 
+
 @register()
 def diff_vocab(
     transcription_file: Path,
     output: Path | None = None,
-) -> DiffVocabResult:
+) -> Table:
     """Find new vocabulary words not in database.
 
     Args:
@@ -161,7 +154,7 @@ def diff_vocab(
         output: Output file for new words
 
     Returns:
-        DiffVocabResult containing new words and counts
+        Table containing new vocabulary words
 
     Example: diff_vocab(Path("transcriptions.json"))
     """
@@ -187,124 +180,98 @@ def diff_vocab(
                 )
 
     # Check against existing vocabulary
-    new_words = []
+    new_vocab_words = []
     existing_count = 0
 
     for word in track(all_words, description="Checking vocabulary"):
-        search_result = vocab_search({"word": word.word_native, "limit": 1})
-        if not search_result.items:
-            new_words.append(
-                {"word": word.word_native, "translation": word.word_translated}
+        search_result = vocab_search(word=word.word_native, limit=1)
+        if len(search_result) == 0:
+            new_vocab_words.append(
+                VocabWord(word=word.word_native, translation=word.word_translated)
             )
         else:
             existing_count += 1
 
-    console.print(f"[green]Found {len(new_words)} new words[/green]")
+    console.print(f"[green]Found {len(new_vocab_words)} new words[/green]")
     console.print(f"[yellow]{existing_count} words already in database[/yellow]")
 
-    result = DiffVocabResult(
-        new_words=new_words, existing_count=existing_count, new_count=len(new_words)
-    )
+    # Create ConcreteTable
+    new_words_table = ConcreteTable.from_pydantic(new_vocab_words)
 
     if output:
         with open(output, "w") as f:
-            json.dump(new_words, f, indent=2, ensure_ascii=False)
+            json.dump(to_json_value(new_words_table), f, indent=2, ensure_ascii=False)
         console.print(f"[green]New words saved to:[/green] {output}")
 
-    return result
+    return new_words_table
 
 
 @register()
 def review_vocab(
-    new_words_file: Path,
+    new_words_table: Table,
     auto_add: bool = False,
-) -> ReviewVocabResult:
+):
     """Interactive review and selection of vocabulary to add.
 
     Args:
-        new_words_file: Path to new words JSON file
+        new_words_table: Table containing new vocabulary words
         auto_add: Automatically add all words without review
 
     Returns:
         ReviewVocabResult containing counts
 
-    Example: review_vocab(Path("new_words.json"), auto_add=False)
+    Example: review_vocab(vocab_table, auto_add=False)
     """
-    if not new_words_file.exists():
-        raise FileNotFoundError(f"New words file not found: {new_words_file}")
-
     console.print("[bold blue]Reviewing vocabulary for addition...[/bold blue]")
 
-    # Load new words
-    with open(new_words_file) as f:
-        words_data = json.load(f)
-
-    if not words_data:
+    if len(new_words_table) == 0:
         console.print("[yellow]No new words to review[/yellow]")
-        return ReviewVocabResult(added_count=0, total_words=0)
+        return
 
     if auto_add:
         # Add all words automatically
         added_count = 0
-        for word_data in track(words_data, description="Adding words"):
+        for vocab_word in track(new_words_table, description="Adding words"):
             try:
-                vocab_add({
-                    "word": word_data["word"],
-                    "translation": word_data["translation"],
-                    "tags": ["transcribed"]
-                })
+                vocab_add(
+                    word=vocab_word.word,
+                    translation=vocab_word.translation,
+                    tags=["transcribed"],
+                )
                 added_count += 1
             except Exception:
                 pass  # Skip failed additions
 
         console.print(f"[green]Added {added_count} words to vocabulary[/green]")
-        return ReviewVocabResult(
-            added_count=added_count, total_words=len(words_data)
-        )
 
-    # Interactive review
-    table = Table(title="New Vocabulary Words")
-    table.add_column("Index", style="cyan")
-    table.add_column("Word", style="magenta")
-    table.add_column("Translation", style="green")
+    # Interactive review using select_ui
+    selected_words = select_ui(
+        new_words_table,
+        title="New Vocabulary Words - Select words to add",
+        display_columns=["word", "translation"],
+    )
 
-    for i, word_data in enumerate(words_data):
-        table.add_row(str(i), word_data["word"], word_data["translation"])
-
-    console.print(table)
-
-    # Get user selection
-    console.print("\n[yellow]Enter word indices to add (comma-separated), or 'all' for all words:[/yellow]")
-    selection = console.input("Selection [all]: ") or "all"
-
-    if selection.lower() == "all":
-        indices = list(range(len(words_data)))
-    else:
-        try:
-            indices = [int(x.strip()) for x in selection.split(",")]
-        except ValueError:
-            console.print("[red]Invalid selection format[/red]")
+    if len(selected_words) == 0:
+        console.print("[yellow]No words selected[/yellow]")
+        return
 
     # Add selected words
     added_count = 0
-    for i in indices:
-        if 0 <= i < len(words_data):
-            word_data = words_data[i]
-            try:
-                vocab_add({
-                    "word": word_data["word"],
-                    "translation": word_data["translation"],
-                    "tags": ["transcribed"]
-                })
-                added_count += 1
-                console.print(f"[green]Added:[/green] {word_data['word']} -> {word_data['translation']}")
-            except Exception:
-                console.print(f"[red]Failed to add:[/red] {word_data['word']}")
+    for vocab_word in selected_words:
+        try:
+            vocab_add(
+                word=vocab_word.word,
+                translation=vocab_word.translation,
+                tags=["transcribed"],
+            )
+            added_count += 1
+            console.print(
+                f"[green]Added:[/green] {vocab_word.word} -> {vocab_word.translation}"
+            )
+        except Exception:
+            console.print(f"[red]Failed to add:[/red] {vocab_word.word}")
 
     console.print(f"\n[green]Added {added_count} words to vocabulary[/green]")
-    return ReviewVocabResult(
-        added_count=added_count, total_words=len(words_data)
-    )
 
 
 class ExportCsvResult(BaseModel):
@@ -316,28 +283,21 @@ class ExportCsvResult(BaseModel):
 
 @register()
 def export_csv(
-    new_words_file: Path,
+    new_words_table: Table,
     output_csv: Path,
 ) -> ExportCsvResult:
     """Export new vocabulary words to CSV.
 
     Args:
-        new_words_file: Path to new words JSON file
+        new_words_table: Table containing new vocabulary words
         output_csv: Output CSV file path
 
     Returns:
         ExportCsvResult containing export counts and success status
 
-    Example: export_csv(Path("new_words.json"), Path("vocabulary.csv"))
+    Example: export_csv(vocab_table, Path("vocabulary.csv"))
     """
-    if not new_words_file.exists():
-        raise FileNotFoundError(f"New words file not found: {new_words_file}")
-
     console.print(f"[bold blue]Exporting to CSV:[/bold blue] {output_csv}")
-
-    # Load new words
-    with open(new_words_file) as f:
-        words_data = json.load(f)
 
     # Write CSV
     with open(output_csv, "w", newline="", encoding="utf-8") as csvfile:
@@ -345,18 +305,21 @@ def export_csv(
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
         writer.writeheader()
-        for word_data in words_data:
-            writer.writerow({
-                'word': word_data['word'],
-                'translation': word_data['translation'],
-                'source_language': 'auto-detected',
-                'target_language': 'en'
-            })
+        for vocab_word in new_words_table:
+            writer.writerow(
+                {
+                    "word": vocab_word.word,
+                    "translation": vocab_word.translation,
+                    "source_language": "auto-detected",
+                    "target_language": "en",
+                }
+            )
 
-    console.print(f"[green]Exported {len(words_data)} words to CSV[/green]")
+    console.print(f"[green]Exported {len(new_words_table)} words to CSV[/green]")
     return ExportCsvResult(
-        exported_count=len(words_data), output_file=str(output_csv)
+        exported_count=len(new_words_table), output_file=str(output_csv)
     )
+
 
 @register()
 def full_pipeline(
@@ -408,7 +371,7 @@ def full_pipeline(
 
     # Step 2: Find new vocabulary
     console.print("\n[bold]Step 2: Finding new vocabulary[/bold]")
-    diff_result = diff_vocab(
+    new_words_table = diff_vocab(
         transcription_file=transcription_file,
         output=new_words_file,
     )
@@ -416,14 +379,14 @@ def full_pipeline(
     # Step 3: Export to CSV
     console.print("\n[bold]Step 3: Exporting to CSV[/bold]")
     export_csv(
-        new_words_file=new_words_file,
+        new_words_table=new_words_table,
         output_csv=csv_file,
     )
 
     # Step 4: Review and add vocabulary
     console.print("\n[bold]Step 4: Adding vocabulary to database[/bold]")
-    review_result = review_vocab(
-        new_words_file=new_words_file,
+    review_vocab(
+        new_words_table=new_words_table,
         auto_add=auto_add,
     )
 
@@ -433,8 +396,7 @@ def full_pipeline(
     return FullPipelineResult(
         total_segments=transcribe_result.total_segments,
         total_words=transcribe_result.total_words,
-        new_words=diff_result.new_count,
-        added_words=review_result.added_count,
+        new_words=len(new_words_table),
     )
 
 

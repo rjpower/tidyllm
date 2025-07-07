@@ -9,9 +9,6 @@ from tidyllm.context import set_tool_context
 from tidyllm.tools.config import Config
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.vocab_table import (
-    VocabAddArgs,
-    VocabSearchArgs,
-    VocabUpdateArgs,
     vocab_add,
     vocab_delete,
     vocab_search,
@@ -33,96 +30,89 @@ def test_context():
 
 def test_vocab_add_basic(test_context):
     """Test adding a basic vocabulary word."""
-    args = VocabAddArgs(
-        word="hello",
-        translation="hola",
-        examples=["Hello world", "Hello there"],
-        tags=["greeting", "basic"]
-    )
-    
     with set_tool_context(test_context):
-        vocab_add(args)
+        vocab_add(
+            word="hello",
+            translation="hola",
+            examples=["Hello world", "Hello there"],
+            tags=["greeting", "basic"]
+        )
     
     # Function completed successfully if no exception raised
 
 
 def test_vocab_add_duplicate(test_context):
     """Test adding a duplicate word fails."""
-    args = VocabAddArgs(word="hello", translation="hola")
-    
     with set_tool_context(test_context):
         # Add first time
-        vocab_add(args)
+        vocab_add(word="hello", translation="hola")
         # Function completed successfully if no exception raised
         
         # Add second time should fail with constraint error
         with pytest.raises(Exception):  # IntegrityError or similar
-            vocab_add(args)
+            vocab_add(word="hello", translation="hola")
 
 
 def test_vocab_search_empty(test_context):
     """Test searching in empty database."""
-    args = VocabSearchArgs()
     with set_tool_context(test_context):
-        result = vocab_search(args)
+        result = vocab_search()
     
     # Function completed successfully if no exception raised
-    assert result.count == 0
-    assert len(result.items) == 0
+    assert len(result) == 0
 
 
 def test_vocab_search_with_results(test_context):
     """Test searching with results."""
     # Add some words first
     with set_tool_context(test_context):
-        vocab_add(VocabAddArgs(word="hello", translation="hola", tags=["greeting"]))
-        vocab_add(VocabAddArgs(word="goodbye", translation="adiós", tags=["farewell"]))
-        vocab_add(VocabAddArgs(word="bonjour", translation="hello", tags=["french"]))
+        vocab_add(word="hello", translation="hola", tags=["greeting"])
+        vocab_add(word="goodbye", translation="adiós", tags=["farewell"])
+        vocab_add(word="bonjour", translation="hello", tags=["french"])
         
         # Test search by word
-        result = vocab_search(VocabSearchArgs(word="hello"))
+        result = vocab_search(word="hello")
         # Function completed successfully if no exception raised
-        assert result.count == 1
-        assert result.items[0].word == "hello"
+        assert len(result) == 1
+        assert result[0].word == "hello"
         
         # Test search by translation
-        result = vocab_search(VocabSearchArgs(translation="hello"))
+        result = vocab_search(translation="hello")
         # Function completed successfully if no exception raised
-        assert result.count == 1
-        assert result.items[0].word == "bonjour"
+        assert len(result) == 1
+        assert result[0].word == "bonjour"
         
         # Test search by tag
-        result = vocab_search(VocabSearchArgs(tag="greeting"))
+        result = vocab_search(tag="greeting")
         # Function completed successfully if no exception raised
-        assert result.count == 1
-        assert result.items[0].word == "hello"
+        assert len(result) == 1
+        assert result[0].word == "hello"
         
         # Test search all
-        result = vocab_search(VocabSearchArgs())
+        result = vocab_search()
     # Function completed successfully if no exception raised
-    assert result.count == 3
+    assert len(result) == 3
 
 
 def test_vocab_update_success(test_context):
     """Test successful vocabulary update."""
     # Add a word first
     with set_tool_context(test_context):
-        vocab_add(VocabAddArgs(word="hello", translation="hola"))
+        vocab_add(word="hello", translation="hola")
         
         # Update it
-        args = VocabUpdateArgs(
+        vocab_update(
             word="hello",
             translation="¡hola!",
             examples=["¡Hola, mundo!"],
             tags=["spanish", "greeting"]
         )
-        vocab_update(args)
         
         # Function completed successfully if no exception raised
         
         # Verify the update
-        search_result = vocab_search(VocabSearchArgs(word="hello"))
-    item = search_result.items[0]
+        search_result = vocab_search(word="hello")
+    item = search_result[0]
     assert item.translation == "¡hola!"
     assert item.examples == ["¡Hola, mundo!"]
     assert item.tags == ["spanish", "greeting"]
@@ -130,27 +120,25 @@ def test_vocab_update_success(test_context):
 
 def test_vocab_update_not_found(test_context):
     """Test updating non-existent word."""
-    args = VocabUpdateArgs(word="nonexistent", translation="new")
     with set_tool_context(test_context):
         with pytest.raises(ValueError, match="not found"):
-            vocab_update(args)
+            vocab_update(word="nonexistent", translation="new")
 
 
 def test_vocab_update_no_changes(test_context):
     """Test update with no fields provided."""
     with set_tool_context(test_context):
-        vocab_add(VocabAddArgs(word="hello", translation="hola"))
+        vocab_add(word="hello", translation="hola")
         
-        args = VocabUpdateArgs(word="hello")
         with pytest.raises(ValueError, match="No fields"):
-            vocab_update(args)
+            vocab_update(word="hello")
 
 
 def test_vocab_delete_success(test_context):
     """Test successful vocabulary deletion."""
     # Add a word first
     with set_tool_context(test_context):
-        vocab_add(VocabAddArgs(word="hello", translation="hola"))
+        vocab_add(word="hello", translation="hola")
         
         # Delete it
         vocab_delete("hello")
@@ -158,8 +146,8 @@ def test_vocab_delete_success(test_context):
         # Function completed successfully if no exception raised
         
         # Verify it's gone
-        search_result = vocab_search(VocabSearchArgs(word="hello"))
-    assert search_result.count == 0
+        search_result = vocab_search(word="hello")
+    assert len(search_result) == 0
 
 
 def test_vocab_delete_not_found(test_context):
@@ -172,18 +160,17 @@ def test_vocab_delete_not_found(test_context):
 def test_vocab_with_empty_lists(test_context):
     """Test vocabulary operations with empty lists."""
     with set_tool_context(test_context):
-        args = VocabAddArgs(
+        vocab_add(
             word="test",
             translation="prueba",
             examples=[],
             tags=[]
         )
-        vocab_add(args)
         # Function completed successfully if no exception raised
         
         # Verify empty lists are handled correctly
-        search_result = vocab_search(VocabSearchArgs(word="test"))
-    item = search_result.items[0]
+        search_result = vocab_search(word="test")
+    item = search_result[0]
     assert item.examples == []
     assert item.tags == []
 
@@ -193,10 +180,9 @@ def test_vocab_search_limit(test_context):
     # Add multiple words
     with set_tool_context(test_context):
         for i in range(10):
-            vocab_add(VocabAddArgs(word=f"word{i}", translation=f"trans{i}"))
+            vocab_add(word=f"word{i}", translation=f"trans{i}")
         
         # Search with limit
-        result = vocab_search(VocabSearchArgs(limit=5))
+        result = vocab_search(limit=5)
     # Function completed successfully if no exception raised
-    assert result.count == 5
-    assert len(result.items) == 5
+    assert len(result) == 5

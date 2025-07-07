@@ -7,9 +7,13 @@ import time
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
 
+import librosa
 import numpy as np
 from pydantic import BaseModel
+from pydantic.functional_serializers import PlainSerializer
+from pydantic.functional_validators import WrapValidator
 
 from tidyllm.context import get_tool_context
 from tidyllm.duration import Duration
@@ -19,15 +23,46 @@ from tidyllm.stream import Stream, create_stream_from_iterator
 # VAD Configuration
 VAD_SAMPLE_RATE = 16000
 VAD_BOUNDARY_WINDOW = Duration.from_ms(1000)
-MIN_SPEECH_DURATION = Duration.from_ms(1000)
+MIN_SPEECH_DURATION = Duration.from_ms(500)
 MIN_SILENCE_DURATION = Duration.from_ms(250)
-SPEECH_THRESHOLD = 0.5
+SPEECH_THRESHOLD = 0.7
 DEFAULT_CHUNK_DURATION = Duration.from_ms(1000)
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pydub")
 warnings.filterwarnings("ignore", module="sunau")
 warnings.filterwarnings("ignore", module="audiooop")
 warnings.filterwarnings("ignore", module="aifc")
+
+
+def validate_audio_array(v, handler, info):
+    """Validate and convert input to 2D numpy array (samples, channels)."""
+    if isinstance(v, np.ndarray):
+        return v
+
+    # For other types (lists, etc.), delegate to default validator first
+    try:
+        validated = handler(v)
+        if isinstance(validated, list):
+            array = np.array(validated, dtype=np.float32)
+        else:
+            array = np.array(v, dtype=np.float32)
+    except Exception:
+        array = np.array(v, dtype=np.float32)
+
+    return array
+
+
+def serialize_audio_array(v):
+    """Serialize numpy array to list of lists for JSON."""
+    return v.tolist()
+
+
+# Create annotated numpy array type for Pydantic
+PydanticAudioArray = Annotated[
+    list,  # Use list as base type for JSON schema compatibility
+    WrapValidator(validate_audio_array),
+    PlainSerializer(serialize_audio_array, return_type=list),
+]
 
 
 @dataclass
@@ -47,7 +82,7 @@ class AudioFormat:
 
     def get_sample_count(self, data: np.ndarray) -> int:
         """Get sample count from audio array."""
-        # For multi-channel: shape is (samples,) for mono, (samples, channels) for stereo
+        # Standard format: (samples, channels) for both mono and stereo
         return len(data)
 
     def duration(self, data: np.ndarray) -> Duration:
@@ -63,8 +98,20 @@ class AudioFormat:
         return data[start_samples:end_samples]
 
     def resample_to(self, data: np.ndarray, target_format: "AudioFormat") -> np.ndarray:
-        """Resample audio array to target format."""
+        """Resample audio array to target format.
+
+        Args:
+            data: Audio array in (samples, channels) format
+            target_format: Target audio format
+
+        Returns:
+            Resampled audio array in (samples, channels) format
+        """
         array = data
+
+        # Ensure input is 2D (samples, channels)
+        if array.ndim == 1:
+            array = array.reshape(-1, 1)
 
         # No resampling needed
         if (
@@ -73,35 +120,26 @@ class AudioFormat:
         ):
             return array
 
-        import librosa
-
-        # Handle stereo to mono or vice versa
+        # Handle channel conversion
         if self.channels == 2 and target_format.channels == 1:
-            # Convert stereo to mono
-            array = np.mean(array, axis=1)
+            # Convert stereo to mono: (samples, 2) -> (samples, 1)
+            array = np.mean(array, axis=1, keepdims=True)
         elif self.channels == 1 and target_format.channels == 2:
-            # Convert mono to stereo (duplicate channel)
-            array = np.column_stack([array, array])
+            # Convert mono to stereo: (samples, 1) -> (samples, 2)
+            array = np.repeat(array, 2, axis=1)
 
         # Resample if needed
         if self.sample_rate != target_format.sample_rate:
-            if array.ndim == 2:
-                # Stereo - resample each channel
-                resampled = np.zeros(
-                    (int(len(array) * target_format.sample_rate / self.sample_rate), 2)
-                )
-                for ch in range(2):
-                    resampled[:, ch] = librosa.resample(
+            resampled = []
+            for ch in range(array.shape[1]):
+                resampled.append(
+                    librosa.resample(
                         array[:, ch],
                         orig_sr=self.sample_rate,
                         target_sr=target_format.sample_rate,
                     )
-                array = resampled
-            else:
-                # Mono
-                array = librosa.resample(
-                    array, orig_sr=self.sample_rate, target_sr=target_format.sample_rate
                 )
+            array = np.stack(resampled, axis=1)
 
         return array
 
@@ -120,7 +158,7 @@ def _load_vad_model():
 
 
 def find_voice_activity(
-    audio_array: np.array,
+    audio_array: np.ndarray,
     vad_model,
     sample_rate: int = VAD_SAMPLE_RATE,
     min_speech_duration: Duration = MIN_SPEECH_DURATION,
@@ -175,7 +213,7 @@ def find_voice_activity(
 class AudioChunk(BaseModel):
     """Represents a chunk of audio data."""
 
-    data: list[float]  # Normalized float32 audio data as list
+    data: PydanticAudioArray
     timestamp: Duration
     format: AudioFormat
 
@@ -193,7 +231,7 @@ class AudioChunk(BaseModel):
         return self.format.channels
 
     def as_array(self) -> np.ndarray:
-        """Get data as numpy array."""
+        """Get data as numpy array in (samples, channels) format."""
         return np.array(self.data, dtype=np.float32)
 
     def extract_segment(self, start: Duration, end: Duration) -> "AudioChunk":
@@ -225,7 +263,10 @@ class AudioChunk(BaseModel):
                 array = array.astype(np.float32) / 32767.0
             else:
                 array = array.astype(np.float32)
-        return cls(data=array.tolist(), timestamp=timestamp, format=audio_format)
+
+        # The PydanticAudioArray validator will ensure 2D format
+
+        return cls(data=array, timestamp=timestamp, format=audio_format)
 
 
 @register(
@@ -233,7 +274,7 @@ class AudioChunk(BaseModel):
     description="Stream audio from microphone",
     tags=["audio", "source", "streaming"],
 )
-def mic(
+def audio_mic(
     sample_rate: int = 16000,
     channels: int = 1,
     chunk_duration=DEFAULT_CHUNK_DURATION,
@@ -310,7 +351,7 @@ def mic(
     description="Stream audio from a file",
     tags=["audio", "source", "streaming"],
 )
-def file(
+def audio_file(
     file_path: Path,
     sample_rate: int | None = None,
     max_duration: Duration | None = None,
@@ -365,16 +406,18 @@ def file(
             chunk_end = min(samples_read + samples_per_chunk, total_samples)
             chunk_data = audio_data[:, samples_read:chunk_end]
 
-            # Convert to interleaved format: (channels, samples) -> (samples * channels,)
+            # Convert to standard (samples, channels) format
             if channels == 1:
-                chunk_flat = chunk_data[0]  # Take first (and only) channel
+                # Mono: (1, samples) -> (samples, 1)
+                chunk_2d = chunk_data[0].reshape(-1, 1)
             else:
-                chunk_flat = chunk_data.T.flatten()
+                # Stereo: (channels, samples) -> (samples, channels)
+                chunk_2d = chunk_data.T
 
             timestamp = Duration.from_sec(samples_read / actual_sample_rate)
 
             yield AudioChunk.from_array(
-                array=chunk_flat,
+                array=chunk_2d,
                 timestamp=timestamp,
                 audio_format=audio_format,
             )
@@ -409,7 +452,7 @@ def merge_chunks(chunks: list[AudioChunk]) -> AudioChunk:
     merged_data = np.concatenate(merged_arrays)
 
     return AudioChunk(
-        data=merged_data.tolist(),
+        data=merged_data,
         timestamp=first.timestamp,
         format=first.format,
     )
@@ -429,7 +472,7 @@ class VADBuffer:
             sample_rate=VAD_SAMPLE_RATE, channels=1
         )
         self.min_buffer_duration = min_buffer_duration
-        self.audio_data = np.array([], dtype=np.float32)
+        self.audio_data = np.empty((0, self.target_format.channels), dtype=np.float32)
         self.start_timestamp: Duration | None = None
 
     def add_audio(self, chunk: AudioChunk):
@@ -443,9 +486,7 @@ class VADBuffer:
 
         # Append chunk data to buffer
         chunk_array = chunk.as_array()
-        if chunk_array.ndim == 2:
-            chunk_array = chunk_array.flatten()
-        self.audio_data = np.concatenate([self.audio_data, chunk_array])
+        self.audio_data = np.concatenate([self.audio_data, chunk_array], axis=0)
 
     def get_buffer_duration(self) -> Duration:
         """Get current buffer duration."""
@@ -464,8 +505,15 @@ class VADBuffer:
         if len(self.audio_data) == 0 or self.start_timestamp is None:
             return []
 
+        # Convert to 1D for VAD model (VAD expects mono audio)
+        audio_1d = (
+            self.audio_data.flatten()
+            if self.audio_data.shape[1] > 1
+            else self.audio_data[:, 0]
+        )
+
         segments = find_voice_activity(
-            self.audio_data,
+            audio_1d,
             self.vad_model,
             sample_rate=self.target_format.sample_rate,
             min_speech_duration=min_speech_duration,
@@ -517,7 +565,7 @@ class VADBuffer:
 
     def _reset_buffer(self):
         """Reset the buffer state."""
-        self.audio_data = np.array([], dtype=np.float32)
+        self.audio_data = np.empty((0, self.target_format.channels), dtype=np.float32)
         self.start_timestamp = None
 
 
@@ -582,7 +630,7 @@ def chunk_by_vad(
     Returns:
         List of speech segments as dictionaries with data, timestamp, etc.
     """
-    audio_stream = file(file_path)
+    audio_stream = audio_file(file_path)
     vad_stream = chunk_by_vad_stream(
         audio_stream,
         min_speech_duration=min_speech_duration,

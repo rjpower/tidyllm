@@ -178,7 +178,7 @@ def to_json_value(value: Serializable) -> Any:
     raise ValueError(f"Can't serialize {value} to JSON.")
 
 
-ColumnSchema: TypeAlias = dict[str, type[Serializable]]
+ColumnSchema: TypeAlias = dict[str, type]
 
 
 class Table(Protocol):
@@ -186,6 +186,8 @@ class Table(Protocol):
     def columns(self) -> ColumnSchema: ...
 
     def __iter__(self) -> Iterator: ...
+    def __len__(self) -> int: ...
+    def __getitem__(self, index: int) -> Any: ...
 
 
 T = TypeVar("T", bound=Serializable)
@@ -193,11 +195,17 @@ T = TypeVar("T", bound=Serializable)
 
 @dataclass
 class ConcreteTable(Generic[T]):
-    columns: dict[str, type[Serializable]]
-    rows: list[Serializable]
+    columns: dict[str, type]
+    rows: list[Any]
 
     def __iter__(self) -> Iterator:
         return iter(self.rows)
+
+    def __len__(self) -> int:
+        return len(self.rows)
+
+    def __getitem__(self, index: int) -> Any:
+        return self.rows[index]
 
     @property
     def count(self):
