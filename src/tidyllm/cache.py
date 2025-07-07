@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from tidyllm.context import get_tool_context
 from tidyllm.function_schema import FunctionDescription
-from tidyllm.serialization import parse_from_json
+from tidyllm.serialization import from_json_dict
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +120,7 @@ class _FunctionCacheHandler(Generic[P, R]):
         row = cursor.first()
         if row:
             result_data = json.loads(row.result)
-            parsed_result = parse_from_json(result_data, self.description.result_type)
+            parsed_result = from_json_dict(result_data, self.description.result_type)
             return CacheResult.hit(parsed_result)
 
         return CacheResult.miss()

@@ -13,15 +13,14 @@ from typing import Protocol, TypeVar
 
 from tidyllm.linq import (
     ColumnSchema,
-    ConcreteTable,  # Alias for backwards compatibility
     Enumerable,
     Table,
     from_iterable,
 )
 from tidyllm.serialization import (
     Serializable,
-    parse_from_json,
-    to_json_value,
+    from_json_dict,
+    to_json_dict,
 )
 
 T = TypeVar("T", bound=Serializable)
@@ -34,10 +33,9 @@ class Sequence(Protocol[T]):
 
 __all__ = [
     "Serializable",
-    "parse_from_json",
-    "to_json_value",
+    "from_json_dict",
+    "to_json_dict",
     "Table",
-    "ConcreteTable",
     "ColumnSchema",
     "Enumerable",
     "from_iterable",

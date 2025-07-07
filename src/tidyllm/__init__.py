@@ -13,7 +13,7 @@ from tidyllm.function_schema import FunctionDescription
 # Data models and serialization
 from tidyllm.linq import Enumerable, Table, from_iterable
 from tidyllm.registry import REGISTRY, ToolError, register
-from tidyllm.serialization import Serializable, parse_from_json, to_json_value
+from tidyllm.serialization import Serializable, from_json_dict, to_json_dict
 
 # Context management - import if available
 try:
@@ -34,29 +34,24 @@ except ImportError:
 __all__ = [
     # Core functionality
     "register",
-    "REGISTRY", 
+    "REGISTRY",
     "FunctionLibrary",
     "ToolError",
     "ToolResult",
-    
-    # Schema and function management  
+    # Schema and function management
     "FunctionDescription",
-    
     # Data models
     "Table",
-    "Enumerable", 
+    "Enumerable",
     "from_iterable",
     "Serializable",
-    "parse_from_json",
-    "to_json_value",
-    
+    "from_json_dict",
+    "to_json_dict",
     # Tool discovery
     "discover_tools_in_directory",
     "discover_tools_in_package",
-    
     # CLI support
     "cli_main",
-    
     # Context management
     "get_tool_context",
     "set_tool_context",

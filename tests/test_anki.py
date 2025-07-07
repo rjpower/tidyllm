@@ -65,9 +65,8 @@ def test_anki_query_with_mock_database(mock_setup_anki, test_context):
     with set_tool_context(test_context):
         result = anki_query("hello", limit=10, deck_name="Spanish")
 
-    # Check that we get a ConcreteTable with the right structure
     assert len(list(result)) == 2
-    
+
     # Check first card
     cards = list(result)
     first_card = cards[0]
@@ -105,16 +104,15 @@ def test_anki_list_with_mock_database(mock_setup_anki, test_context):
     with set_tool_context(test_context):
         result = anki_list()
 
-    # Check that we get a ConcreteTable with the right structure
     decks = list(result)
     assert len(decks) == 2
-    
+
     # Check first deck
     first_deck = decks[0]
     assert first_deck.name == "Spanish"
     assert first_deck.card_count == 150
     assert first_deck.deck_id == 1
-    
+
     # Check second deck with hierarchy
     second_deck = decks[1]
     assert second_deck.name == "Japanese::N5"  # Should convert hierarchy separator
@@ -185,8 +183,6 @@ def test_generate_example_sentence(mock_completion, mock_context, test_context):
     assert "こんにちは" in call_args[1]['messages'][0]['content']
 
 
-
-
 @patch('tidyllm.tools.anki.genanki.Package')
 @patch('tidyllm.tools.anki.genanki.Deck')
 @patch('tidyllm.tools.anki.genanki.Note')
@@ -244,8 +240,6 @@ def test_anki_add_vocab_card_without_audio(mock_note, mock_deck, mock_package, t
     # Verify result
     assert result.cards_created == 1
     assert result.deck_path.name.endswith(".apkg")
-
-
 
 
 def test_add_vocab_card_request_validation():

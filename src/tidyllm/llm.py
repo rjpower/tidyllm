@@ -129,27 +129,6 @@ class LLMResponse(BaseModel):
     tools: list[dict] = field(default_factory=list)
 
 
-class LLMClient(ABC):
-    """Abstract interface for LLM clients."""
-
-    @abstractmethod
-    def completion(
-        self, model: str, messages: list[LLMMessage], tools: list[JSONSchema], **kwargs
-    ) -> LLMResponse:
-        """Get completion with tool calling support.
-
-        Args:
-            model: Model name
-            messages: List of LLMMessage objects
-            tools: Tool schemas
-            **kwargs: Additional arguments
-
-        Returns:
-            LLMResponse with processed results
-        """
-        pass
-
-
 class LiteLLMClient(LLMClient):
     def completion(
         self,
@@ -266,78 +245,3 @@ class LiteLLMClient(LLMClient):
 
         # Don't log here - logging will happen in LLMHelper after tool execution
         return response
-
-
-class MockLLMClient(LLMClient):
-    """Mock LLM client for testing."""
-
-    def __init__(self, mock_responses: dict[str, dict] | None = None):
-        """Initialize with mock responses.
-
-        Args:
-            mock_responses: Map of prompt -> mock response dict
-        """
-        self.mock_responses = mock_responses or {}
-
-    def completion(
-        self, model: str, messages: list[LLMMessage], tools: list[JSONSchema], **kwargs
-    ) -> LLMResponse:
-        """Return mock response based on prompt."""
-        assistant_msg = AssistantMessage(content="")
-        processed_tool_calls = []
-
-        # Default response calls tool based on prompt keywords or first available
-        if tools:
-            tool_name = tools[0]["function"]["name"]
-            selected_tool = next((t for t in tools if t["function"]["name"] == tool_name), tools[0])
-
-            # Extract parameters from schema and create default args
-            schema_params = selected_tool["function"].get("parameters", {}).get("properties", {})
-            default_args = {}
-            for param_name, param_info in schema_params.items():
-                if "default" in param_info:
-                    default_args[param_name] = param_info["default"]
-                elif param_info.get("type") == "string":
-                    default_args[param_name] = "test.txt"  # Default string value
-                elif param_info.get("type") == "integer":
-                    default_args[param_name] = 0
-                elif param_info.get("type") == "boolean":
-                    default_args[param_name] = False
-
-            tool_call = ToolCall(
-                tool_name=tool_name, tool_args=default_args, id="mock_call_1"
-            )
-            processed_tool_calls.append(tool_call)
-            assistant_msg.tool_calls = [tool_call]
-        else:
-            # No tools available - just return text response
-            assistant_msg.content = "I don't have access to any tools to help with that."
-
-        response_messages = messages + [assistant_msg]
-
-        response = LLMResponse(
-            model=model,
-            messages=response_messages,
-        )
-
-        # Log the mock response same as real clients
-        # Don't log here - logging will happen in LLMHelper after tool execution
-        return response
-
-
-def create_llm_client(client_type: str = "litellm", **kwargs) -> LLMClient:
-    """Factory function to create LLM clients.
-
-    Args:
-        client_type: Type of client ("litellm" or "mock")
-        **kwargs: Client-specific arguments
-
-    Returns:
-        LLM client instance
-    """
-    if client_type == "litellm":
-        return LiteLLMClient()
-    elif client_type == "mock":
-        return MockLLMClient(kwargs.get("mock_responses", {}))
-    else:
-        raise ValueError(f"Unknown client type: {client_type}")

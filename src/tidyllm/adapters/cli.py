@@ -11,7 +11,7 @@ import click
 from pydantic import BaseModel, ValidationError
 
 from tidyllm.context import set_tool_context
-from tidyllm.data import to_json_value
+from tidyllm.data import to_json_dict
 from tidyllm.function_schema import FunctionDescription
 
 
@@ -85,7 +85,7 @@ def output_result(result: Any, format: str) -> None:
     if result is None:
         return
     if format == "json":
-        result = to_json_value(result)
+        result = to_json_dict(result)
         click.echo(json.dumps(result, indent=2))
     elif format == "pickle":
         sys.stdout.buffer.write(pickle.dumps(result))

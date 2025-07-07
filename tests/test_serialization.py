@@ -11,10 +11,10 @@ from pydantic import BaseModel
 from tidyllm.linq import Table
 from tidyllm.serialization import (
     from_json_dict,
-    parse_from_json,
+    from_json_dict,
     to_json_dict,
     to_json_string,
-    to_json_value,
+    to_json_dict,
 )
 
 
@@ -234,22 +234,3 @@ class TestRoundTrip:
             "active": True
         }
         assert serialized == expected_serialized
-
-
-class TestLegacyCompatibility:
-    """Test that legacy function names still work."""
-
-    def test_legacy_function_names(self):
-        """Test parse_from_json and to_json_value aliases."""
-        person = Person(name="Alice", age=30)
-        
-        # Test legacy serialization
-        result = to_json_value(person)
-        assert result == {"name": "Alice", "age": 30}
-        
-        # Test legacy deserialization
-        data = {"name": "Bob", "age": 25}
-        result = parse_from_json(data, Person)
-        assert isinstance(result, Person)
-        assert result.name == "Bob"
-        assert result.age == 25

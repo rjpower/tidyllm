@@ -15,14 +15,12 @@ import litellm
 from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
 from rich.console import Console
-from rich.progress import track
+# Import removed - using LINQ with_progress instead
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.cache import cached_function
 from tidyllm.context import get_tool_context
-from tidyllm.linq import Table
-
-# ConcreteTable is now an alias for Table
+from tidyllm.linq import Table, from_iterable
 from tidyllm.registry import register
 from tidyllm.tools.anki import (
     AddVocabCardRequest,
@@ -141,6 +139,63 @@ class VocabularyItem(BaseModel):
 class VocabularyExtractionResponse(BaseModel):
     """Response model for vocabulary extraction from text."""
     items: list[VocabularyItem]
+
+
+
+
+def _parse_csv_row(row: dict, deck_name: str, row_index: int) -> AddCardRequest:
+    """Parse a single CSV row into AddCardRequest."""
+    term_en = row.get("term_en", "").strip()
+    term_ja = row.get("term_ja", "").strip()
+    reading_ja = row.get("reading_ja", "").strip()
+    sentence_en = row.get("sentence_en", "").strip()
+    sentence_ja = row.get("sentence_ja", "").strip()
+
+    # At least one term (English or Japanese) must be provided
+    if not term_en and not term_ja:
+        raise ValueError(f"Row {row_index}: Missing required term (either term_en or term_ja)")
+
+    return AddCardRequest(
+        term_en=term_en,
+        term_ja=term_ja,
+        reading_ja=reading_ja,
+        sentence_en=sentence_en,
+        sentence_ja=sentence_ja,
+        deck_name=deck_name,
+    )
+
+
+def _vocab_item_to_card_request(item: VocabularyItem, source_language: str, target_language: str, deck_name: str) -> AddCardRequest:
+    """Convert VocabularyItem to AddCardRequest."""
+    if source_language == "ja" and target_language == "en":
+        term_ja = item.word
+        term_en = item.translation
+        reading_ja = item.reading
+    else:
+        term_en = item.word
+        term_ja = item.translation
+        reading_ja = item.reading
+
+    return AddCardRequest(
+        term_en=term_en,
+        term_ja=term_ja,
+        reading_ja=reading_ja,
+        deck_name=deck_name,
+    )
+
+
+def _process_card_pipeline(request: AddCardRequest, output_dir: Path, index: int) -> dict:
+    """Process a single card through the complete pipeline."""
+    try:
+        # Use the existing pipeline: infer missing fields -> process card
+        complete_request = _infer_missing_fields(request)
+        vocab_card = _process_single_card(complete_request, output_dir, index)
+        return {'success': True, 'card': vocab_card}
+    except Exception as e:
+        return {
+            'success': False,
+            'error': f"Card '{request.term_en or request.term_ja}': {str(e)}"
+        }
 
 
 def _generate_audio_files(
@@ -323,39 +378,19 @@ def add_from_csv(
 
     console.print(f"[bold blue]Processing CSV file:[/bold blue] {csv_path}")
 
-    # Read CSV file and convert to AddCardRequest objects
-    card_requests = []
-    failed_cards = []
-
+    # Read CSV file and parse using enhanced LINQ operations
     with open(csv_path, encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for i, row in enumerate(reader):
-            try:
-                term_en = row.get("term_en", "").strip()
-                term_ja = row.get("term_ja", "").strip()
-                reading_ja = row.get("reading_ja", "").strip()
-                sentence_en = row.get("sentence_en", "").strip()
-                sentence_ja = row.get("sentence_ja", "").strip()
-
-                # At least one term (English or Japanese) must be provided
-                if not term_en and not term_ja:
-                    failed_cards.append(
-                        f"Row {i+1}: Missing required term (either term_en or term_ja)"
-                    )
-                    continue
-
-                card_requests.append(
-                    AddCardRequest(
-                        term_en=term_en,
-                        term_ja=term_ja,
-                        reading_ja=reading_ja,
-                        sentence_en=sentence_en,
-                        sentence_ja=sentence_ja,
-                        deck_name=deck_name,
-                    )
-                )
-            except Exception as e:
-                failed_cards.append(f"Row {i+1}: {str(e)}")
+        csv_rows = list(csv.DictReader(f))
+    
+    # Parse all rows with error handling using LINQ
+    parse_results = (from_iterable(enumerate(csv_rows, 1))
+        .try_select(lambda item: _parse_csv_row(item[1], deck_name, item[0])))
+    
+    # Partition results into successful and failed using LINQ
+    successful_results, failed_results = parse_results.partition(lambda r: not isinstance(r, Exception))
+    
+    card_requests = list(successful_results)
+    failed_cards = [str(exception) for exception in failed_results]
 
     console.print(f"[green]Found {len(card_requests)} valid cards to process[/green]")
 
@@ -461,26 +496,10 @@ Return a JSON object with vocabulary items:
         f"[green]Extracted {len(extraction_result.items)} vocabulary words[/green]"
     )
 
-    # Convert vocabulary items to Table[AddCardRequest]
-    card_requests = []
-    for item in extraction_result.items:
-        if source_language == "ja" and target_language == "en":
-            term_ja = item.word
-            term_en = item.translation
-            reading_ja = item.reading
-        else:
-            term_en = item.word
-            term_ja = item.translation
-            reading_ja = item.reading
-
-        card_requests.append(
-            AddCardRequest(
-                term_en=term_en,
-                term_ja=term_ja,
-                reading_ja=reading_ja,
-                deck_name=deck_name,
-            )
-        )
+    # Convert vocabulary items to Table[AddCardRequest] using LINQ
+    card_requests = (from_iterable(extraction_result.items)
+        .select(lambda item: _vocab_item_to_card_request(item, source_language, target_language, deck_name))
+        .to_list())
 
     review_and_add(
         Table.from_pydantic(card_requests),
@@ -540,23 +559,24 @@ def review_and_add(
     else:
         output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Process selected requests using the pipeline: infer missing fields -> create cards
+    # Process selected requests using enhanced LINQ pipeline
+    card_processing_results = (from_iterable(enumerate(selected_requests))
+        .with_progress("Processing selected cards")
+        .try_select(lambda item: _process_card_pipeline(item[1], output_dir, item[0])))
+    
+    # Partition results into successful and failed
+    successful_results, failed_results = card_processing_results.partition(
+        lambda result: not isinstance(result, Exception)
+    )
+    
+    # Extract processed cards from successful results
     processed_cards = []
-    failed_cards = []
-
-    for i, request in enumerate(
-        track(selected_requests, description="Processing selected cards")
-    ):
-        try:
-            # Use the existing pipeline: infer missing fields -> process card
-            complete_request = _infer_missing_fields(request)
-            vocab_card = _process_single_card(complete_request, output_dir, i)
-            processed_cards.append(vocab_card)
-
-        except Exception as e:
-            failed_cards.append(
-                f"Card '{request.term_en or request.term_ja}': {str(e)}"
-            )
+    for result in successful_results:
+        if isinstance(result, dict) and result.get('success') and 'card' in result:
+            processed_cards.append(result['card'])
+    
+    # Extract error messages from failed results
+    failed_cards = [f"Processing error: {str(exception)}" for exception in failed_results]
 
     # Create batch deck with all processed cards
     console.print(f"[yellow]Creating deck with {len(processed_cards)} cards...[/yellow]")

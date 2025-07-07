@@ -9,19 +9,17 @@ words to the vocabulary database.
 import csv
 import json
 import tempfile
+import traceback
 from pathlib import Path
 
 from pydantic import BaseModel
 from rich.console import Console
-from rich.progress import track
 
 from tidyllm.adapters.cli import cli_main
-
-# ConcreteTable is now an alias for Table
 from tidyllm.duration import Duration
-from tidyllm.linq import Table
+from tidyllm.linq import Enumerable, Table, from_iterable
 from tidyllm.registry import register
-from tidyllm.serialization import to_json_value
+from tidyllm.serialization import to_json_dict
 from tidyllm.tools.audio import audio_file, chunk_by_vad_stream, chunk_to_wav_bytes
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.transcribe import (
@@ -33,13 +31,6 @@ from tidyllm.tools.vocab_table import vocab_add, vocab_search
 from tidyllm.ui.selection import select_ui
 
 console = Console()
-
-
-class VocabWord(BaseModel):
-    """A vocabulary word with translation."""
-
-    word: str
-    translation: str
 
 
 class SegmentTranscription(BaseModel):
@@ -100,11 +91,9 @@ def transcribe_audio(
         audio_stream, min_speech_duration=Duration.from_ms(10000)
     )
 
-    # Step 2: Transcribe each segment
-    all_transcriptions = []
-    all_words = []
-
-    for segment in track(segments, description="Transcribing segments"):
+    # Step 2: Transcribe each segment using LINQ with progress tracking
+    def transcribe_segment_with_index(indexed_segment):
+        index, segment = indexed_segment
         print(segment.timestamp)
         # Convert AudioChunk to WAV bytes (no temporary files!)
         wav_bytes = chunk_to_wav_bytes(segment)
@@ -117,13 +106,38 @@ def transcribe_audio(
             target_language=target_language,
         )
         segment_transcription = SegmentTranscription(
-            segment_index=len(all_transcriptions),
+            segment_index=index,
             start_time=segment.timestamp.as_sec(),
             result=transcription_result,
         )
+        return segment_transcription
 
-        all_transcriptions.append(segment_transcription)
-        all_words.extend(transcription_result.words)
+    # Process segments with enhanced LINQ pipeline
+    segment_processing_results = (
+        from_iterable(enumerate(segments))
+        .with_progress("Transcribing segments")
+        .try_select(transcribe_segment_with_index)
+    )
+
+    # Partition results into successful and failed transcriptions
+    successful_transcriptions, failed_transcriptions = (
+        segment_processing_results.partition(
+            lambda result: not isinstance(result, Exception)
+        )
+    )
+
+    all_transcriptions = list(successful_transcriptions)
+    # Extract all words using LINQ select_many for flattening
+    all_words = (
+        from_iterable(all_transcriptions)
+        .select_many(lambda transcription: transcription.result.words)
+        .to_list()
+    )
+
+    # Report any transcription failures
+    for failure in failed_transcriptions:
+        traceback.print_exception(failure)
+        console.print(f"Failed to transcribe {failure}")
 
     console.print(f"[green]Transcribed {len(all_transcriptions)} segments[/green]")
     console.print(f"[green]Extracted {len(all_words)} vocabulary words[/green]")
@@ -170,111 +184,32 @@ def diff_vocab(
     with open(transcription_file) as f:
         data = json.load(f)
 
-    # Extract all words
-    all_words = []
-    for transcription in data["transcriptions"]:
-        for word in transcription["result"]["words"]:
-            if word["word_native"] and word["word_translated"]:
-                all_words.append(
-                    TranscribedWord(
-                        word_native=word["word_native"],
-                        word_translated=word["word_translated"],
-                    )
-                )
-
-    # Check against existing vocabulary
-    new_vocab_words = []
-    existing_count = 0
-
-    for word in track(all_words, description="Checking vocabulary"):
-        search_result = vocab_search(word=word.word_native, limit=1)
-        if len(search_result) == 0:
-            new_vocab_words.append(
-                VocabWord(word=word.word_native, translation=word.word_translated)
+    # Extract all words using LINQ select_many for flattening
+    new_words, existing_words = (
+        from_iterable(data["transcriptions"])
+        .select_many(lambda transcription: transcription["result"]["words"])
+        .where(lambda word: word["word_native"] and word["word_translated"])
+        .select(
+            lambda word: TranscribedWord(
+                word_native=word["word_native"],
+                word_translated=word["word_translated"],
             )
-        else:
-            existing_count += 1
+        )
+        .partition(lambda word: len(vocab_search(word=word.word_native, limit=1)) == 0)
+    )
 
-    console.print(f"[green]Found {len(new_vocab_words)} new words[/green]")
+    existing_count = sum(1 for _ in existing_words)
+    new_words = list(new_words)
+
+    console.print(f"[green]Found {len(new_words)} new words[/green]")
     console.print(f"[yellow]{existing_count} words already in database[/yellow]")
-
-    # Create ConcreteTable
-    new_words_table = Table.from_pydantic(new_vocab_words)
 
     if output:
         with open(output, "w") as f:
-            json.dump(to_json_value(new_words_table), f, indent=2, ensure_ascii=False)
+            json.dump(to_json_dict(new_words), f, indent=2, ensure_ascii=False)
         console.print(f"[green]New words saved to:[/green] {output}")
 
-    return new_words_table
-
-
-@register()
-def review_vocab(
-    new_words_table: Table,
-    auto_add: bool = False,
-):
-    """Interactive review and selection of vocabulary to add.
-
-    Args:
-        new_words_table: Table containing new vocabulary words
-        auto_add: Automatically add all words without review
-
-    Returns:
-        ReviewVocabResult containing counts
-
-    Example: review_vocab(vocab_table, auto_add=False)
-    """
-    console.print("[bold blue]Reviewing vocabulary for addition...[/bold blue]")
-
-    if len(new_words_table) == 0:
-        console.print("[yellow]No new words to review[/yellow]")
-        return
-
-    if auto_add:
-        # Add all words automatically
-        added_count = 0
-        for vocab_word in track(new_words_table, description="Adding words"):
-            try:
-                vocab_add(
-                    word=vocab_word.word,
-                    translation=vocab_word.translation,
-                    tags=["transcribed"],
-                )
-                added_count += 1
-            except Exception:
-                pass  # Skip failed additions
-
-        console.print(f"[green]Added {added_count} words to vocabulary[/green]")
-
-    # Interactive review using select_ui
-    selected_words = select_ui(
-        new_words_table,
-        title="New Vocabulary Words - Select words to add",
-        display_columns=["word", "translation"],
-    )
-
-    if len(selected_words) == 0:
-        console.print("[yellow]No words selected[/yellow]")
-        return
-
-    # Add selected words
-    added_count = 0
-    for vocab_word in selected_words:
-        try:
-            vocab_add(
-                word=vocab_word.word,
-                translation=vocab_word.translation,
-                tags=["transcribed"],
-            )
-            added_count += 1
-            console.print(
-                f"[green]Added:[/green] {vocab_word.word} -> {vocab_word.translation}"
-            )
-        except Exception:
-            console.print(f"[red]Failed to add:[/red] {vocab_word.word}")
-
-    console.print(f"\n[green]Added {added_count} words to vocabulary[/green]")
+    return Table.from_pydantic(new_words)
 
 
 class ExportCsvResult(BaseModel):
@@ -286,7 +221,7 @@ class ExportCsvResult(BaseModel):
 
 @register()
 def export_csv(
-    new_words_table: Table,
+    new_words_table: Enumerable[TranscribedWord],
     output_csv: Path,
 ) -> ExportCsvResult:
     """Export new vocabulary words to CSV.
@@ -311,8 +246,8 @@ def export_csv(
         for vocab_word in new_words_table:
             writer.writerow(
                 {
-                    "word": vocab_word.word,
-                    "translation": vocab_word.translation,
+                    "word": vocab_word.word_native,
+                    "translation": vocab_word.word_translated,
                     "source_language": "auto-detected",
                     "target_language": "en",
                 }
@@ -339,7 +274,7 @@ def full_pipeline(
         source_language: Source language
         target_language: Target language
         output_dir: Output directory for intermediate files
-        auto_add: Automatically add all new words
+        auto_add: Automatically add all new words without review
 
     Returns:
         FullPipelineResult containing pipeline statistics
@@ -386,12 +321,24 @@ def full_pipeline(
         output_csv=csv_file,
     )
 
-    # Step 4: Review and add vocabulary
+    # Step 4: Add vocabulary to database
     console.print("\n[bold]Step 4: Adding vocabulary to database[/bold]")
-    review_vocab(
-        new_words_table=new_words_table,
-        auto_add=auto_add,
-    )
+    if auto_add:
+        selected_words = new_words_table
+    else:
+        selected_words = select_ui(
+            new_words_table,
+            title="New Vocabulary Words - Select words to add",
+        )
+
+    selected_words = selected_words.to_table()
+
+    for vocab_word in selected_words.with_progress():
+        vocab_add(
+            word=vocab_word.word,
+            translation=vocab_word.translation,
+            tags=["transcribed"],
+        )
 
     console.print("\n[bold green]Pipeline complete![/bold green]")
     console.print(f"[green]Results saved in:[/green] {output_dir}")
@@ -399,12 +346,17 @@ def full_pipeline(
     return FullPipelineResult(
         total_segments=transcribe_result.total_segments,
         total_words=transcribe_result.total_words,
-        new_words=len(new_words_table),
+        new_words=len(selected_words),
     )
 
 
 if __name__ == "__main__":
-    functions = [transcribe_audio, diff_vocab, review_vocab, export_csv, full_pipeline]
+    functions = [
+        transcribe_audio,
+        diff_vocab,
+        export_csv,
+        full_pipeline,
+    ]
     cli_main(
         functions,
         context_cls=ToolContext,

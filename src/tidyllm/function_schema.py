@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from types import UnionType
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
-from pydantic import BaseModel, create_model
+from pydantic import Base64Bytes, BaseModel, create_model
 from typing_extensions import TypedDict
 
 from tidyllm.docstring import (
@@ -14,32 +14,19 @@ from tidyllm.docstring import (
 )
 
 
-def _process_union_type(param_type: Any) -> Any:
-    """Process union types to handle registered type transformations.
-
-    For union types like T | None, applies registered transformations to T
-    and returns the transformed union type.
-
-    Args:
-        param_type: The type to process
-
-    Returns:
-        Processed type with transformations applied
-    """
+def _transform_argument_type(param_type: Any) -> Any:
+    """Convert `param_type` to a serializable form as needed, handling cases like bytes -> Base64 and Unions."""
     origin = get_origin(param_type)
 
-    # Handle union types (e.g., T | None or Union[T, None])
     if origin is Union or origin is UnionType:
         args = get_args(param_type)
         transformed_args = []
 
         for arg in args:
-            # For now, we don't transform union args - this can be extended later
-            # if we need to register transformations for union types
-            transformed_args.append(arg)
+            transformed_args.append(_transform_argument_type(arg))
         return Union[tuple(transformed_args)]  # noqa: UP007
-
-    # Not a union type, return as-is
+    elif param_type is bytes:
+        return Base64Bytes
     return param_type
 
 
@@ -123,7 +110,7 @@ class FunctionDescription:
 
         # Generate Pydantic model for argument validation
         self.args_model = self._create_args_model(func)
-        
+
         # Pydantic handles schema generation robustly
         self.args_json_schema = self.args_model.model_json_schema()
 
@@ -162,20 +149,16 @@ class FunctionDescription:
 
         for param_name, param in all_params.items():
             param_type = hints.get(param_name, Any)
-
-            # Process type through registry, handling union types
-            param_type = _process_union_type(param_type)
+            param_type = _transform_argument_type(param_type)
 
             if param.default is not inspect.Parameter.empty:
-                # Parameter has default value
                 field_definitions[param_name] = (param_type, param.default)
             else:
-                # Required parameter
                 field_definitions[param_name] = (param_type, ...)
 
         # Create the dynamic model with arbitrary types allowed
         model_name = f"{self.name.title()}Args"
-        
+
         # Create model config that handles complex types properly
         from pydantic import ConfigDict
         config = ConfigDict(
@@ -184,7 +167,7 @@ class FunctionDescription:
                 "additionalProperties": False
             }
         )
-        
+
         return create_model(model_name, __config__=config, **field_definitions)
 
     def arg_model_from_args(
@@ -284,7 +267,3 @@ class FunctionDescription:
             return await self.function(*args, **kwargs)
         else:
             return self.function(*args, **kwargs)
-
-
-# Note: bytes serialization is handled by the default registration in serialization.py
-# We don't override it here to avoid conflicts

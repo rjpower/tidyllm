@@ -435,23 +435,3 @@ def test_message_serialization_for_litellm():
 
     print("✓ Message serialization for LiteLLM test passed")
 
-
-# MockLLMClient test removed as suggested - too complex for basic functionality
-
-
-if __name__ == "__main__":
-    test_message_structure()
-    print("✓ Message structure test passed")
-
-    test_conversation_workflow()
-    print("✓ Conversation workflow test passed")
-
-    test_ask_with_conversation()
-    print("✓ Ask with conversation test passed")
-
-    test_logging_captures_complete_conversation()
-    print("✓ Logging captures complete conversation test passed")
-
-    test_message_serialization_for_litellm()
-
-    print("\nAll tests passed!")

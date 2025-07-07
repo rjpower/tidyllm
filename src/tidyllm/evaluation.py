@@ -12,7 +12,7 @@ from typing import Any, ParamSpec, TypeVar, cast, overload
 import click
 
 from tidyllm.agent import LLMAgent
-from tidyllm.llm import AssistantMessage, LLMResponse, Role, create_llm_client
+from tidyllm.llm import AssistantMessage, LiteLLMClient, LLMClient, LLMResponse, Role
 from tidyllm.registry import Registry
 
 P = ParamSpec("P")
@@ -235,7 +235,7 @@ class EvaluationRunner:
         test_name = getattr(test_func, "__name__", str(test_func))
 
         try:
-            llm_client = create_llm_client("litellm")
+            llm_client = LiteLLMClient()
 
             llm_agent = LLMAgent(
                 model=model,
