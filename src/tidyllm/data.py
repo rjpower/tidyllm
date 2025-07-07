@@ -7,7 +7,7 @@ Defines core data structures and interfaces for tidyllm functions.
 import base64
 import inspect
 import warnings
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal
@@ -232,6 +232,44 @@ class ConcreteTable(Generic[T]):
         for row in self.rows:
             result.append(to_json_value(row))
         return result
+
+    def map(self, func: Callable) -> "ConcreteTable":
+        """Apply a function to each row and return a new table.
+
+        Args:
+            func: Function that takes a row and returns a transformed row
+
+        Returns:
+            New ConcreteTable with transformed rows
+        """
+        if len(self.rows) == 0:
+            return ConcreteTable.empty()
+
+        new_rows = [func(row) for row in self.rows]
+
+        # If all rows are the same type, infer columns from the first row
+        if new_rows and all(type(row) == type(new_rows[0]) for row in new_rows):
+            if hasattr(new_rows[0], "model_fields"):
+                # Pydantic model
+                fields = {
+                    k: v.annotation for (k, v) in type(new_rows[0]).model_fields.items()
+                }
+                return ConcreteTable.from_dict(fields, new_rows)
+
+        # For other cases, try to preserve existing column structure or create generic
+        return ConcreteTable(columns=self.columns, rows=new_rows)
+
+    def filter(self, predicate: Callable) -> "ConcreteTable":
+        """Filter rows based on a predicate function.
+
+        Args:
+            predicate: Function that takes a row and returns True/False
+
+        Returns:
+            New ConcreteTable with filtered rows
+        """
+        filtered_rows = [row for row in self.rows if predicate(row)]
+        return ConcreteTable(columns=self.columns, rows=filtered_rows)
 
 
 class Sequence(Protocol[T]):

@@ -16,20 +16,21 @@ from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
 from rich.console import Console
 from rich.progress import track
-from rich.table import Table
+from rich.table import Table as RichTable
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.cache import cached_function
 from tidyllm.context import get_tool_context
+from tidyllm.data import ConcreteTable, Table
 from tidyllm.registry import register
 from tidyllm.tools.anki import (
     AddVocabCardRequest,
-    AddVocabCardsRequest,
     AnkiCreateResult,
     anki_add_vocab_cards,
 )
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.tts import generate_speech
+from tidyllm.ui.selection import select_ui
 
 console = Console()
 
@@ -143,8 +144,7 @@ class VocabularyExtractionResponse(BaseModel):
 
 
 def _generate_audio_files(
-    term_en: str, term_ja: str, sentence_en: str, sentence_ja: str, 
-    output_dir: Path, index: int
+    term_en: str, term_ja: str, output_dir: Path, index: int
 ) -> tuple[Path, Path]:
     """Generate TTS audio files for English and Japanese content.
     
@@ -161,13 +161,13 @@ def _generate_audio_files(
     """
     # Generate English audio
     audio_en_path = output_dir / f"{term_en.replace(' ', '_')}_{index}_en.mp3"
-    en_result = generate_speech(content=sentence_en, language="English")
+    en_result = generate_speech(content=term_en, language="English")
     with open(audio_en_path, "wb") as f:
         f.write(en_result.audio_bytes)
 
     # Generate Japanese audio
     audio_ja_path = output_dir / f"{term_ja.replace(' ', '_')}_{index}_ja.mp3"
-    ja_result = generate_speech(content=sentence_ja, language="Japanese")
+    ja_result = generate_speech(content=term_ja, language="Japanese")
     with open(audio_ja_path, "wb") as f:
         f.write(ja_result.audio_bytes)
 
@@ -175,29 +175,18 @@ def _generate_audio_files(
 
 
 def _process_single_card(request: AddCardRequest, output_dir: Path, index: int) -> AddVocabCardRequest:
-    """Process a single card request into a complete AddVocabCardRequest.
-    
-    Args:
-        request: Basic card request with potentially missing fields
-        output_dir: Directory for generated audio files
-        index: Index for unique filenames
-    
-    Returns:
-        Complete AddVocabCardRequest ready for deck creation
-    """
+    """Process a single card request into a complete AddVocabCardRequest."""
     # Infer missing fields using LLM
     complete_request = _infer_missing_fields(request)
-    
+
     # Generate TTS audio files
     audio_en_path, audio_ja_path = _generate_audio_files(
         complete_request.term_en,
-        complete_request.term_ja, 
-        complete_request.sentence_en,
-        complete_request.sentence_ja,
-        output_dir,
-        index
+        complete_request.term_ja,
+        output_dir=output_dir,
+        index=index,
     )
-    
+
     # Create vocab card request
     return AddVocabCardRequest(
         term_en=complete_request.term_en,
@@ -210,33 +199,12 @@ def _process_single_card(request: AddCardRequest, output_dir: Path, index: int) 
     )
 
 
-def _create_batch_deck(cards: list[AddVocabCardRequest], deck_name: str) -> AnkiCreateResult:
-    """Create an Anki deck with multiple cards.
-    
-    Args:
-        cards: List of vocabulary cards to add
-        deck_name: Name of the deck
-    
-    Returns:
-        AnkiCreateResult with creation details
-    """
-    if not cards:
-        return AnkiCreateResult(
-            deck_path=Path(tempfile.gettempdir()) / f"{deck_name.replace(' ', '_')}_vocab.apkg",
-            cards_created=0,
-            message="No cards to create"
-        )
-    
-    vocab_request = AddVocabCardsRequest(cards=cards, deck_name=deck_name)
-    return anki_add_vocab_cards(vocab_request)
-
-
 @register()
 def add_card(
     term_en: str = "",
     term_ja: str = "",
     deck_name: str = "Japanese Vocabulary",
-) -> AddCardResult:
+):
     """Add a vocabulary card with auto-generated content.
 
     All fields except the source term are automatically inferred using LLM.
@@ -247,7 +215,7 @@ def add_card(
         deck_name: Name of the Anki deck
 
     Returns:
-        AddCardResult with creation details
+        None
 
     Example: add_card(term_ja="こんにちは")
     Example: add_card(term_en="hello", deck_name="English::Basic")
@@ -321,28 +289,18 @@ def add_card(
         audio_ja=audio_ja_path,
     )
 
-    vocab_request = AddVocabCardsRequest(
-        cards=[vocab_card],
-        deck_name=complete_request.deck_name,
-    )
-
-    result = anki_add_vocab_cards(vocab_request)
+    result = anki_add_vocab_cards(complete_request.deck_name, [vocab_card])
 
     console.print("[green]Card created successfully![/green]")
     console.print(f"[green]Deck file:[/green] {result.deck_path}")
-
-    return AddCardResult(
-        card_created=True,
-        deck_path=result.deck_path,
-        message=result.message
-    )
 
 
 @register()
 def add_from_csv(
     csv_path: Path,
     deck_name: str = "Japanese Vocabulary",
-) -> BatchAddResult:
+    interactive: bool = True,
+):
     """Add vocabulary cards from CSV file.
 
     Expected CSV format (only one term per row required, others are optional):
@@ -355,9 +313,10 @@ def add_from_csv(
     Args:
         csv_path: Path to CSV file
         deck_name: Name of the Anki deck
+        interactive: Whether to show interactive selection (default: True)
 
     Returns:
-        BatchAddResult with creation statistics
+        None
 
     Example: add_from_csv(Path("vocab.csv"), "Japanese::N5")
     """
@@ -366,69 +325,56 @@ def add_from_csv(
 
     console.print(f"[bold blue]Processing CSV file:[/bold blue] {csv_path}")
 
-    # Setup output directory
-    output_dir = Path(tempfile.mkdtemp(prefix="add_card_batch_"))
-
-    # Read CSV file
-    cards_data = []
-    with open(csv_path, encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            cards_data.append({
-                'term_en': row.get('term_en', '').strip(),
-                'term_ja': row.get('term_ja', '').strip(),
-                'reading_ja': row.get('reading_ja', '').strip(),
-                'sentence_en': row.get('sentence_en', '').strip(),
-                'sentence_ja': row.get('sentence_ja', '').strip(),
-            })
-
-    console.print(f"[green]Found {len(cards_data)} cards to process[/green]")
-
-    # Process each card and collect them for batch creation
-    processed_cards = []
+    # Read CSV file and convert to AddCardRequest objects
+    card_requests = []
     failed_cards = []
 
-    for i, card_data in enumerate(track(cards_data, description="Processing cards")):
-        try:
-            # At least one term (English or Japanese) must be provided
-            if not card_data['term_en'] and not card_data['term_ja']:
-                failed_cards.append(f"Row {i+1}: Missing required term (either term_en or term_ja)")
-                continue
+    with open(csv_path, encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for i, row in enumerate(reader):
+            try:
+                term_en = row.get("term_en", "").strip()
+                term_ja = row.get("term_ja", "").strip()
+                reading_ja = row.get("reading_ja", "").strip()
+                sentence_en = row.get("sentence_en", "").strip()
+                sentence_ja = row.get("sentence_ja", "").strip()
 
-            # Create request with provided terms
-            request = AddCardRequest(
-                term_en=card_data["term_en"],
-                term_ja=card_data["term_ja"],
-                deck_name=deck_name,
-            )
+                # At least one term (English or Japanese) must be provided
+                if not term_en and not term_ja:
+                    failed_cards.append(
+                        f"Row {i+1}: Missing required term (either term_en or term_ja)"
+                    )
+                    continue
 
-            # Process the card using helper function
-            vocab_card = _process_single_card(request, output_dir, i)
-            processed_cards.append(vocab_card)
+                card_requests.append(
+                    AddCardRequest(
+                        term_en=term_en,
+                        term_ja=term_ja,
+                        reading_ja=reading_ja,
+                        sentence_en=sentence_en,
+                        sentence_ja=sentence_ja,
+                        deck_name=deck_name,
+                    )
+                )
+            except Exception as e:
+                failed_cards.append(f"Row {i+1}: {str(e)}")
 
-        except Exception as e:
-            failed_cards.append(f"Row {i+1} ({card_data.get('term_en', card_data.get('term_ja', 'unknown'))}): {str(e)}")
-
-    # Create batch deck with all processed cards
-    console.print(f"[yellow]Creating deck with {len(processed_cards)} cards...[/yellow]")
-    result = _create_batch_deck(processed_cards, deck_name)
-    deck_path = result.deck_path
-    cards_created = result.cards_created
-
-    console.print("\n[bold green]Batch processing complete![/bold green]")
-    console.print(f"[green]Cards created: {cards_created}/{len(cards_data)}[/green]")
+    console.print(f"[green]Found {len(card_requests)} valid cards to process[/green]")
 
     if failed_cards:
-        console.print(f"[red]Failed cards: {len(failed_cards)}[/red]")
+        console.print(f"[yellow]Skipped {len(failed_cards)} invalid rows[/yellow]")
         for failure in failed_cards:
-            console.print(f"  [red]- {failure}[/red]")
+            console.print(f"  [yellow]- {failure}[/yellow]")
 
-    return BatchAddResult(
-        cards_created=cards_created,
-        total_cards=len(cards_data),
-        deck_path=deck_path,
-        failed_cards=failed_cards,
-    )
+    if len(card_requests) == 0:
+        console.print("[yellow]No valid card requests to process[/yellow]")
+        return
+
+    # Create Table[AddCardRequest]
+    card_requests_table = ConcreteTable.from_pydantic(card_requests)
+
+    # Always use the unified pipeline
+    review_and_add(card_requests_table, deck_name, interactive=interactive)
 
 
 @register()
@@ -439,7 +385,8 @@ def add_from_text(
     deck_name: str = "Japanese Vocabulary",
     max_words: int = 10,
     output_dir: Path | None = None,
-) -> BatchAddResult:
+    interactive: bool = True,
+):
     """Extract vocabulary from text and create cards.
 
     Args:
@@ -449,20 +396,15 @@ def add_from_text(
         deck_name: Name of the Anki deck
         max_words: Maximum number of words to extract
         output_dir: Output directory for files
+        interactive: Whether to show interactive selection (default: True)
 
     Returns:
-        BatchAddResult with creation statistics
+        None
 
     Example: add_from_text("日本語の文章です", "ja", "en", "Japanese::Reading")
     """
     console.print("[bold blue]Extracting vocabulary from text[/bold blue]")
     console.print(f"[blue]Text:[/blue] {text[:100]}{'...' if len(text) > 100 else ''}")
-
-    # Setup output directory
-    if not output_dir:
-        output_dir = Path(tempfile.mkdtemp(prefix="add_card_text_"))
-    else:
-        output_dir.mkdir(parents=True, exist_ok=True)
 
     # Use LLM to extract vocabulary
     import litellm
@@ -516,137 +458,83 @@ Return a JSON object with vocabulary items:
     extraction_result = VocabularyExtractionResponse.model_validate_json(
         message_content
     )
-    vocab_data = [item.model_dump() for item in extraction_result.items]
 
-    console.print(f"[green]Extracted {len(vocab_data)} vocabulary words[/green]")
+    console.print(
+        f"[green]Extracted {len(extraction_result.items)} vocabulary words[/green]"
+    )
 
-    # Show vocabulary table
-    table = Table(title="Extracted Vocabulary")
-    table.add_column("Word", style="cyan")
-    table.add_column("Translation", style="magenta")
-    table.add_column("Reading", style="green")
+    # Convert vocabulary items to Table[AddCardRequest]
+    card_requests = []
+    for item in extraction_result.items:
+        if source_language == "ja" and target_language == "en":
+            term_ja = item.word
+            term_en = item.translation
+            reading_ja = item.reading
+        else:
+            term_en = item.word
+            term_ja = item.translation
+            reading_ja = item.reading
 
-    for item in vocab_data:
-        table.add_row(
-            item["word"],
-            item["translation"],
-            item["reading"]
-        )
-
-    console.print(table)
-
-    # Process each vocabulary item and collect them for batch creation
-    processed_cards = []
-    failed_cards = []
-
-    for i, item in enumerate(track(vocab_data, description="Processing vocabulary")):
-        try:
-            if source_language == "ja" and target_language == "en":
-                term_ja = item["word"]
-                term_en = item["translation"]
-                reading_ja = item["reading"]
-            else:
-                term_en = item["word"]
-                term_ja = item["translation"]
-                reading_ja = item["reading"]
-
-            # Create request for processing
-            request = AddCardRequest(
+        card_requests.append(
+            AddCardRequest(
                 term_en=term_en,
                 term_ja=term_ja,
                 reading_ja=reading_ja,
                 deck_name=deck_name,
             )
+        )
 
-            # Process the card using helper function
-            vocab_card = _process_single_card(request, output_dir, i)
-            processed_cards.append(vocab_card)
-
-        except Exception as e:
-            failed_cards.append(f"Word '{item['word']}': {str(e)}")
-
-    # Create batch deck with all processed cards
-    console.print(f"[yellow]Creating deck with {len(processed_cards)} cards...[/yellow]")
-    result = _create_batch_deck(processed_cards, deck_name)
-    deck_path = result.deck_path
-    cards_created = result.cards_created
-
-    console.print("\n[bold green]Text processing complete![/bold green]")
-    console.print(f"[green]Cards created: {cards_created}/{len(vocab_data)}[/green]")
-
-    if failed_cards:
-        console.print(f"[red]Failed cards: {len(failed_cards)}[/red]")
-        for failure in failed_cards:
-            console.print(f"  [red]- {failure}[/red]")
-
-    return BatchAddResult(
-        cards_created=cards_created,
-        total_cards=len(vocab_data),
-        deck_path=deck_path,
-        failed_cards=failed_cards,
+    review_and_add(
+        ConcreteTable.from_pydantic(card_requests),
+        deck_name,
+        output_dir,
+        interactive=interactive,
     )
 
 
 @register()
 def review_and_add(
-    terms: list[str],
+    card_requests: Table,
     deck_name: str = "Japanese Vocabulary",
     output_dir: Path | None = None,
-) -> BatchAddResult:
-    """Interactive review and selection of terms before adding cards.
+    interactive: bool = True,
+):
+    """Interactive review and selection of card requests before adding cards.
 
     Args:
-        terms: List of terms to review (format: "english:japanese" or "japanese")
+        card_requests: Table of AddCardRequest objects to review
         deck_name: Name of the Anki deck
         output_dir: Output directory for files
+        interactive: Whether to show interactive selection (default: True)
 
     Returns:
-        BatchAddResult with creation statistics
+        None
 
-    Example: review_and_add(["hello:こんにちは", "thank you:ありがとう"])
+    Example: review_and_add(card_requests_table, "Japanese::N5")
     """
-    console.print(f"[bold blue]Interactive review of {len(terms)} terms[/bold blue]")
+    if len(card_requests) == 0:
+        console.print("[yellow]No card requests to process[/yellow]")
+        return
 
-    # Parse terms
-    parsed_terms = []
-    for term in terms:
-        if ':' in term:
-            en, ja = term.split(':', 1)
-            parsed_terms.append({'term_en': en.strip(), 'term_ja': ja.strip()})
-        else:
-            # Auto-detect and translate
-            parsed_terms.append({'term_en': '', 'term_ja': term.strip()})
-
-    # Show terms table
-    table = Table(title="Terms to Review")
-    table.add_column("Index", style="cyan")
-    table.add_column("English", style="magenta")
-    table.add_column("Japanese", style="green")
-
-    for i, term in enumerate(parsed_terms):
-        table.add_row(
-            str(i),
-            term['term_en'] or '[italic]auto-detect[/italic]',
-            term['term_ja']
+    # Select which cards to process
+    if interactive:
+        # Use select_ui to let user choose which cards to create
+        selected_requests = select_ui(
+            card_requests,
+            title="Card Requests - Select cards to create",
+            display_columns=["term_en", "term_ja", "reading_ja"],
         )
 
-    console.print(table)
+        if len(selected_requests) == 0:
+            console.print("[yellow]No cards selected[/yellow]")
+            return
 
-    # Get user selection
-    console.print("\n[yellow]Enter term indices to add (comma-separated), or 'all' for all terms:[/yellow]")
-    selection = console.input("Selection [all]: ") or "all"
-
-    if selection.lower() == "all":
-        selected_terms = parsed_terms
+        console.print(
+            f"[green]Selected {len(selected_requests)} cards to create[/green]"
+        )
     else:
-        try:
-            indices = [int(x.strip()) for x in selection.split(",")]
-            selected_terms = [parsed_terms[i] for i in indices if 0 <= i < len(parsed_terms)]
-        except ValueError:
-            console.print("[red]Invalid selection format[/red]")
-            return BatchAddResult(cards_created=0, total_cards=0, deck_path=Path(), failed_cards=["Invalid selection"])
-
-    console.print(f"[green]Selected {len(selected_terms)} terms to add[/green]")
+        # Non-interactive: process all cards
+        selected_requests = card_requests
 
     # Setup output directory
     if not output_dir:
@@ -654,73 +542,37 @@ def review_and_add(
     else:
         output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Process selected terms for batch creation
+    # Process selected requests using the pipeline: infer missing fields -> create cards
     processed_cards = []
     failed_cards = []
 
-    for i, term in enumerate(track(selected_terms, description="Processing cards")):
+    for i, request in enumerate(
+        track(selected_requests, description="Processing selected cards")
+    ):
         try:
-            # Auto-detect missing translations if needed
-            if not term['term_en']:
-                # Use LLM to translate
-                import litellm
-
-                from tidyllm.context import get_tool_context
-
-                ctx = get_tool_context()
-                response = cast(
-                    ModelResponse,
-                    litellm.completion(
-                        model=ctx.config.fast_model,
-                        messages=[
-                            {
-                                "role": "user",
-                                "content": f"Translate '{term['term_ja']}' to English. Return only the translation.",
-                            }
-                        ],
-                    ),
-                )
-                if response.choices:
-                    message_content = cast(litellm.Choices, response.choices)[0].message.content
-                    assert message_content is not None, "Response content is None"
-                    term["term_en"] = message_content.strip()
-                else:
-                    term['term_en'] = "translation_needed"
-
-            # Create request for processing
-            request = AddCardRequest(
-                term_en=term["term_en"],
-                term_ja=term["term_ja"],
-                deck_name=deck_name,
-            )
-
-            # Process the card using helper function
-            vocab_card = _process_single_card(request, output_dir, i)
+            # Use the existing pipeline: infer missing fields -> process card
+            complete_request = _infer_missing_fields(request)
+            vocab_card = _process_single_card(complete_request, output_dir, i)
             processed_cards.append(vocab_card)
 
         except Exception as e:
-            failed_cards.append(f"Term '{term['term_ja']}': {str(e)}")
+            failed_cards.append(
+                f"Card '{request.term_en or request.term_ja}': {str(e)}"
+            )
 
     # Create batch deck with all processed cards
     console.print(f"[yellow]Creating deck with {len(processed_cards)} cards...[/yellow]")
-    result = _create_batch_deck(processed_cards, deck_name)
-    deck_path = result.deck_path
+    result = anki_add_vocab_cards(deck_name, processed_cards)
     cards_created = result.cards_created
 
-    console.print("\n[bold green]Review complete![/bold green]")
-    console.print(f"[green]Cards created: {cards_created}/{len(selected_terms)}[/green]")
+    console.print(
+        f"[green]Cards created: {cards_created}/{len(selected_requests)}[/green]"
+    )
 
     if failed_cards:
         console.print(f"[red]Failed cards: {len(failed_cards)}[/red]")
         for failure in failed_cards:
             console.print(f"  [red]- {failure}[/red]")
-
-    return BatchAddResult(
-        cards_created=cards_created,
-        total_cards=len(selected_terms),
-        deck_path=deck_path,
-        failed_cards=failed_cards,
-    )
 
 
 if __name__ == "__main__":

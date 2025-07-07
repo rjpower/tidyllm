@@ -272,14 +272,21 @@ Return only a JSON object with this format:
 
 
 @register()
-def anki_add_vocab_cards(req: AddVocabCardsRequest) -> AnkiCreateResult:
+def anki_add_vocab_cards(
+    deck_name: str,
+    cards: list[AddVocabCardRequest],
+) -> AnkiCreateResult:
     """Create multiple bilingual vocabulary cards with audio and add to Anki deck.
 
-    Example usage: anki_add_vocab_cards(AddVocabCardsRequest(cards=[...], deck_name="My Deck"))
+    Args:
+        deck_name: Name of the Anki deck
+        cards: List of vocabulary cards to add
+
+    Example usage: anki_add_vocab_cards("My Deck", [card1, card2, ...])
     """
     # Generate deck ID from name
-    deck_id = abs(hash(req.deck_name)) % (10**10)
-    deck = genanki.Deck(deck_id, req.deck_name)
+    deck_id = abs(hash(deck_name)) % (10**10)
+    deck = genanki.Deck(deck_id, deck_name)
 
     # Create temporary directory for media files
     temp_dir = tempfile.TemporaryDirectory()
@@ -299,7 +306,7 @@ def anki_add_vocab_cards(req: AddVocabCardsRequest) -> AnkiCreateResult:
         return f"[sound:{audio_filename}]"
 
     # Process each card
-    for card in req.cards:
+    for card in cards:
         # Handle audio files
         term_audio_field = _add_audio(card.audio_ja, card.term_ja)
         meaning_audio_field = _add_audio(card.audio_en, card.term_en)
@@ -321,7 +328,7 @@ def anki_add_vocab_cards(req: AddVocabCardsRequest) -> AnkiCreateResult:
 
     # Determine output path in temp directory
     output_temp_dir = Path(tempfile.gettempdir())
-    output_path = output_temp_dir / f"{req.deck_name.replace(' ', '_')}_vocab.apkg"
+    output_path = output_temp_dir / f"{deck_name.replace(' ', '_')}_vocab.apkg"
 
     # Create package with media files
     package = genanki.Package(deck)
@@ -333,8 +340,8 @@ def anki_add_vocab_cards(req: AddVocabCardsRequest) -> AnkiCreateResult:
 
         return AnkiCreateResult(
             deck_path=output_path,
-            cards_created=len(req.cards),
-            message=f"Created {len(req.cards)} bilingual vocab cards in deck '{req.deck_name}'",
+            cards_created=len(cards),
+            message=f"Created {len(cards)} bilingual vocab cards in deck '{deck_name}'",
         )
     finally:
         # Clean up temporary directory
