@@ -82,6 +82,8 @@ def add_cli_options(cli_func: click.Command, func_desc: FunctionDescription) -> 
 
 def output_result(result: Any, format: str) -> None:
     """Output result in specified format."""
+    if result is None:
+        return
     if format == "json":
         result = to_json_value(result)
         click.echo(json.dumps(result, indent=2))

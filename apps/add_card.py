@@ -272,9 +272,7 @@ def add_card(
     with open(audio_ja_path, "wb") as f:
         f.write(ja_result.audio_bytes)
 
-    console.print("[green]Generated audio files:[/green]")
-    console.print(f"  EN: {audio_en_path}")
-    console.print(f"  JA: {audio_ja_path}")
+    console.print(f"Generated audio files: EN: {audio_en_path}, JA: {audio_ja_path}")
 
     # Create the vocab card
     console.print("[yellow]Creating Anki card...[/yellow]")
@@ -289,10 +287,10 @@ def add_card(
         audio_ja=audio_ja_path,
     )
 
-    result = anki_add_vocab_cards(complete_request.deck_name, [vocab_card])
+    result = anki_add_vocab_cards(deck_name, [vocab_card])
 
-    console.print("[green]Card created successfully![/green]")
-    console.print(f"[green]Deck file:[/green] {result.deck_path}")
+    print("Card created successfully!")
+    print(f"Deck file: {result.deck_path}")
 
 
 @register()

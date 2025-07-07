@@ -1,6 +1,7 @@
 """Integration tests for add_card app."""
 
 import json
+import os
 import subprocess
 import zipfile
 from pathlib import Path
@@ -8,22 +9,18 @@ from pathlib import Path
 import pytest
 
 
-def extract_json_from_output(stdout: str) -> dict:
-    """Extract JSON from command output that may contain other text."""
+def extract_deck_path_from_output(stdout: str) -> str:
+    """Extract deck path from command output."""
     stdout = stdout.strip()
-
-    # Find the JSON part (starts with { and ends with })
-    json_start = stdout.rfind('{')
-    if json_start == -1:
-        pytest.fail(f"No JSON found in output: {stdout}")
-
-    json_output = stdout[json_start:]
-
-    try:
-        return json.loads(json_output)
-    except json.JSONDecodeError:
-        pytest.fail(f"Could not parse JSON from output: {json_output}")
-        raise
+    # Look for "Deck file: /path/to/file.apkg" 
+    lines = stdout.split('\n')
+    for line in lines:
+        if 'Deck file:' in line:
+            # Extract path after "Deck file: "
+            path = line.split('Deck file:')[-1].strip()
+            return path.strip()
+    pytest.fail(f"No deck file path found in output: {stdout}")
+    return ""
 
 
 def test_add_card_integration_command():
@@ -36,23 +33,23 @@ def test_add_card_integration_command():
     ], 
     capture_output=True, 
     text=True, 
-    cwd=Path(__file__).parent.parent
+    cwd=Path(__file__).parent.parent,
+    env={**os.environ, "TERM": "dumb"}
     )
     
     # Check command succeeded
     assert result.returncode == 0, f"Command failed with stderr: {result.stderr}"
     
-    # Parse the JSON output
-    data = extract_json_from_output(result.stdout)
+    # Extract deck path from output
+    deck_path_str = extract_deck_path_from_output(result.stdout)
+    assert deck_path_str.endswith(".apkg")
     
-    # Verify the result structure
-    assert data["card_created"] is True
-    assert "deck_path" in data
-    assert data["deck_path"].endswith(".apkg")
-    assert "IntegrationTest" in data["message"]
+    # Verify success message is in output
+    assert "Card created successfully!" in result.stdout
+    assert "IntegrationTest" in result.stdout
     
     # Verify the actual deck file exists
-    deck_path = Path(data["deck_path"])
+    deck_path = Path(deck_path_str)
     assert deck_path.exists(), f"Deck file not found at {deck_path}"
     
     # Verify it's a valid zip file (Anki package format)
@@ -88,20 +85,22 @@ def test_add_card_integration_japanese_term():
     ],
     capture_output=True,
     text=True,
-    cwd=Path(__file__).parent.parent
+    cwd=Path(__file__).parent.parent,
+    env={**os.environ, "TERM": "dumb"}
     )
     
     assert result.returncode == 0, f"Command failed with stderr: {result.stderr}"
     
-    # Parse JSON output
-    data = extract_json_from_output(result.stdout)
+    # Extract deck path from output
+    deck_path_str = extract_deck_path_from_output(result.stdout)
+    assert deck_path_str.endswith(".apkg")
     
-    # Verify result
-    assert data["card_created"] is True
-    assert "JapaneseTest" in data["message"]
+    # Verify success message is in output
+    assert "Card created successfully!" in result.stdout
+    assert "JapaneseTest" in result.stdout
     
     # Verify package
-    deck_path = Path(data["deck_path"])
+    deck_path = Path(deck_path_str)
     assert deck_path.exists()
     
     with zipfile.ZipFile(deck_path, 'r') as zip_file:

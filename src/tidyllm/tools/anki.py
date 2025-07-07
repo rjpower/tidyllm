@@ -355,8 +355,7 @@ def anki_add_vocab_card(req: AddVocabCardRequest) -> AnkiCreateResult:
     Example usage: anki_add_vocab_card(AddVocabCardRequest(...))
     """
     # Use the batch function with a single card
-    cards_req = AddVocabCardsRequest(cards=[req], deck_name="Japanese Vocabulary")
-    return anki_add_vocab_cards(cards_req)
+    return anki_add_vocab_cards(deck_name="Japanese Vocabulary", cards=[req])
 
 
 @register()
