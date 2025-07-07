@@ -21,7 +21,7 @@ def test_conversation_workflow():
     """Test accumulating conversation history across multiple calls."""
     
     # Create a custom mock client that responds based on last user message
-    class CustomMockClient:
+    class CustomMockClient(LLMClient):
         def completion(self, model, messages, tools, **kwargs):
             # Get the last user message
             last_user_msg = next((msg for msg in reversed(messages) if msg.role == Role.USER), None)

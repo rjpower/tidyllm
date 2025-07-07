@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import cast
 
 import litellm
-import litellm.types.utils
+from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
 from rich.console import Console
 from rich.progress import track
@@ -89,20 +89,18 @@ Output a single JSON object with the completed vocabulary item.
 </input>
 """
 
-    response = litellm.completion(
-        model=ctx.config.fast_model,
-        messages=[{"role": "user", "content": prompt}],
-        response_format={"type": "json_object"}
+    response = cast(
+        ModelResponse,
+        litellm.completion(
+            model=ctx.config.fast_model,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+        ),
     )
 
-    response = cast(litellm.types.utils.ModelResponse, response)
-    if not response.choices:
-        raise RuntimeError("Failed to infer missing fields")
-
-    try:
-        completed_data = json.loads(response.choices[0].message.content)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Failed to decode JSON response: {str(e)}") from e
+    message_content = cast(litellm.Choices, response.choices)[0].message.content
+    assert message_content is not None, "Response content is None"
+    completed_data = json.loads(message_content)
 
     # Merge with original request, preserving non-empty original values
     final_data = request_data.copy()
@@ -467,8 +465,6 @@ def add_from_text(
         output_dir.mkdir(parents=True, exist_ok=True)
 
     # Use LLM to extract vocabulary
-    import json
-
     import litellm
 
     from tidyllm.context import get_tool_context
@@ -497,24 +493,29 @@ Return a JSON object with vocabulary items:
     ]
 }}"""
 
-    response = litellm.completion(
-        model=ctx.config.fast_model,
-        messages=[{"role": "user", "content": prompt}],
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "vocabulary_extraction",
-                "schema": VocabularyExtractionResponse.model_json_schema(),
-                "strict": True
-            }
-        }
+    response = cast(
+        ModelResponse,
+        litellm.completion(
+            model=ctx.config.fast_model,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "vocabulary_extraction",
+                    "schema": VocabularyExtractionResponse.model_json_schema(),
+                    "strict": True,
+                },
+            },
+        ),
     )
-
-    response = cast(litellm.types.utils.ModelResponse, response)
     if not response.choices:
         raise RuntimeError("Failed to extract vocabulary from text")
 
-    extraction_result = VocabularyExtractionResponse.model_validate_json(response.choices[0].message.content)
+    message_content = cast(litellm.Choices, response.choices)[0].message.content
+    assert message_content is not None, "Response content is None"
+    extraction_result = VocabularyExtractionResponse.model_validate_json(
+        message_content
+    )
     vocab_data = [item.model_dump() for item in extraction_result.items]
 
     console.print(f"[green]Extracted {len(vocab_data)} vocabulary words[/green]")
@@ -667,14 +668,22 @@ def review_and_add(
                 from tidyllm.context import get_tool_context
 
                 ctx = get_tool_context()
-                response = litellm.completion(
-                    model=ctx.config.fast_model,
-                    messages=[{"role": "user", "content": f"Translate '{term['term_ja']}' to English. Return only the translation."}]
+                response = cast(
+                    ModelResponse,
+                    litellm.completion(
+                        model=ctx.config.fast_model,
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": f"Translate '{term['term_ja']}' to English. Return only the translation.",
+                            }
+                        ],
+                    ),
                 )
-
-                response = cast(litellm.types.utils.ModelResponse, response)
                 if response.choices:
-                    term['term_en'] = response.choices[0].message.content.strip()
+                    message_content = cast(litellm.Choices, response.choices)[0].message.content
+                    assert message_content is not None, "Response content is None"
+                    term["term_en"] = message_content.strip()
                 else:
                     term['term_en'] = "translation_needed"
 

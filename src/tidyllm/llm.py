@@ -8,7 +8,7 @@ from enum import Enum
 from typing import Any, Protocol, cast
 
 import litellm
-import litellm.types.utils
+from litellm.types.utils import ModelResponse, ModelResponseStream
 from pydantic import BaseModel
 
 from tidyllm.schema import JSONSchema
@@ -194,7 +194,7 @@ class LiteLLMClient(LLMClient):
         usage_data = None
 
         for chunk in cast(litellm.CustomStreamWrapper, response):
-            chunk = cast(litellm.types.utils.ModelResponseStream, chunk)
+            chunk = cast(ModelResponseStream, chunk)
             choice = chunk.choices[0]
             if choice.delta.role == "user":
                 continue
