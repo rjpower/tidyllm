@@ -113,17 +113,10 @@ def transcribe_audio(
         return segment_transcription
 
     # Process segments with enhanced LINQ pipeline
-    segment_processing_results = (
+    successful_transcriptions, failed_transcriptions = (
         from_iterable(enumerate(segments))
         .with_progress("Transcribing segments")
         .try_select(transcribe_segment_with_index)
-    )
-
-    # Partition results into successful and failed transcriptions
-    successful_transcriptions, failed_transcriptions = (
-        segment_processing_results.partition(
-            lambda result: not isinstance(result, Exception)
-        )
     )
 
     all_transcriptions = list(successful_transcriptions)
@@ -236,6 +229,7 @@ def export_csv(
     Example: export_csv(vocab_table, Path("vocabulary.csv"))
     """
     console.print(f"[bold blue]Exporting to CSV:[/bold blue] {output_csv}")
+    new_words_table = new_words_table.to_table()
 
     # Write CSV
     with open(output_csv, "w", newline="", encoding="utf-8") as csvfile:

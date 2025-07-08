@@ -25,26 +25,7 @@ V = TypeVar("V")
 ColumnSchema: TypeAlias = dict[str, str]
 
 
-class Grouping(Protocol[K, V]):
-    """Protocol for grouped data."""
-
-    @property
-    def key(self) -> K:
-        """The key for this group."""
-        ...
-
-    def __iter__(self) -> Iterator[V]:
-        """Iterate over items in this group."""
-        ...
-
-    def count(self) -> int:
-        """Count items in this group."""
-        ...
-
-
-class GroupingImpl(Generic[K, V]):
-    """Implementation of Grouping protocol."""
-
+class Grouping(Generic[K, V]):
     def __init__(self, key: K, items: list[V]):
         self._key = key
         self._items = items
@@ -58,8 +39,6 @@ class GroupingImpl(Generic[K, V]):
 
     def count(self) -> int:
         return len(self._items)
-
-
 
 
 class Enumerable(ABC, Generic[T]):
@@ -234,13 +213,43 @@ class Enumerable(ABC, Generic[T]):
         return SkipWhile(self, predicate)
 
     # Windowing
-    def window(self, size: int, step: int = 1) -> "Enumerable[list[T]]":
-        """Create sliding windows."""
-        return Window(self, size, step)
+    def window(
+        self,
+        size_or_predicate: int | Callable[[list[T]], bool],
+        step: int = 1,
+    ) -> "Enumerable[list[T]]":
+        """Create sliding windows by size or predicate."""
+        if isinstance(size_or_predicate, int):
+            return Window(self, size_or_predicate, step)
+        else:
+            return WindowPredicate(self, size_or_predicate)
 
     def batch(self, size: int) -> "Enumerable[list[T]]":
         """Batch into chunks."""
         return Batch(self, size)
+
+    def split(self, n: int = 2) -> list["Enumerable[T]"]:
+        """Split enumerable into n independent copies."""
+        items = self.to_list()
+        return [from_iterable(items) for _ in range(n)]
+
+    def reduce(
+        self,
+        reducer: Callable[[U, T], U],
+        initial: U,
+    ) -> U:
+        """Reduce enumerable to single value using accumulator function."""
+        return self.aggregate(initial, reducer)
+
+    def sink(self, sink_func: Callable[[T], Any]) -> None:
+        """Consume enumerable with sink function."""
+        for item in self:
+            sink_func(item)
+
+    def collect(self) -> list[T]:
+        """Collect all elements into list (alias for to_list)."""
+        return self.to_list()
+
 
     # Materialization
     def to_list(self) -> list[T]:
@@ -281,7 +290,9 @@ class Enumerable(ABC, Generic[T]):
                 non_matching.append(item)
         return from_iterable(matching), from_iterable(non_matching)
 
-    def try_select(self, selector: Callable[[T], U]) -> tuple["Enumerable[U]", "Enumerable[Exception]"]:
+    def try_select(
+        self, selector: Callable[[T], U]
+    ) -> tuple["Enumerable[U]", "Enumerable[Exception]"]:
         """Select with automatic exception handling, returning successes and exceptions separately.
 
         Args:
@@ -348,18 +359,19 @@ class Enumerable(ABC, Generic[T]):
             index[key] = item
         return index
 
-
     def to_table(self) -> "Table":
         """Compute the full values of this enumerable and return as a fixed table."""
         values = list(self)
         return Table.from_rows(values)
 
-    def with_schema_inference(self, sample_size: int = 5) -> "SchemaInferringEnumerable[T]":
+    def with_schema_inference(
+        self, sample_size: int = 5
+    ) -> "SchemaInferringEnumerable[T]":
         """Enable schema inference for this enumerable.
-        
+
         Args:
             sample_size: Number of items to sample for schema inference
-            
+
         Returns:
             Schema-inferring wrapper that can provide type information
         """
@@ -370,7 +382,7 @@ class Enumerable(ABC, Generic[T]):
         cls, source_type: Any, handler: Any
     ) -> core_schema.CoreSchema:
         """Make Enumerable serializable by converting to Table."""
-        
+
         def serialize_enumerable(instance: "Enumerable[Any]") -> dict[str, Any]:
             """Serialize Enumerable by materializing to Table."""
             # Convert to list and create a Table
@@ -378,11 +390,15 @@ class Enumerable(ABC, Generic[T]):
             # Try to infer columns if possible
             columns = {}
             if rows and hasattr(rows[0], "model_fields"):
-                columns = {k: getattr(v.annotation, "__name__", str(v.annotation)) 
-                          for k, v in rows[0].model_fields.items()}
+                columns = {
+                    k: getattr(v.annotation, "__name__", str(v.annotation))
+                    for k, v in rows[0].model_fields.items()
+                }
             elif rows and isinstance(rows[0], dict):
-                columns = {k: getattr(type(v), "__name__", str(type(v))) 
-                          for k, v in rows[0].items()}
+                columns = {
+                    k: getattr(type(v), "__name__", str(type(v)))
+                    for k, v in rows[0].items()
+                }
 
             return {"rows": rows, "columns": columns, "_type": "Table"}
 
@@ -647,7 +663,7 @@ class GroupBy(Enumerable[Grouping[K, T]], Generic[T, K]):
             groups[key].append(item)
 
         for key, items in groups.items():
-            yield GroupingImpl(key, items)
+            yield Grouping(key, items)
 
 
 class Join(Enumerable[V], Generic[T, U, K, V]):
@@ -735,7 +751,6 @@ class Batch(Enumerable[list[T]], Generic[T]):
             yield batch
 
 
-
 class WithProgress(Enumerable[T]):
     """Add progress tracking to enumeration."""
 
@@ -756,6 +771,26 @@ class WithProgress(Enumerable[T]):
                 yield item
 
 
+class WindowPredicate(Enumerable[list[T]], Generic[T]):
+    """Window by predicate condition."""
+
+    def __init__(self, source: Enumerable[T], predicate: Callable[[list[T]], bool]):
+        super().__init__()
+        self.source = source
+        self.predicate = predicate
+
+    def __iter__(self) -> Iterator[list[T]]:
+        window: list[T] = []
+        for item in self.source:
+            window.append(item)
+            if self.predicate(window):
+                yield list(window)
+                window = []
+        if window:
+            yield window
+
+
+
 class SchemaInferringEnumerable(Enumerable[T]):
     """Enumerable that infers schema from data samples while preserving lazy evaluation."""
 
@@ -767,7 +802,7 @@ class SchemaInferringEnumerable(Enumerable[T]):
         self._sample_buffer: list[T] = []
         self._sample_consumed = False
 
-    def schema(self) -> type[BaseModel]:
+    def table_schema(self) -> type[BaseModel]:
         """Get inferred schema, sampling if needed."""
         if self._cached_schema is None:
             self._ensure_sampled()
@@ -814,10 +849,8 @@ class SchemaInferringEnumerable(Enumerable[T]):
         yield from source_iter
 
 
-
-
 # Table implementation using Enumerable
-class Table(BaseModel, Enumerable[T], Generic[T]):
+class Table(BaseModel, Enumerable[T]):
     """Pydantic-based table with automatic serialization and LINQ operations."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
@@ -839,15 +872,15 @@ class Table(BaseModel, Enumerable[T], Generic[T]):
         """Get row count."""
         return len(self.rows)
 
-    def schema(self) -> type[BaseModel]:
+    def table_schema(self) -> type[BaseModel]:
         """Get schema for this table.
-        
+
         Returns:
             Pydantic model representing the row structure
         """
         if not self.rows:
             return create_model_from_data_sample([], "EmptyTableSchema")
-        
+
         return create_model_from_data_sample(self.rows[:5], "TableSchema")
 
     @classmethod
@@ -909,6 +942,8 @@ class Table(BaseModel, Enumerable[T], Generic[T]):
 def from_iterable(items: Iterable[T]) -> Enumerable[T]:
     """Create enumerable from any iterable."""
     return IterableEnumerable(items)
+
+
 
 
 class IterableEnumerable(Enumerable[T]):

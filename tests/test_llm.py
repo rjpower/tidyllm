@@ -6,8 +6,8 @@ from typing import cast
 from tidyllm.agent import LLMAgent, LLMLogger, create_request
 from tidyllm.llm import (
     AssistantMessage,
-    LLMClient,
     LLMResponse,
+    LiteLLMClient,
     Role,
     SystemMessage,
     ToolCall,
@@ -19,15 +19,15 @@ from tidyllm.registry import Registry
 
 def test_conversation_workflow():
     """Test accumulating conversation history across multiple calls."""
-    
+
     # Create a custom mock client that responds based on last user message
-    class CustomMockClient(LLMClient):
+    class CustomMockClient(LiteLLMClient):
         def completion(self, model, messages, tools, **kwargs):
             # Get the last user message
             last_user_msg = next((msg for msg in reversed(messages) if msg.role == Role.USER), None)
             if not last_user_msg:
                 raise ValueError("No user message found")
-                
+
             if "2+2" in last_user_msg.content:
                 assistant_msg = AssistantMessage(
                     content="I'll calculate that for you.",
@@ -50,17 +50,17 @@ def test_conversation_workflow():
                 assistant_msg = AssistantMessage(
                     content="I don't understand."
                 )
-                
+
             return LLMResponse(
                 model="mock-gpt",
                 messages=messages + [assistant_msg]
             )
-    
+
     client = CustomMockClient()
-    
+
     # Create a test registry and register tools
     test_registry = Registry()
-    
+
     def calculator(expression: str) -> float:
         """Calculate a math expression.
         
@@ -68,15 +68,15 @@ def test_conversation_workflow():
             expression: Math expression to evaluate
         """
         return eval(expression)
-    
+
     test_registry.register(calculator)
-    
+
     # Create function library with the test registry
     library = test_registry
-    
+
     # Create LLM agent
     agent = LLMAgent(function_library=library, llm_client=client, model="mock-gpt")
-    
+
     # First call
     messages1 = create_request("You are helpful", "What's 2+2?")
     response1 = agent.ask(messages1)
@@ -88,7 +88,7 @@ def test_conversation_workflow():
     # Note: agent.ask() executes tools but doesn't add responses back to conversation
     # The tool execution happens, but responses aren't included in the returned messages
     # Only ask_with_conversation() adds tool responses to the conversation
-    
+
     # Check message history
     assert len(response1.messages) == 3  # system, user, assistant
     assert response1.messages[0].role == Role.SYSTEM
@@ -98,7 +98,7 @@ def test_conversation_workflow():
     last_assistant = response1.messages[2]
     assert isinstance(last_assistant, AssistantMessage)
     assert len(last_assistant.tool_calls) == 1
-    
+
     # Build conversation for second call
     conversation = response1.messages + [
         ToolMessage(
@@ -110,7 +110,7 @@ def test_conversation_workflow():
             content="Now multiply that by 3"
         )
     ]
-    
+
     # Second call with accumulated history
     response2 = agent.ask(conversation)
     last_msg2 = response2.messages[-1]
@@ -120,7 +120,7 @@ def test_conversation_workflow():
     assert tool_calls2[0].tool_name == "calculator"
     # Note: agent.ask() doesn't add tool responses to conversation, only ask_with_conversation() does
     # The tool execution happens but responses aren't added to the returned messages
-    
+
     # Check full conversation history
     assert len(response2.messages) == 6  # Previous 5 + new assistant
     assert response2.messages[-1].role == Role.ASSISTANT
@@ -131,7 +131,7 @@ def test_ask_with_conversation():
     """Test the ask_with_conversation method for multi-turn interactions."""
 
     # Create mock client that responds with tool calls then completion
-    class ConversationMockClient(LLMClient):
+    class ConversationMockClient(LiteLLMClient):
         def __init__(self):
             self.call_count = 0
 
@@ -223,19 +223,19 @@ def test_ask_with_conversation():
     for msg in response.messages:
         if msg.role == Role.ASSISTANT and isinstance(msg, AssistantMessage):
             all_tool_calls.extend(msg.tool_calls)
-    
+
     assert len(all_tool_calls) == 2
     assert all_tool_calls[0].tool_name == "read_file"
     assert all_tool_calls[1].tool_name == "patch_file"
-    
+
     # Check tool responses in the conversation
     tool_responses = [msg for msg in response.messages if isinstance(msg, ToolMessage)]
     assert len(tool_responses) == 2
-    
+
     # Find responses by tool call ID
     read_response = next(msg for msg in tool_responses if msg.tool_call_id == "call_1")
     patch_response = next(msg for msg in tool_responses if msg.tool_call_id == "call_2")
-    
+
     assert "Hello world" in read_response.content
     assert "File patched successfully" in patch_response.content
 
@@ -434,4 +434,3 @@ def test_message_serialization_for_litellm():
     assert message_dicts[3]["content"] == "4"
 
     print("✓ Message serialization for LiteLLM test passed")
-

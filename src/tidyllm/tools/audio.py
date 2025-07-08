@@ -18,7 +18,7 @@ from pydantic.functional_validators import WrapValidator
 from tidyllm.context import get_tool_context
 from tidyllm.duration import Duration
 from tidyllm.registry import register
-from tidyllm.stream import Stream, create_stream_from_iterator
+from tidyllm.linq import Enumerable, from_iterable
 
 # VAD Configuration
 VAD_SAMPLE_RATE = 16000
@@ -279,7 +279,7 @@ def audio_mic(
     channels: int = 1,
     chunk_duration=DEFAULT_CHUNK_DURATION,
     device_id: int | None = None,
-) -> Stream[AudioChunk]:
+) -> Enumerable[AudioChunk]:
     """Stream audio from microphone.
 
     Args:
@@ -291,7 +291,6 @@ def audio_mic(
     Returns:
         A stream of audio chunks captured from the microphone
     """
-    cleanup_ref: dict[str, object] = {"stream": None}
     audio_format = AudioFormat(sample_rate=sample_rate, channels=channels)
 
     def mic_generator():
@@ -317,7 +316,6 @@ def audio_mic(
             callback=audio_callback,
             device=device_id,
         )
-        cleanup_ref["stream"] = stream
         stream.start()
 
         try:
@@ -333,17 +331,10 @@ def audio_mic(
         except KeyboardInterrupt:
             return
         finally:
-            if stream:
-                stream.stop()
-                stream.close()
+            stream.stop()
+            stream.close()
 
-    def cleanup():
-        """Cleanup function for the stream."""
-        if cleanup_ref["stream"]:
-            cleanup_ref["stream"].stop()
-            cleanup_ref["stream"].close()
-
-    return create_stream_from_iterator(mic_generator, cleanup=cleanup)
+    return from_iterable(mic_generator())
 
 
 @register(
@@ -356,7 +347,7 @@ def audio_file(
     sample_rate: int | None = None,
     max_duration: Duration | None = None,
     chunk_duration=DEFAULT_CHUNK_DURATION,
-) -> Stream[AudioChunk]:
+) -> Enumerable[AudioChunk]:
     """Stream audio from a file.
 
     Args:
@@ -424,7 +415,7 @@ def audio_file(
 
             samples_read = chunk_end
 
-    return create_stream_from_iterator(file_generator)
+    return from_iterable(file_generator())
 
 
 @register(
@@ -570,11 +561,11 @@ class VADBuffer:
 
 
 def chunk_by_vad_stream(
-    audio_stream: Stream[AudioChunk],
+    audio_stream: Enumerable[AudioChunk],
     min_speech_duration: Duration = MIN_SPEECH_DURATION,
     min_silence_duration: Duration = MIN_SILENCE_DURATION,
     speech_threshold: float = SPEECH_THRESHOLD,
-) -> Stream[AudioChunk]:
+) -> Enumerable[AudioChunk]:
     """Split audio stream into chunks based on voice activity detection.
 
     Args:
@@ -605,7 +596,7 @@ def chunk_by_vad_stream(
         if remaining_chunk:
             yield remaining_chunk
 
-    return create_stream_from_iterator(vad_generator)
+    return from_iterable(vad_generator())
 
 
 @register(

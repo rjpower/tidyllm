@@ -81,7 +81,7 @@ Use `uv` for all package management and execution:
 - **CLI Generation** (`adapters/cli.py`): Automatic command-line interfaces with contextvar integration
 - **Database** (`database.py`): SQLite wrapper with Pydantic models and automatic schema initialization
 - **Caching** (`cache.py`): Function result caching with `@cached_function` decorator
-- **Streaming** (`stream.py`): `Stream[T]` abstraction for lazy data processing
+- **LINQ Operations** (`linq.py`): `Enumerable[T]` with deferred evaluation and rich query operations
 - **Duration** (`duration.py`): Time duration utilities for audio processing
 - **Discovery** (`discover.py`): Automatic tool discovery in packages/directories
 
@@ -160,6 +160,45 @@ tests/                # Test suite (217 tests)
 - **Calculator** (`tools/calculator/`): Mathematical evaluation
 - **Database Management** (`tools/manage_db.py`): Schema operations
 
+## LINQ Operations (`linq.py`)
+
+The `Enumerable[T]` class provides LINQ-style operations with deferred evaluation for efficient data processing:
+
+### Core Operations
+```python
+from tidyllm.linq import from_iterable
+
+# Create enumerable from any iterable
+data = from_iterable([1, 2, 3, 4, 5])
+
+# Transform data
+result = (data
+    .select(lambda x: x * 2)        # Map operation
+    .where(lambda x: x > 4)         # Filter operation  
+    .to_list())                     # Materialize to list
+```
+
+### Advanced Operations
+- **Aggregations**: `count()`, `sum()`, `average()`, `min()`, `max()`, `aggregate()`
+- **Set Operations**: `distinct()`, `union()`, `intersect()`, `except_()`
+- **Grouping**: `group_by()`, `join()`, `to_lookup()`
+- **Partitioning**: `take()`, `skip()`, `take_while()`, `skip_while()`, `partition()`
+- **Windowing**: `window()`, `batch()`
+- **Error Handling**: `try_select()` for safe transformations
+- **Progress Tracking**: `with_progress()` for long operations
+
+### Schema Inference
+```python
+# Automatically infer Pydantic schemas from data
+enumerable = from_iterable(data).with_schema_inference()
+schema = enumerable.table_schema()  # Returns Pydantic model
+```
+
+### Table Integration
+- Convert to/from `Table` objects: `enumerable.to_table()`, `Table.from_rows()`
+- Full LINQ operations available on Table objects
+- Automatic serialization with schema preservation
+
 ## Framework Integrations
 
 ### CLI Adapter (`adapters/cli.py`)
@@ -227,6 +266,6 @@ def test_tool(tool_context):
 ## Performance Notes
 
 - **Caching**: Use `@cached_function` for expensive operations
-- **Streaming**: Use `Stream[T]` for large datasets
+- **Data Processing**: Use `Enumerable[T]` with LINQ operations for data manipulation and querying
 - **Resource management**: Use `ctx.get_ref()` for expensive resources like models
 - **Database**: Use parameterized queries, batch operations when possible

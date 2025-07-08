@@ -83,7 +83,7 @@ def select_ui(
         if not compact:
             console.print(f"\n[green]✓ Selected {len(selected_rows)} item(s)[/green]")
 
-        return Table(_columns=table.columns, _rows=selected_rows)
+        return Table(columns=table.columns, rows=selected_rows)
 
     except (KeyboardInterrupt, EOFError):
         console.print("\n[yellow]Selection cancelled[/yellow]")

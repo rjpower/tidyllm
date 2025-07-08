@@ -586,7 +586,7 @@ class TestIntegrationDynamicModels:
         
         # Create schema-aware enumerable
         enum = from_iterable(data).with_schema_inference()
-        schema = enum.schema()
+        schema = enum.table_schema()
         
         # Serialize the schema (as a model class, this is tricky)
         # Instead, test creating instances from the schema
@@ -611,7 +611,7 @@ class TestIntegrationDynamicModels:
         ]
         
         table = Table.from_rows(data)
-        schema = table.schema()
+        schema = table.table_schema()
         
         # Schema should be dynamically created
         assert schema.__name__ == "TableSchema"

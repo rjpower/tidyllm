@@ -18,7 +18,7 @@ from rich.text import Text
 
 from tidyllm.llm import (
     AssistantMessage,
-    LLMClient,
+    LiteLLMClient,
     LLMMessage,
     LLMResponse,
     PrintWriter,
@@ -312,7 +312,7 @@ class LLMAgent:
     """An LLM agent processes multiple rounds with a model and performs automatic tool calling and logging."""
 
     function_library: Registry
-    llm_client: LLMClient
+    llm_client: LiteLLMClient
     model: str
 
     def __post_init__(self):

@@ -152,7 +152,7 @@ class TestSchemaInference:
         ]
         
         enum = from_iterable(data).with_schema_inference()
-        schema = enum.schema()
+        schema = enum.table_schema()
         
         assert schema.__name__ == "InferredSchema"
         assert 'name' in schema.model_fields
@@ -170,7 +170,7 @@ class TestSchemaInference:
         enum = from_iterable(data).with_schema_inference()
         
         # Get schema first
-        schema = enum.schema()
+        schema = enum.table_schema()
         assert schema.__name__ == "InferredSchema"
         
         # Then iterate - should preserve all data
@@ -195,7 +195,7 @@ class TestSchemaInference:
                       })
                       .with_schema_inference())
         
-        schema = transformed.schema()
+        schema = transformed.table_schema()
         assert 'username' in schema.model_fields
         assert 'is_senior' in schema.model_fields
         assert 'category' in schema.model_fields
@@ -213,7 +213,7 @@ class TestSchemaInference:
         ]
         
         enum = from_iterable(users).with_schema_inference()
-        schema = enum.schema()
+        schema = enum.table_schema()
         
         # Should return the exact User type
         assert schema is User
@@ -227,7 +227,7 @@ class TestSchemaInference:
         ]
         
         enum = from_iterable(data).with_schema_inference()
-        schema = enum.schema()
+        schema = enum.table_schema()
         
         # All fields should be optional due to missing values
         assert 'name' in schema.model_fields
@@ -239,8 +239,8 @@ class TestSchemaInference:
         data = [{'name': 'test', 'value': 42}]
         enum = from_iterable(data).with_schema_inference()
         
-        schema1 = enum.schema()
-        schema2 = enum.schema()
+        schema1 = enum.table_schema()
+        schema2 = enum.table_schema()
         
         # Should be the same object (cached)
         assert schema1 is schema2
@@ -256,7 +256,7 @@ class TestSchemaInference:
         
         # With sample size 2, should not see the additional fields
         enum_small = from_iterable(data).with_schema_inference(sample_size=2)
-        schema_small = enum_small.schema()
+        schema_small = enum_small.table_schema()
         
         # Should only have 'name' field
         assert 'name' in schema_small.model_fields
@@ -264,7 +264,7 @@ class TestSchemaInference:
         
         # With larger sample size, should see all fields
         enum_large = from_iterable(data).with_schema_inference(sample_size=5)
-        schema_large = enum_large.schema()
+        schema_large = enum_large.table_schema()
         
         assert 'name' in schema_large.model_fields
 
@@ -304,7 +304,7 @@ class TestTable:
         ]
         
         table = Table.from_pydantic(users)
-        schema = table.schema()
+        schema = table.table_schema()
         
         # Should return the User type since all rows are User instances
         assert schema is User
@@ -317,7 +317,7 @@ class TestTable:
         ]
         
         table = Table.from_rows(data)
-        schema = table.schema()
+        schema = table.table_schema()
         
         assert 'product' in schema.model_fields
         assert 'price' in schema.model_fields
@@ -353,7 +353,7 @@ class TestTable:
     def test_empty_table_schema(self):
         """Test schema for empty table."""
         table = Table.empty()
-        schema = table.schema()
+        schema = table.table_schema()
         
         assert schema.__name__ == "EmptyTableSchema"
 
@@ -469,7 +469,7 @@ class TestIntegration:
                    .with_schema_inference())
         
         # Get schema
-        schema = pipeline.schema()
+        schema = pipeline.table_schema()
         assert 'full_name' in schema.model_fields
         assert 'is_engineer' in schema.model_fields
         assert 'salary_category' in schema.model_fields
@@ -495,7 +495,7 @@ class TestIntegration:
         ]
         
         table = Table.from_pydantic(users)
-        original_schema = table.schema()
+        original_schema = table.table_schema()
         assert original_schema is User
         
         # Transform through LINQ
@@ -508,13 +508,13 @@ class TestIntegration:
                       .with_schema_inference())
         
         # Get new schema
-        new_schema = transformed.schema()
+        new_schema = transformed.table_schema()
         assert 'username' in new_schema.model_fields
         assert 'age_group' in new_schema.model_fields
         
         # Convert back to table
         result_table = transformed.to_table()
-        final_schema = result_table.schema()
+        final_schema = result_table.table_schema()
         
         # Schemas should be compatible
         assert 'username' in final_schema.model_fields

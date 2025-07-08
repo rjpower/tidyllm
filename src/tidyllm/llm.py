@@ -129,7 +129,7 @@ class LLMResponse(BaseModel):
     tools: list[dict] = field(default_factory=list)
 
 
-class LiteLLMClient(LLMClient):
+class LiteLLMClient:
     def completion(
         self,
         model: str,
