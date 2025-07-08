@@ -14,6 +14,8 @@ from typing import Any, Generic, Protocol, TypeAlias, TypeVar
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_core import core_schema
 
+from tidyllm.serialization import create_model_from_data_sample
+
 T = TypeVar("T")
 U = TypeVar("U")
 K = TypeVar("K")
@@ -58,56 +60,6 @@ class GroupingImpl(Generic[K, V]):
         return len(self._items)
 
 
-class OrderedEnumerable(Generic[T]):
-    """Enumerable with ordering capabilities."""
-
-    def __init__(
-        self,
-        source: "Enumerable[T]",
-        key_func: Callable[[T], Any],
-        reverse: bool = False,
-    ):
-        self.source = source
-        self.key_func = key_func
-        self.reverse = reverse
-        self._then_by_funcs: list[tuple[Callable[[T], Any], bool]] = []
-
-    def then_by(self, key_selector: Callable[[T], K]) -> "OrderedEnumerable[T]":
-        """Add secondary sort key."""
-        result = OrderedEnumerable(self.source, self.key_func, self.reverse)
-        result._then_by_funcs = self._then_by_funcs.copy()
-        result._then_by_funcs.append((key_selector, False))
-        return result
-
-    def then_by_descending(
-        self, key_selector: Callable[[T], K]
-    ) -> "OrderedEnumerable[T]":
-        """Add secondary sort key (descending)."""
-        result = OrderedEnumerable(self.source, self.key_func, self.reverse)
-        result._then_by_funcs = self._then_by_funcs.copy()
-        result._then_by_funcs.append((key_selector, True))
-        return result
-
-    def __iter__(self) -> Iterator[T]:
-        items = list(self.source)
-
-        # Build composite key function
-        def composite_key(item: T) -> tuple:
-            keys = [self.key_func(item)]
-            for func, _ in self._then_by_funcs:
-                keys.append(func(item))
-            return tuple(keys)
-
-        # Sort with composite key
-        sorted_items = sorted(items, key=composite_key, reverse=self.reverse)
-
-        # Apply then_by reversals
-        if self._then_by_funcs:
-            # This is a simplified approach - full implementation would need
-            # stable sort with multiple passes
-            pass
-
-        return iter(sorted_items)
 
 
 class Enumerable(ABC, Generic[T]):
@@ -236,13 +188,13 @@ class Enumerable(ABC, Generic[T]):
         return Except(self, other)
 
     # Ordering
-    def order_by(self, key_selector: Callable[[T], K]) -> OrderedEnumerable[T]:
+    def order_by(self, key_selector: Callable[[T], K]) -> "OrderedEnumerable[T]":
         """Order by key ascending."""
         return OrderedEnumerable(self, key_selector)
 
     def order_by_descending(
         self, key_selector: Callable[[T], K]
-    ) -> OrderedEnumerable[T]:
+    ) -> "OrderedEnumerable[T]":
         """Order by key descending."""
         return OrderedEnumerable(self, key_selector, reverse=True)
 
@@ -329,16 +281,24 @@ class Enumerable(ABC, Generic[T]):
                 non_matching.append(item)
         return from_iterable(matching), from_iterable(non_matching)
 
-    def try_select(self, selector: Callable[[T], U]) -> "Enumerable[U | Exception]":
-        """Select with automatic exception handling, returning successes and exceptions.
+    def try_select(self, selector: Callable[[T], U]) -> tuple["Enumerable[U]", "Enumerable[Exception]"]:
+        """Select with automatic exception handling, returning successes and exceptions separately.
 
         Args:
             selector: Function to transform each element
 
         Returns:
-            Enumerable containing either successful results (type U) or Exception objects
+            Tuple of (successful results, exceptions)
         """
-        return TrySelect(self, selector)
+        successes = []
+        errors = []
+        for item in self:
+            try:
+                result = selector(item)
+                successes.append(result)
+            except Exception as e:
+                errors.append(e)
+        return from_iterable(successes), from_iterable(errors)
 
     def with_progress(self, description: str = "Processing") -> "Enumerable[T]":
         """Add Rich progress tracking to enumeration.
@@ -388,21 +348,22 @@ class Enumerable(ABC, Generic[T]):
             index[key] = item
         return index
 
-    def chunk(self, size: int) -> "Enumerable[list[T]]":
-        """Process items in batches of specified size.
-
-        Args:
-            size: Size of each chunk
-
-        Returns:
-            Enumerable of lists, each containing up to 'size' items
-        """
-        return Chunk(self, size)
 
     def to_table(self) -> "Table":
         """Compute the full values of this enumerable and return as a fixed table."""
         values = list(self)
         return Table.from_rows(values)
+
+    def with_schema_inference(self, sample_size: int = 5) -> "SchemaInferringEnumerable[T]":
+        """Enable schema inference for this enumerable.
+        
+        Args:
+            sample_size: Number of items to sample for schema inference
+            
+        Returns:
+            Schema-inferring wrapper that can provide type information
+        """
+        return SchemaInferringEnumerable(self, sample_size)
 
     @classmethod
     def __get_pydantic_core_schema__(
@@ -443,6 +404,59 @@ class Enumerable(ABC, Generic[T]):
                 return_schema=core_schema.dict_schema(),
             ),
         )
+
+
+class OrderedEnumerable(Enumerable[T]):
+    """Enumerable with ordering capabilities."""
+
+    def __init__(
+        self,
+        source: "Enumerable[T]",
+        key_func: Callable[[T], Any],
+        reverse: bool = False,
+    ):
+        super().__init__()
+        self.source = source
+        self.key_func = key_func
+        self.reverse = reverse
+        self._then_by_funcs: list[tuple[Callable[[T], Any], bool]] = []
+
+    def then_by(self, key_selector: Callable[[T], K]) -> "OrderedEnumerable[T]":
+        """Add secondary sort key."""
+        result = OrderedEnumerable(self.source, self.key_func, self.reverse)
+        result._then_by_funcs = self._then_by_funcs.copy()
+        result._then_by_funcs.append((key_selector, False))
+        return result
+
+    def then_by_descending(
+        self, key_selector: Callable[[T], K]
+    ) -> "OrderedEnumerable[T]":
+        """Add secondary sort key (descending)."""
+        result = OrderedEnumerable(self.source, self.key_func, self.reverse)
+        result._then_by_funcs = self._then_by_funcs.copy()
+        result._then_by_funcs.append((key_selector, True))
+        return result
+
+    def __iter__(self) -> Iterator[T]:
+        items = list(self.source)
+
+        # Build composite key function
+        def composite_key(item: T) -> tuple:
+            keys = [self.key_func(item)]
+            for func, _ in self._then_by_funcs:
+                keys.append(func(item))
+            return tuple(keys)
+
+        # Sort with composite key
+        sorted_items = sorted(items, key=composite_key, reverse=self.reverse)
+
+        # Apply then_by reversals
+        if self._then_by_funcs:
+            # This is a simplified approach - full implementation would need
+            # stable sort with multiple passes
+            pass
+
+        return iter(sorted_items)
 
 
 # Concrete operation implementations
@@ -721,21 +735,6 @@ class Batch(Enumerable[list[T]], Generic[T]):
             yield batch
 
 
-class TrySelect(Enumerable[U | Exception], Generic[T, U]):
-    """Select with automatic exception handling, returning results or exceptions."""
-
-    def __init__(self, source: Enumerable[T], selector: Callable[[T], U]):
-        super().__init__()
-        self.source = source
-        self.selector = selector
-
-    def __iter__(self) -> Iterator[U | Exception]:
-        for item in self.source:
-            try:
-                yield self.selector(item)
-            except Exception as e:
-                yield e
-
 
 class WithProgress(Enumerable[T]):
     """Add progress tracking to enumeration."""
@@ -757,21 +756,64 @@ class WithProgress(Enumerable[T]):
                 yield item
 
 
-class Chunk(Enumerable[list[T]], Generic[T]):
-    """Process items in batches of specified size."""
+class SchemaInferringEnumerable(Enumerable[T]):
+    """Enumerable that infers schema from data samples while preserving lazy evaluation."""
 
-    def __init__(self, source: Enumerable[T], size: int):
+    def __init__(self, source: Enumerable[T], sample_size: int = 5):
         super().__init__()
         self.source = source
-        self.size = size
+        self.sample_size = sample_size
+        self._cached_schema: type[BaseModel] | None = None
+        self._sample_buffer: list[T] = []
+        self._sample_consumed = False
 
-    def __iter__(self) -> Iterator[list[T]]:
-        iterator = iter(self.source)
-        while True:
-            chunk = list(islice(iterator, self.size))
-            if not chunk:
+    def schema(self) -> type[BaseModel]:
+        """Get inferred schema, sampling if needed."""
+        if self._cached_schema is None:
+            self._ensure_sampled()
+            self._cached_schema = create_model_from_data_sample(
+                self._sample_buffer, "InferredSchema"
+            )
+        return self._cached_schema
+
+    def _ensure_sampled(self):
+        """Collect sample if not already done."""
+        if self._sample_consumed:
+            return
+
+        # Collect sample from source
+        source_iter = iter(self.source)
+        for _ in range(self.sample_size):
+            try:
+                item = next(source_iter)
+                self._sample_buffer.append(item)
+            except StopIteration:
                 break
-            yield chunk
+
+        self._sample_consumed = True
+
+    def __iter__(self) -> Iterator[T]:
+        """Iterate elegantly: yield sample buffer first, then continue with source."""
+        self._ensure_sampled()
+
+        # First, yield items from our sample buffer
+        yield from self._sample_buffer
+
+        # Then continue with the rest of the source
+        # We need to skip items we already consumed during sampling
+        source_iter = iter(self.source)
+
+        # Skip the items we already buffered
+        for _ in range(len(self._sample_buffer)):
+            try:
+                next(source_iter)
+            except StopIteration:
+                return
+
+        # Yield the remaining items
+        yield from source_iter
+
+
 
 
 # Table implementation using Enumerable
@@ -796,6 +838,17 @@ class Table(BaseModel, Enumerable[T], Generic[T]):
     def row_count(self) -> int:
         """Get row count."""
         return len(self.rows)
+
+    def schema(self) -> type[BaseModel]:
+        """Get schema for this table.
+        
+        Returns:
+            Pydantic model representing the row structure
+        """
+        if not self.rows:
+            return create_model_from_data_sample([], "EmptyTableSchema")
+        
+        return create_model_from_data_sample(self.rows[:5], "TableSchema")
 
     @classmethod
     def from_rows(

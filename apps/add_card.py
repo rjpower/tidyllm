@@ -383,11 +383,8 @@ def add_from_csv(
         csv_rows = list(csv.DictReader(f))
     
     # Parse all rows with error handling using LINQ
-    parse_results = (from_iterable(enumerate(csv_rows, 1))
+    successful_results, failed_results = (from_iterable(enumerate(csv_rows, 1))
         .try_select(lambda item: _parse_csv_row(item[1], deck_name, item[0])))
-    
-    # Partition results into successful and failed using LINQ
-    successful_results, failed_results = parse_results.partition(lambda r: not isinstance(r, Exception))
     
     card_requests = list(successful_results)
     failed_cards = [str(exception) for exception in failed_results]
@@ -560,14 +557,9 @@ def review_and_add(
         output_dir.mkdir(parents=True, exist_ok=True)
 
     # Process selected requests using enhanced LINQ pipeline
-    card_processing_results = (from_iterable(enumerate(selected_requests))
+    successful_results, failed_results = (from_iterable(enumerate(selected_requests))
         .with_progress("Processing selected cards")
         .try_select(lambda item: _process_card_pipeline(item[1], output_dir, item[0])))
-    
-    # Partition results into successful and failed
-    successful_results, failed_results = card_processing_results.partition(
-        lambda result: not isinstance(result, Exception)
-    )
     
     # Extract processed cards from successful results
     processed_cards = []

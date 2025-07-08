@@ -6,28 +6,18 @@ from collections.abc import Callable, Iterable
 from types import UnionType
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
-from pydantic import Base64Bytes, BaseModel, create_model
+from pydantic import BaseModel
 from typing_extensions import TypedDict
 
 from tidyllm.docstring import (
     update_schema_with_docstring,
 )
+from tidyllm.serialization import (
+    create_model_from_field_definitions,
+    transform_argument_type,
+)
 
 
-def _transform_argument_type(param_type: Any) -> Any:
-    """Convert `param_type` to a serializable form as needed, handling cases like bytes -> Base64 and Unions."""
-    origin = get_origin(param_type)
-
-    if origin is Union or origin is UnionType:
-        args = get_args(param_type)
-        transformed_args = []
-
-        for arg in args:
-            transformed_args.append(_transform_argument_type(arg))
-        return Union[tuple(transformed_args)]  # noqa: UP007
-    elif param_type is bytes:
-        return Base64Bytes
-    return param_type
 
 
 class FunctionSchema(TypedDict):
@@ -149,26 +139,16 @@ class FunctionDescription:
 
         for param_name, param in all_params.items():
             param_type = hints.get(param_name, Any)
-            param_type = _transform_argument_type(param_type)
+            param_type = transform_argument_type(param_type)
 
             if param.default is not inspect.Parameter.empty:
                 field_definitions[param_name] = (param_type, param.default)
             else:
                 field_definitions[param_name] = (param_type, ...)
 
-        # Create the dynamic model with arbitrary types allowed
+        # Create the dynamic model using the refactored utility
         model_name = f"{self.name.title()}Args"
-
-        # Create model config that handles complex types properly
-        from pydantic import ConfigDict
-        config = ConfigDict(
-            arbitrary_types_allowed=True,
-            json_schema_extra={
-                "additionalProperties": False
-            }
-        )
-
-        return create_model(model_name, __config__=config, **field_definitions)
+        return create_model_from_field_definitions(model_name, field_definitions)
 
     def arg_model_from_args(
         self, *args: Iterable[Any], **kwargs: dict[str, Any]
