@@ -7,7 +7,6 @@ from pydantic.types import Base64Bytes
 import base64
 from enum import Enum
 
-import litellm
 from pydantic import BaseModel
 
 from tidyllm.adapters.cli import cli_main
@@ -85,6 +84,8 @@ def generate_speech(
         content = f"Say the following in {language}: '{content}'"
 
     # Generate speech using litellm
+    import litellm
+
     response: Any = litellm.speech(model=model, input=content, voice=voice)
 
     # Stream to BytesIO instead of file

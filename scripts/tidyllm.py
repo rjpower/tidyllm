@@ -1,11 +1,14 @@
 """TidyLLM CLI - Main entry point for all TidyLLM tools."""
 
 import logging
+import os
 import pathlib
+
+os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "true"
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(levelname).1s %(asctime)s %(filename)s:%(lineno)d - %(message)s",
+    format="%(levelname).1s %(asctime)s.%(msecs)03d %(filename)s:%(lineno)d - %(message)s",
     datefmt="%H:%M:%S",
     handlers=[logging.StreamHandler()],
 )

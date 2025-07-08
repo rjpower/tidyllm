@@ -4,14 +4,12 @@ import base64
 from pathlib import Path
 from typing import cast
 
-import litellm
-import litellm.types
-import litellm.types.utils
 from pydantic import BaseModel, Field
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.cache import cached_function
 from tidyllm.context import get_tool_context
+from tidyllm.llm import completion_with_schema
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 
@@ -70,9 +68,6 @@ def transcribe_bytes(
     # Encode audio data as base64
     audio_base64 = base64.b64encode(audio_data).decode("utf-8")
 
-    # Create structured output schema using Pydantic
-    response_schema = TranscriptionResult.model_json_schema()
-
     # Build prompt
     language_instruction = ""
     if source_language:
@@ -109,8 +104,7 @@ Return the results in the following JSON format:
 Only include key words/phrases that would benefit from translation, not every single word.
 """
 
-    # Call Gemini via litellm
-    response = litellm.completion(
+    return completion_with_schema(
         model=ctx.config.fast_model,
         messages=[
             {
@@ -118,30 +112,16 @@ Only include key words/phrases that would benefit from translation, not every si
                 "content": [
                     {"type": "text", "text": prompt},
                     {
-                        "type": "image_url",
-                        "image_url": f"data:{mime_type};base64,{audio_base64}",
+                        "type": "file",
+                        "file": {
+                            "file_data": f"data:{mime_type};base64,{audio_base64}",
+                        },
                     },
                 ],
             }
         ],
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "transcription_result",
-                "schema": response_schema,
-                "strict": True,
-            },
-        },
+        response_schema=TranscriptionResult,
     )
-
-    response = cast(litellm.types.utils.ModelResponse, response)
-
-    # Parse response
-    if response.choices:
-        choice = cast(litellm.types.utils.Choices, response.choices)[0]
-        return TranscriptionResult.model_validate_json(choice.message.content)
-    else:
-        raise RuntimeError("No response from LLM")
 
 
 @register()

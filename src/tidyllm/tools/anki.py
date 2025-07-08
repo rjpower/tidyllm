@@ -9,9 +9,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import genanki
-import litellm
-import litellm.types
-import litellm.types.utils
 from pydantic import BaseModel, Field
 from unidecode import unidecode
 
@@ -20,6 +17,7 @@ from tidyllm.context import get_tool_context
 from tidyllm.linq import Table
 
 # Table is now an alias for Table
+from tidyllm.llm import completion_with_schema
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 
@@ -253,24 +251,11 @@ Return only a JSON object with this format:
     "target_sentence": "The translation in {target_language}"
 }}"""
 
-    response = litellm.completion(
-        model=ctx.config.fast_model,
+    return completion_with_schema(
+        model=ctx.cfg.fast_model,
         messages=[{"role": "user", "content": prompt}],
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "example_sentences",
-                "schema": ExampleSentenceResponse.model_json_schema(),
-                "strict": True,
-            },
-        },
+        response_schema=ExampleSentenceResponse,
     )
-
-    response = cast(litellm.types.utils.ModelResponse, response)
-
-    return ExampleSentenceResponse.model_validate_json(
-        response.choices[0].message.content  # type: ignore
-    )  # type: ignore
 
 
 @register()

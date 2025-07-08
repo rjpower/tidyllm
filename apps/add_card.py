@@ -11,16 +11,14 @@ import tempfile
 from pathlib import Path
 from typing import cast
 
-import litellm
-from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
 from rich.console import Console
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.cache import cached_function
 from tidyllm.context import get_tool_context
-from tidyllm.llm import completion_with_schema
 from tidyllm.linq import Table, from_iterable
+from tidyllm.llm import completion_with_schema
 from tidyllm.registry import register
 from tidyllm.tools.anki import (
     AddVocabCardRequest,

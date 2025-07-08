@@ -2,13 +2,10 @@
 
 import datetime
 import json
-from abc import ABC, abstractmethod
 from dataclasses import field
 from enum import Enum
-from typing import Any, Protocol, cast
+from typing import Any, Protocol, TypeVar, cast
 
-import litellm
-from litellm.types.utils import ModelResponseStream
 from pydantic import BaseModel
 
 from tidyllm.function_schema import JSONSchema
@@ -156,6 +153,9 @@ class LiteLLMClient:
             message_dicts.append(msg_dict)
 
         # Use streaming mode like tinyagent
+        import litellm
+        from litellm.types.utils import ModelResponseStream
+
         response = litellm.completion(
             model=model,
             messages=message_dicts,
@@ -247,12 +247,15 @@ class LiteLLMClient:
         return response
 
 
+T = TypeVar("T", bound=BaseModel)
+
+
 def completion_with_schema(
     model: str,
     messages: list[dict[str, str]],
-    response_schema: type[BaseModel],
+    response_schema: type[T],
     **kwargs,
-) -> BaseModel:
+) -> T:
     """Wrapper for litellm.completion with Pydantic schema response format.
     
     Args:
@@ -264,16 +267,15 @@ def completion_with_schema(
     Returns:
         Parsed response as instance of response_schema
     """
-    response = cast(
-        litellm.ModelResponse,
-        litellm.completion(
-            model=model,
-            messages=messages,
-            response_format=response_schema,
-            **kwargs,
-        ),
+    import litellm
+
+    response = litellm.completion(
+        model=model,
+        messages=messages,
+        response_format=response_schema,
+        **kwargs,
     )
-    
-    message_content = cast(litellm.Choices, response.choices)[0].message.content
+
+    message_content = cast(litellm.Choices, response.choices)[0].message.content  # type: ignore
     assert message_content is not None, "Response content is None"
     return response_schema.model_validate_json(message_content)
