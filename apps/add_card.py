@@ -16,10 +16,10 @@ from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
 from rich.console import Console
 
-# Import removed - using LINQ with_progress instead
 from tidyllm.adapters.cli import cli_main
 from tidyllm.cache import cached_function
 from tidyllm.context import get_tool_context
+from tidyllm.llm import completion_with_schema
 from tidyllm.linq import Table, from_iterable
 from tidyllm.registry import register
 from tidyllm.tools.anki import (
@@ -111,18 +111,11 @@ Output a single JSON object with the completed vocabulary item.
 </input>
 """
 
-    response = cast(
-        ModelResponse,
-        litellm.completion(
-            model=ctx.config.fast_model,
-            messages=[{"role": "user", "content": prompt}],
-            response_format=AddCardRequest,
-        ),
+    return completion_with_schema(
+        model=ctx.config.fast_model,
+        messages=[{"role": "user", "content": prompt}],
+        response_schema=AddCardRequest,
     )
-
-    message_content = cast(litellm.Choices, response.choices)[0].message.content
-    assert message_content is not None, "Response content is None"
-    return AddCardRequest.model_validate_json(message_content)
 
 
 class VocabularyExtractionResponse(BaseModel):
@@ -130,7 +123,7 @@ class VocabularyExtractionResponse(BaseModel):
     items: list[VocabularyItem]
 
 
-def _parse_csv_row(row: dict, deck_name: str, row_index: int) -> AddCardRequest:
+def _parse_csv_row(row: dict) -> AddCardRequest:
     """Parse a single CSV row into AddCardRequest."""
     term_en = row.get("term_en", "").strip()
     term_ja = row.get("term_ja", "").strip()
@@ -140,7 +133,9 @@ def _parse_csv_row(row: dict, deck_name: str, row_index: int) -> AddCardRequest:
 
     # At least one term (English or Japanese) must be provided
     if not term_en and not term_ja:
-        raise ValueError(f"Row {row_index}: Missing required term (either term_en or term_ja)")
+        raise ValueError(
+            f"Row {row}. Missing required term (either term_en or term_ja)"
+        )
 
     return AddCardRequest(
         term_en=term_en,
@@ -171,74 +166,34 @@ def _vocab_item_to_card_request(
     )
 
 
-def _process_card_pipeline(request: AddCardRequest, output_dir: Path, index: int) -> dict:
-    """Process a single card through the complete pipeline."""
-    try:
-        # Use the existing pipeline: infer missing fields -> process card
-        complete_request = _infer_missing_fields(request)
-        vocab_card = _process_single_card(complete_request, output_dir, index)
-        return {'success': True, 'card': vocab_card}
-    except Exception as e:
-        return {
-            'success': False,
-            'error': f"Card '{request.term_en or request.term_ja}': {str(e)}"
-        }
-
-
 def _generate_audio_files(
-    term_en: str, term_ja: str, output_dir: Path, index: int
+    term_en: str, term_ja: str, output_dir: Path
 ) -> tuple[Path, Path]:
     """Generate TTS audio files for English and Japanese content.
-    
+
     Args:
         term_en: English term for filename
-        term_ja: Japanese term for filename  
+        term_ja: Japanese term for filename
         sentence_en: English sentence content for TTS
         sentence_ja: Japanese sentence content for TTS
         output_dir: Directory to save audio files
-        index: Index for unique filenames
-    
+
     Returns:
         Tuple of (english_audio_path, japanese_audio_path)
     """
     # Generate English audio
-    audio_en_path = output_dir / f"{term_en.replace(' ', '_')}_{index}_en.mp3"
+    audio_en_path = output_dir / f"{term_en.replace(' ', '_')}_en.mp3"
     en_result = generate_speech(content=term_en, language="English")
     with open(audio_en_path, "wb") as f:
         f.write(en_result.audio_bytes)
 
     # Generate Japanese audio
-    audio_ja_path = output_dir / f"{term_ja.replace(' ', '_')}_{index}_ja.mp3"
+    audio_ja_path = output_dir / f"{term_ja.replace(' ', '_')}_ja.mp3"
     ja_result = generate_speech(content=term_ja, language="Japanese")
     with open(audio_ja_path, "wb") as f:
         f.write(ja_result.audio_bytes)
 
     return audio_en_path, audio_ja_path
-
-
-def _process_single_card(request: AddCardRequest, output_dir: Path, index: int) -> AddVocabCardRequest:
-    """Process a single card request into a complete AddVocabCardRequest."""
-    # Infer missing fields using LLM
-    complete_request = _infer_missing_fields(request)
-
-    # Generate TTS audio files
-    audio_en_path, audio_ja_path = _generate_audio_files(
-        complete_request.term_en,
-        complete_request.term_ja,
-        output_dir=output_dir,
-        index=index,
-    )
-
-    # Create vocab card request
-    return AddVocabCardRequest(
-        term_en=complete_request.term_en,
-        term_ja=complete_request.term_ja,
-        reading_ja=complete_request.reading_ja,
-        sentence_en=complete_request.sentence_en,
-        sentence_ja=complete_request.sentence_ja,
-        audio_en=audio_en_path,
-        audio_ja=audio_ja_path,
-    )
 
 
 @register()
@@ -367,12 +322,13 @@ def add_from_csv(
     # Read CSV file and parse using enhanced LINQ operations
     with open(csv_path, encoding="utf-8") as f:
         csv_rows = list(csv.DictReader(f))
-    
+
     # Parse all rows with error handling using LINQ
-    successful_results, failed_results = (from_iterable(enumerate(csv_rows, 1))
-        .try_select(lambda item: _parse_csv_row(item[1], deck_name, item[0])))
-    
-    card_requests = list(successful_results)
+    successful_results, failed_results = from_iterable(csv_rows).try_select(
+        _parse_csv_row
+    )
+
+    card_requests = successful_results.to_table()
     failed_cards = [str(exception) for exception in failed_results]
 
     console.print(f"[green]Found {len(card_requests)} valid cards to process[/green]")
@@ -382,15 +338,7 @@ def add_from_csv(
         for failure in failed_cards:
             console.print(f"  [yellow]- {failure}[/yellow]")
 
-    if len(card_requests) == 0:
-        console.print("[yellow]No valid card requests to process[/yellow]")
-        return
-
-    # Create Table[AddCardRequest]
-    card_requests_table = Table.from_pydantic(card_requests)
-
-    # Always use the unified pipeline
-    review_and_add(card_requests_table, deck_name, interactive=interactive)
+    review_and_add(card_requests, deck_name, interactive=interactive)
 
 
 @register()
@@ -447,28 +395,10 @@ Return a JSON object with vocabulary items:
     ]
 }}"""
 
-    response = cast(
-        ModelResponse,
-        litellm.completion(
-            model=ctx.config.fast_model,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "vocabulary_extraction",
-                    "schema": VocabularyExtractionResponse.model_json_schema(),
-                    "strict": True,
-                },
-            },
-        ),
-    )
-    if not response.choices:
-        raise RuntimeError("Failed to extract vocabulary from text")
-
-    message_content = cast(litellm.Choices, response.choices)[0].message.content
-    assert message_content is not None, "Response content is None"
-    extraction_result = VocabularyExtractionResponse.model_validate_json(
-        message_content
+    extraction_result = completion_with_schema(
+        model=ctx.config.fast_model,
+        messages=[{"role": "user", "content": prompt}],
+        response_schema=VocabularyExtractionResponse,
     )
 
     console.print(
@@ -518,25 +448,12 @@ def review_and_add(
         console.print("[yellow]No card requests to process[/yellow]")
         return
 
-    # Select which cards to process
     if interactive:
-        # Use select_ui to let user choose which cards to create
-        selected_requests = select_ui(
+        card_requests = select_ui(
             card_requests,
             title="Card Requests - Select cards to create",
             display_columns=["term_en", "term_ja", "reading_ja"],
         )
-
-        if len(selected_requests) == 0:
-            console.print("[yellow]No cards selected[/yellow]")
-            return
-
-        console.print(
-            f"[green]Selected {len(selected_requests)} cards to create[/green]"
-        )
-    else:
-        # Non-interactive: process all cards
-        selected_requests = card_requests
 
     # Setup output directory
     if not output_dir:
@@ -544,28 +461,22 @@ def review_and_add(
     else:
         output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Process selected requests using enhanced LINQ pipeline
-    successful_results, failed_results = (from_iterable(enumerate(selected_requests))
+    def _generate_audio(req: AddCardRequest):
+        return _generate_audio_files(req.term_en, req.term_ja, output_dir=output_dir)
+
+    cards, failed_results = (
+        from_iterable(enumerate(card_requests))
         .with_progress("Processing selected cards")
-        .try_select(lambda item: _process_card_pipeline(item[1], output_dir, item[0])))
-    
-    # Extract processed cards from successful results
-    processed_cards = []
-    for result in successful_results:
-        if isinstance(result, dict) and result.get('success') and 'card' in result:
-            processed_cards.append(result['card'])
-    
-    # Extract error messages from failed results
+        .select(_infer_missing_fields)
+        .try_select(_generate_audio)
+    )
+
     failed_cards = [f"Processing error: {str(exception)}" for exception in failed_results]
 
-    # Create batch deck with all processed cards
-    console.print(f"[yellow]Creating deck with {len(processed_cards)} cards...[/yellow]")
-    result = anki_add_vocab_cards(deck_name, processed_cards)
+    result = anki_add_vocab_cards(deck_name, cards.to_table())
     cards_created = result.cards_created
 
-    console.print(
-        f"[green]Cards created: {cards_created}/{len(selected_requests)}[/green]"
-    )
+    console.print(f"[green]Cards created: {cards_created}/{len(card_requests)}[/green]")
 
     if failed_cards:
         console.print(f"[red]Failed cards: {len(failed_cards)}[/red]")

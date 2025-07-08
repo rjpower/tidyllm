@@ -245,3 +245,35 @@ class LiteLLMClient:
 
         # Don't log here - logging will happen in LLMHelper after tool execution
         return response
+
+
+def completion_with_schema(
+    model: str,
+    messages: list[dict[str, str]],
+    response_schema: type[BaseModel],
+    **kwargs,
+) -> BaseModel:
+    """Wrapper for litellm.completion with Pydantic schema response format.
+    
+    Args:
+        model: Model name to use
+        messages: List of messages in OpenAI format
+        response_schema: Pydantic model class to use for response format
+        **kwargs: Additional arguments passed to litellm.completion
+        
+    Returns:
+        Parsed response as instance of response_schema
+    """
+    response = cast(
+        litellm.ModelResponse,
+        litellm.completion(
+            model=model,
+            messages=messages,
+            response_format=response_schema,
+            **kwargs,
+        ),
+    )
+    
+    message_content = cast(litellm.Choices, response.choices)[0].message.content
+    assert message_content is not None, "Response content is None"
+    return response_schema.model_validate_json(message_content)
