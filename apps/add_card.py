@@ -15,8 +15,8 @@ import litellm
 from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
 from rich.console import Console
-# Import removed - using LINQ with_progress instead
 
+# Import removed - using LINQ with_progress instead
 from tidyllm.adapters.cli import cli_main
 from tidyllm.cache import cached_function
 from tidyllm.context import get_tool_context
@@ -41,8 +41,31 @@ class AddCardRequest(BaseModel):
     reading_ja: str = ""
     sentence_en: str = ""
     sentence_ja: str = ""
-    deck_name: str = "Japanese Vocabulary"
-    output_dir: Path | None = None
+
+
+class AddCardResult(BaseModel):
+    """Result of adding a single card."""
+
+    card_created: bool
+    deck_path: Path
+    message: str
+
+
+class BatchAddResult(BaseModel):
+    """Result of batch adding cards."""
+
+    cards_created: int
+    total_cards: int
+    deck_path: Path
+    failed_cards: list[str] = []
+
+
+class VocabularyItem(BaseModel):
+    """A single vocabulary item extracted from text."""
+
+    word: str
+    translation: str
+    reading: str
 
 
 @cached_function
@@ -93,54 +116,18 @@ Output a single JSON object with the completed vocabulary item.
         litellm.completion(
             model=ctx.config.fast_model,
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
+            response_format=AddCardRequest,
         ),
     )
 
     message_content = cast(litellm.Choices, response.choices)[0].message.content
     assert message_content is not None, "Response content is None"
-    completed_data = json.loads(message_content)
-
-    # Merge with original request, preserving non-empty original values
-    final_data = request_data.copy()
-    for key, value in completed_data.items():
-        if key in final_data and (not final_data[key] or final_data[key] == ""):
-            final_data[key] = value
-
-    # Re-add the output_dir from the original request
-    final_data["output_dir"] = request.output_dir
-    final_data["deck_name"] = request.deck_name
-
-    return AddCardRequest(**final_data)
-
-
-class AddCardResult(BaseModel):
-    """Result of adding a single card."""
-    card_created: bool
-    deck_path: Path
-    message: str
-
-
-class BatchAddResult(BaseModel):
-    """Result of batch adding cards."""
-    cards_created: int
-    total_cards: int
-    deck_path: Path
-    failed_cards: list[str] = []
-
-
-class VocabularyItem(BaseModel):
-    """A single vocabulary item extracted from text."""
-    word: str
-    translation: str
-    reading: str
+    return AddCardRequest.model_validate_json(message_content)
 
 
 class VocabularyExtractionResponse(BaseModel):
     """Response model for vocabulary extraction from text."""
     items: list[VocabularyItem]
-
-
 
 
 def _parse_csv_row(row: dict, deck_name: str, row_index: int) -> AddCardRequest:
@@ -161,11 +148,12 @@ def _parse_csv_row(row: dict, deck_name: str, row_index: int) -> AddCardRequest:
         reading_ja=reading_ja,
         sentence_en=sentence_en,
         sentence_ja=sentence_ja,
-        deck_name=deck_name,
     )
 
 
-def _vocab_item_to_card_request(item: VocabularyItem, source_language: str, target_language: str, deck_name: str) -> AddCardRequest:
+def _vocab_item_to_card_request(
+    item: VocabularyItem, source_language: str, target_language: str
+) -> AddCardRequest:
     """Convert VocabularyItem to AddCardRequest."""
     if source_language == "ja" and target_language == "en":
         term_ja = item.word
@@ -180,7 +168,6 @@ def _vocab_item_to_card_request(item: VocabularyItem, source_language: str, targ
         term_en=term_en,
         term_ja=term_ja,
         reading_ja=reading_ja,
-        deck_name=deck_name,
     )
 
 
@@ -288,7 +275,6 @@ def add_card(
     request = AddCardRequest(
         term_en=term_en,
         term_ja=term_ja,
-        deck_name=deck_name,
     )
 
     # Infer missing fields using LLM
@@ -437,10 +423,6 @@ def add_from_text(
     console.print(f"[blue]Text:[/blue] {text[:100]}{'...' if len(text) > 100 else ''}")
 
     # Use LLM to extract vocabulary
-    import litellm
-
-    from tidyllm.context import get_tool_context
-
     ctx = get_tool_context()
 
     prompt = f"""Extract the most useful vocabulary words from this {source_language} text for language learners.
@@ -494,9 +476,15 @@ Return a JSON object with vocabulary items:
     )
 
     # Convert vocabulary items to Table[AddCardRequest] using LINQ
-    card_requests = (from_iterable(extraction_result.items)
-        .select(lambda item: _vocab_item_to_card_request(item, source_language, target_language, deck_name))
-        .to_list())
+    card_requests = (
+        from_iterable(extraction_result.items)
+        .select(
+            lambda item: _vocab_item_to_card_request(
+                item, source_language, target_language
+            )
+        )
+        .to_list()
+    )
 
     review_and_add(
         Table.from_pydantic(card_requests),

@@ -12,7 +12,7 @@ from typing import Any, ParamSpec, TypeVar, cast, overload
 import click
 
 from tidyllm.agent import LLMAgent
-from tidyllm.llm import AssistantMessage, LiteLLMClient, LLMClient, LLMResponse, Role
+from tidyllm.llm import AssistantMessage, LiteLLMClient, LLMResponse, Role
 from tidyllm.registry import Registry
 
 P = ParamSpec("P")

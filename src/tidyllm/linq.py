@@ -21,9 +21,6 @@ U = TypeVar("U")
 K = TypeVar("K")
 V = TypeVar("V")
 
-# Column schema for structured data (type names as strings for JSON serialization)
-ColumnSchema: TypeAlias = dict[str, str]
-
 
 class Grouping(Generic[K, V]):
     def __init__(self, key: K, items: list[V]):
@@ -250,7 +247,6 @@ class Enumerable(ABC, Generic[T]):
         """Collect all elements into list (alias for to_list)."""
         return self.to_list()
 
-
     # Materialization
     def to_list(self) -> list[T]:
         """Materialize to list."""
@@ -381,33 +377,26 @@ class Enumerable(ABC, Generic[T]):
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: Any
     ) -> core_schema.CoreSchema:
-        """Make Enumerable serializable by converting to Table."""
+        """Serialization logic for Enumerable.
+
+        Enumerables are serialized by first materializing them to `Table` form
+        then inferring the underlying model type for the schema.
+        """
 
         def serialize_enumerable(instance: "Enumerable[Any]") -> dict[str, Any]:
             """Serialize Enumerable by materializing to Table."""
-            # Convert to list and create a Table
-            rows = list(instance)
-            # Try to infer columns if possible
-            columns = {}
-            if rows and hasattr(rows[0], "model_fields"):
-                columns = {
-                    k: getattr(v.annotation, "__name__", str(v.annotation))
-                    for k, v in rows[0].model_fields.items()
-                }
-            elif rows and isinstance(rows[0], dict):
-                columns = {
-                    k: getattr(type(v), "__name__", str(type(v)))
-                    for k, v in rows[0].items()
-                }
+            table = instance.to_table()
+            schema = table.table_schema().model_json_schema()
 
-            return {"rows": rows, "columns": columns, "_type": "Table"}
+            return {"rows": table.rows, "table_schema": schema, "_type": "Table"}
 
         def deserialize_enumerable(data: Any) -> Any:
             """Deserialize to Table or pass through if already an Enumerable."""
             if isinstance(data, Enumerable):
                 return data
             if isinstance(data, dict) and "rows" in data:
-                return Table(rows=data["rows"], columns=data.get("columns", {}))
+                # For now, create Table without schema - it will infer from rows
+                return Table(rows=data["rows"], table_schema=None)
             return data
 
         # Create an any schema that accepts Enumerable instances
@@ -790,7 +779,6 @@ class WindowPredicate(Enumerable[list[T]], Generic[T]):
             yield window
 
 
-
 class SchemaInferringEnumerable(Enumerable[T]):
     """Enumerable that infers schema from data samples while preserving lazy evaluation."""
 
@@ -800,27 +788,35 @@ class SchemaInferringEnumerable(Enumerable[T]):
         self.sample_size = sample_size
         self._cached_schema: type[BaseModel] | None = None
         self._sample_buffer: list[T] = []
-        self._sample_consumed = False
+        self._cached_iterator: Iterator[T] | None = None
+
+    def set_known_schema(self, schema: type[BaseModel]) -> None:
+        """Set a known schema, bypassing inference completely."""
+        self._cached_schema = schema
 
     def table_schema(self) -> type[BaseModel]:
         """Get inferred schema, sampling if needed."""
-        if self._cached_schema is None:
-            self._ensure_sampled()
-            self._cached_schema = create_model_from_data_sample(
-                self._sample_buffer, "InferredSchema"
-            )
+        if self._cached_schema is not None:
+            return self._cached_schema
+
+        self._ensure_sampled()
+        self._cached_schema = create_model_from_data_sample(
+            self._sample_buffer, "InferredSchema"
+        )
         return self._cached_schema
 
     def _ensure_sampled(self):
         """Collect sample if not already done."""
-        if self._sample_consumed:
+        if self._cached_schema:
             return
 
-        # Collect sample from source
-        source_iter = iter(self.source)
+        # Get iterator from source and cache it
+        self._cached_iterator = iter(self.source)
+
+        # Collect sample from the cached iterator
         for _ in range(self.sample_size):
             try:
-                item = next(source_iter)
+                item = next(self._cached_iterator)
                 self._sample_buffer.append(item)
             except StopIteration:
                 break
@@ -828,37 +824,34 @@ class SchemaInferringEnumerable(Enumerable[T]):
         self._sample_consumed = True
 
     def __iter__(self) -> Iterator[T]:
-        """Iterate elegantly: yield sample buffer first, then continue with source."""
+        """Iterate elegantly: yield sample buffer first, then continue with cached iterator."""
         self._ensure_sampled()
 
         # First, yield items from our sample buffer
         yield from self._sample_buffer
 
-        # Then continue with the rest of the source
-        # We need to skip items we already consumed during sampling
-        source_iter = iter(self.source)
-
-        # Skip the items we already buffered
-        for _ in range(len(self._sample_buffer)):
-            try:
-                next(source_iter)
-            except StopIteration:
-                return
-
-        # Yield the remaining items
-        yield from source_iter
+        # Then continue with the cached iterator (which is positioned after the sample)
+        if self._cached_iterator is not None:
+            yield from self._cached_iterator
 
 
-# Table implementation using Enumerable
-class Table(BaseModel, Enumerable[T]):
-    """Pydantic-based table with automatic serialization and LINQ operations."""
+# Table implementation inheriting from SchemaInferringEnumerable
+class Table(SchemaInferringEnumerable[T]):
+    """Table with automatic schema inference and LINQ operations."""
 
-    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
+    def __init__(
+        self, rows: list[T] | None = None, table_schema: type[BaseModel] | None = None
+    ):
+        self.rows: list[T] = rows or []
 
-    rows: list[T] = Field(description="Table rows")
-    columns: dict[str, str] = Field(description="Column schema", default_factory=dict)
+        source = IterableEnumerable(self.rows)
+        super().__init__(source, sample_size=5)
+
+        if table_schema is not None:
+            self.set_known_schema(table_schema)
 
     def __iter__(self) -> Iterator[T]:
+        """Direct iteration over rows (no sampling needed)."""
         return iter(self.rows)
 
     def __len__(self) -> int:
@@ -872,78 +865,38 @@ class Table(BaseModel, Enumerable[T]):
         """Get row count."""
         return len(self.rows)
 
-    def table_schema(self) -> type[BaseModel]:
-        """Get schema for this table.
-
-        Returns:
-            Pydantic model representing the row structure
-        """
-        if not self.rows:
-            return create_model_from_data_sample([], "EmptyTableSchema")
-
-        return create_model_from_data_sample(self.rows[:5], "TableSchema")
-
     @classmethod
     def from_rows(
-        cls, rows: list[T], columns: ColumnSchema | None = None
+        cls, rows: list[T], table_schema: type[BaseModel] | None = None
     ) -> "Table[T]":
         """Create table from rows."""
-        if columns is None and rows and hasattr(rows[0], "model_fields"):
-            # Infer from Pydantic model
-            fields = {k: getattr(v.annotation, "__name__", str(v.annotation)) for k, v in rows[0].model_fields.items()}  # type: ignore
-            columns = fields
-        # Convert type objects to strings
-        if columns:
-            columns = {
-                k: getattr(v, "__name__", str(v)) if not isinstance(v, str) else v
-                for k, v in columns.items()
-            }
-        return cls(rows=rows, columns=columns or {})
+        return cls(rows=rows, table_schema=table_schema)
 
     @classmethod
     def from_pydantic(cls, rows: list[BaseModel]) -> "Table[Any]":
-        """Create table from Pydantic models."""
+        """Create table from Pydantic models with schema optimization."""
         if not rows:
             return cls.empty()
 
-        # Convert type annotations to string names
-        fields = {
-            k: getattr(v.annotation, "__name__", str(v.annotation))
-            for k, v in type(rows[0]).model_fields.items()
-        }
-        return cls(rows=rows, columns=fields)
+        model_type = type(rows[0])
+        table = cls(rows=rows, table_schema=model_type)
+
+        table.set_known_schema(model_type)
+        return table
 
     @classmethod
     def empty(cls) -> "Table[Any]":
         """Create empty table."""
-        return cls(rows=[], columns={})
+        return cls(rows=[], table_schema=None)
 
-    def _infer_columns(self, rows: list[Any]) -> dict[str, str]:
-        """Infer column schema from rows."""
-        if not rows:
-            return {}
-
-        first = rows[0]
-        if hasattr(first, "model_fields"):
-            # Pydantic model
-            return {
-                k: getattr(v.annotation, "__name__", str(v.annotation))
-                for k, v in type(first).model_fields.items()
-            }
-        elif isinstance(first, dict):
-            # Dictionary rows
-            return {k: type(v).__name__ for k, v in first.items()}
-        else:
-            # Can't infer
-            return {}
+    def to_table(self) -> "Table":
+        return self
 
 
 # Convenience factory functions
 def from_iterable(items: Iterable[T]) -> Enumerable[T]:
     """Create enumerable from any iterable."""
     return IterableEnumerable(items)
-
-
 
 
 class IterableEnumerable(Enumerable[T]):

@@ -9,9 +9,7 @@ from pydantic import BaseModel, Field
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.context import get_tool_context
-from tidyllm.linq import Table
-
-# Table is now an alias for Table
+from tidyllm.linq import Enumerable, from_iterable
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 
@@ -156,7 +154,7 @@ def note_add(args: NoteAddArgs) -> str:
 
 
 @register()
-def note_search(query: str) -> Table:
+def note_search(query: str) -> Enumerable[Note]:
     """Search notes by content and filename using ripgrep and find.
 
     Args:
@@ -207,20 +205,16 @@ def note_search(query: str) -> Table:
                 found_files.add(file_path_str)
 
     # Parse all found files
-    notes_list = []
-    for file_path_str in found_files:
-        file_path = Path(file_path_str)
-        if not file_path.exists():
-            continue
-
-        note = _parse_note_file(file_path)
-        notes_list.append(note)
-
-    return Table.from_pydantic(notes_list)
+    return (
+        from_iterable(found_files)
+        .select(lambda path: Path(path))
+        .where(lambda path: path.exists())
+        .select(lambda path: _parse_note_file(path))
+    )
 
 
 @register()
-def note_list(tags: list[str] | None = None, limit: int = 50) -> Table:
+def note_list(tags: list[str] | None = None, limit: int = 50) -> Enumerable[Note]:
     """List all notes, optionally filtered by tags.
 
     Args:
@@ -233,21 +227,13 @@ def note_list(tags: list[str] | None = None, limit: int = 50) -> Table:
     notes_dir = ctx.config.ensure_notes_dir()
 
     # Find all markdown files
-    md_files = list(notes_dir.glob("*.md"))
-    md_files.sort(
-        key=lambda f: f.stat().st_mtime, reverse=True
-    )  # Sort by modification time
-
-    notes_list = []
-    for file_path in md_files[:limit]:
-        note = _parse_note_file(file_path)
-        if tags:
-            if any(tag in note.tags for tag in tags):
-                notes_list.append(note)
-        else:
-            notes_list.append(note)
-
-    return Table.from_pydantic(notes_list)
+    return (
+        from_iterable(notes_dir.glob("*.md"))
+        .order_by_descending(lambda f: f.stat().st_mtime)
+        .take(limit)
+        .select(lambda f: _parse_note_file(f))
+        .where(lambda note: not tags or any(tag in note.tags for tag in tags))
+    )
 
 
 @register()
@@ -282,7 +268,7 @@ def note_read_content(query: str) -> str:
 
 
 @register()
-def note_recent(limit: int = 10) -> Table:
+def note_recent(limit: int = 10) -> Enumerable[Note]:
     """List recently modified notes.
 
     Args:
@@ -294,15 +280,12 @@ def note_recent(limit: int = 10) -> Table:
     notes_dir = ctx.config.ensure_notes_dir()
 
     # Find all markdown files and sort by modification time
-    md_files = list(notes_dir.glob("*.md"))
-    md_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-
-    notes_list = []
-    for file_path in md_files[:limit]:
-        note = _parse_note_file(file_path)
-        notes_list.append(note)
-
-    return Table.from_pydantic(notes_list)
+    return (
+        from_iterable(notes_dir.glob("*.md"))
+        .order_by_descending(lambda f: f.stat().st_mtime)
+        .take(limit)
+        .select(lambda f: _parse_note_file(f))
+    )
 
 
 @register()
@@ -314,16 +297,14 @@ def note_tags() -> list[str]:
     ctx = get_tool_context()
     notes_dir = ctx.config.ensure_notes_dir()
 
-    all_tags = set()
-    md_files = list(notes_dir.glob("*.md"))
-
-    for file_path in md_files:
-        note = _parse_note_file(file_path)
-        all_tags.update(note.tags)
-
-    all_tags = list(all_tags)
-    all_tags.sort()
-    return all_tags
+    return (
+        from_iterable(notes_dir.glob("*.md"))
+        .select(lambda f: _parse_note_file(f))
+        .select_many(lambda note: note.tags)
+        .distinct()
+        .order_by(lambda tag: tag.lower())
+        .to_list()
+    )
 
 
 if __name__ == "__main__":

@@ -12,7 +12,6 @@ from collections.abc import Iterator
 from typing import Protocol, TypeVar
 
 from tidyllm.linq import (
-    ColumnSchema,
     Enumerable,
     Table,
     from_iterable,
@@ -36,7 +35,6 @@ __all__ = [
     "from_json_dict",
     "to_json_dict",
     "Table",
-    "ColumnSchema",
     "Enumerable",
     "from_iterable",
     "Sequence",

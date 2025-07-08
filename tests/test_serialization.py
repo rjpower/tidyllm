@@ -75,7 +75,7 @@ class TestPydanticSerialization:
         dt = datetime(2023, 1, 1, 12, 0, 0)
         d = date(2023, 1, 1)
         t = time(12, 0, 0)
-        
+
         # Pydantic handles these automatically
         assert to_json_dict(dt) == dt.isoformat()
         assert to_json_dict(d) == d.isoformat()
@@ -86,7 +86,7 @@ class TestPydanticSerialization:
         uuid_val = UUID("550e8400-e29b-41d4-a716-446655440000")
         path_val = Path("/tmp/test")
         decimal_val = Decimal("123.45")
-        
+
         # Pydantic converts these to strings automatically
         assert to_json_dict(uuid_val) == str(uuid_val)
         assert to_json_dict(path_val) == str(path_val)
@@ -99,12 +99,12 @@ class TestPydanticSerialization:
             Person(name="Bob", age=25)
         ]
         table = Table.from_pydantic(people)
-        
+
         # Table is now a Pydantic model, so it serializes directly
         result = to_json_dict(table)
-        
+
         assert "rows" in result
-        assert "columns" in result
+        assert "table_schema" in result
         assert len(result["rows"]) == 2
         assert result["rows"][0] == {"name": "Alice", "age": 30}
         assert result["rows"][1] == {"name": "Bob", "age": 25}
@@ -150,11 +150,11 @@ class TestPydanticDeserialization:
         dt_str = "2023-01-01T12:00:00"
         d_str = "2023-01-01"
         t_str = "12:00:00"
-        
+
         dt = from_json_dict(dt_str, datetime)
         d = from_json_dict(d_str, date)
         t = from_json_dict(t_str, time)
-        
+
         assert dt == datetime(2023, 1, 1, 12, 0, 0)
         assert d == date(2023, 1, 1)
         assert t == time(12, 0, 0)
@@ -164,11 +164,11 @@ class TestPydanticDeserialization:
         uuid_str = "550e8400-e29b-41d4-a716-446655440000"
         path_str = "/tmp/test"
         decimal_str = "123.45"
-        
+
         uuid_val = from_json_dict(uuid_str, UUID)
         path_val = from_json_dict(path_str, Path)
         decimal_val = from_json_dict(decimal_str, Decimal)
-        
+
         assert uuid_val == UUID(uuid_str)
         assert path_val == Path(path_str)
         assert decimal_val == Decimal(decimal_str)
@@ -182,13 +182,18 @@ class TestPydanticDeserialization:
             ],
             "columns": {"name": "str", "age": "int"}
         }
-        
+
         result = from_json_dict(data, Table[dict])
         assert isinstance(result, Table)
         assert len(result.rows) == 2
         assert result.rows[0] == {"name": "Alice", "age": 30}
         assert result.rows[1] == {"name": "Bob", "age": 25}
-        assert result.columns == {"name": "str", "age": "int"}
+        # Check that columns is now a BaseModel type with the expected fields
+        table_schema = result.table_schema()
+        assert table_schema is not None
+        assert hasattr(table_schema, "model_fields")
+        assert "name" in table_schema.model_fields
+        assert "age" in table_schema.model_fields
 
 
 class TestRoundTrip:
@@ -557,18 +562,18 @@ class TestIntegrationDynamicModels:
         """Test that dynamic models work with function schema creation."""
         # This tests that our refactored function schema creation works
         from tidyllm.function_schema import FunctionDescription
-        
+
         def test_function(name: str, age: int = 25) -> str:
             """Test function for schema integration."""
             return f"{name} is {age} years old"
-        
+
         desc = FunctionDescription(test_function)
-        
+
         # Should create args model successfully
         assert desc.args_model.__name__ == "Test_FunctionArgs"
         assert 'name' in desc.args_model.model_fields
         assert 'age' in desc.args_model.model_fields
-        
+
         # Should be able to validate args
         validated = desc.validate_and_parse_args({"name": "Alice", "age": 30})
         assert validated["name"] == "Alice"
@@ -577,25 +582,25 @@ class TestIntegrationDynamicModels:
     def test_linq_schema_serialization_integration(self):
         """Test LINQ schema with serialization roundtrip."""
         from tidyllm.linq import from_iterable
-        
+
         # Start with data
         data = [
             {'product': 'Widget', 'price': 10.99, 'in_stock': True},
             {'product': 'Gadget', 'price': 25.50, 'in_stock': False}
         ]
-        
+
         # Create schema-aware enumerable
         enum = from_iterable(data).with_schema_inference()
         schema = enum.table_schema()
-        
+
         # Serialize the schema (as a model class, this is tricky)
         # Instead, test creating instances from the schema
         instance = schema(product="Test", price=99.99, in_stock=True)
-        
+
         # Serialize the instance
         serialized = to_json_dict(instance)
         assert serialized == {"product": "Test", "price": 99.99, "in_stock": True}
-        
+
         # Deserialize back
         deserialized = from_json_dict(serialized, schema)
         assert deserialized.product == "Test"
@@ -609,16 +614,15 @@ class TestIntegrationDynamicModels:
             {'user_id': 1, 'username': 'alice', 'active': True},
             {'user_id': 2, 'username': 'bob', 'active': False}
         ]
-        
+
         table = Table.from_rows(data)
         schema = table.table_schema()
-        
+
         # Schema should be dynamically created
-        assert schema.__name__ == "TableSchema"
         assert 'user_id' in schema.model_fields
         assert 'username' in schema.model_fields
         assert 'active' in schema.model_fields
-        
+
         # Create instance from schema
         new_user = schema(user_id=3, username="charlie", active=True)
         assert new_user.user_id == 3

@@ -278,7 +278,7 @@ class TestTable:
             {'name': 'Alice', 'age': 25},
             {'name': 'Bob', 'age': 30}
         ]
-        
+
         table = Table.from_rows(data)
         assert len(table) == 2
         assert table[0] == data[0]
@@ -290,7 +290,7 @@ class TestTable:
             User(name='Alice', age=25),
             User(name='Bob', age=30, active=False)
         ]
-        
+
         table = Table.from_pydantic(users)
         assert len(table) == 2
         assert table[0].name == 'Alice'
@@ -302,10 +302,10 @@ class TestTable:
             User(name='Alice', age=25),
             User(name='Bob', age=30)
         ]
-        
+
         table = Table.from_pydantic(users)
         schema = table.table_schema()
-        
+
         # Should return the User type since all rows are User instances
         assert schema is User
 
@@ -315,10 +315,10 @@ class TestTable:
             {'product': 'Widget', 'price': 10.99, 'stock': 50},
             {'product': 'Gadget', 'price': 25.50, 'stock': 30}
         ]
-        
+
         table = Table.from_rows(data)
         schema = table.table_schema()
-        
+
         assert 'product' in schema.model_fields
         assert 'price' in schema.model_fields
         assert 'stock' in schema.model_fields
@@ -330,13 +330,13 @@ class TestTable:
             {'name': 'Bob', 'age': 30},
             {'name': 'Charlie', 'age': 35}
         ]
-        
+
         table = Table.from_rows(data)
-        
+
         # Test filtering
         adults = table.where(lambda x: x['age'] >= 30).to_list()
         assert len(adults) == 2
-        
+
         # Test transformation
         names = table.select(lambda x: x['name']).to_list()
         assert names == ['Alice', 'Bob', 'Charlie']
@@ -346,7 +346,7 @@ class TestTable:
         data = [1, 2, 3, 4, 5]
         enum = from_iterable(data)
         table = enum.to_table()
-        
+
         assert isinstance(table, Table)
         assert list(table) == data
 
@@ -354,8 +354,9 @@ class TestTable:
         """Test schema for empty table."""
         table = Table.empty()
         schema = table.table_schema()
-        
-        assert schema.__name__ == "EmptyTableSchema"
+
+        assert schema.__name__ == "InferredSchema"
+        assert schema.model_json_schema()["properties"] == {}
 
 
 class TestAdvancedLINQ:
