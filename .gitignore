@@ -2,6 +2,8 @@
 CLAUDE.md
 AGENTS.md
 
+*.pdf
+
 # Additions to standard GitHub .gitignore:
 .DS_Store
 *.bak

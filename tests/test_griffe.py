@@ -4,7 +4,7 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
-from tidyllm.docstring import extract_function_docs
+from tidyllm.docstring import extract_docs_from_string
 
 
 class GriffeTestArgs(BaseModel):
@@ -83,7 +83,8 @@ class TestGriffeParameterExtraction:
 
     def test_extract_parameter_docs_comprehensive(self):
         """Test extracting parameter docs from well-documented function."""
-        param_docs = extract_function_docs(documented_function)["parameters"]
+        docstring_info = extract_docs_from_string(documented_function.__doc__)
+        param_docs = docstring_info.parameters
 
         assert "name" in param_docs
         assert "count" in param_docs
@@ -95,21 +96,24 @@ class TestGriffeParameterExtraction:
 
     def test_extract_parameter_docs_minimal(self):
         """Test extracting from function with minimal docs."""
-        param_docs = extract_function_docs(minimal_function)["parameters"]
+        docstring_info = extract_docs_from_string(minimal_function.__doc__)
+        param_docs = docstring_info.parameters
 
         assert "message" in param_docs
         assert "Input message to process" in param_docs["message"]
 
     def test_extract_parameter_docs_no_docstring(self):
         """Test extracting from function without docstring."""
-        param_docs = extract_function_docs(no_docstring_function)["parameters"]
+        docstring_info = extract_docs_from_string(no_docstring_function.__doc__)
+        param_docs = docstring_info.parameters
 
         # Should return empty dict when no docstring
         assert param_docs == {}
 
     def test_extract_parameter_docs_pydantic_model(self):
         """Test extracting docs from function with Pydantic model args."""
-        param_docs = extract_function_docs(pydantic_function)["parameters"]
+        docstring_info = extract_docs_from_string(pydantic_function.__doc__)
+        param_docs = docstring_info.parameters
 
         assert "args" in param_docs
         # ctx parameter was removed in favor of contextvar approach
@@ -119,7 +123,8 @@ class TestGriffeParameterExtraction:
 
     def test_extract_parameter_docs_with_defaults(self):
         """Test that parameter docs include default value information."""
-        param_docs = extract_function_docs(documented_function)["parameters"]
+        docstring_info = extract_docs_from_string(documented_function.__doc__)
+        param_docs = docstring_info.parameters
 
         # Should capture the default value info from docstring
         assert "(default: 5)" in param_docs["count"]
@@ -128,7 +133,8 @@ class TestGriffeParameterExtraction:
     def test_extract_parameter_docs_case_insensitive(self):
         """Test that parameter extraction handles case variations."""
         # This tests the robustness of griffe parsing
-        param_docs = extract_function_docs(documented_function)["parameters"]
+        docstring_info = extract_docs_from_string(documented_function.__doc__)
+        param_docs = docstring_info.parameters
 
         # Should work regardless of case in docstring
         assert len(param_docs) == 3
@@ -140,27 +146,27 @@ class TestGriffeFunctionExtraction:
 
     def test_extract_function_docs_basic(self):
         """Test extracting basic function documentation."""
-        func_docs = extract_function_docs(documented_function)
+        func_docs = extract_docs_from_string(documented_function.__doc__)
 
-        assert func_docs["description"] is not None
-        assert "well-documented function" in func_docs["description"]
-        assert func_docs["returns"] is not None
-        assert "dictionary containing" in func_docs["returns"]
+        assert func_docs.description is not None
+        assert "well-documented function" in func_docs.description
+        assert func_docs.returns is not None
+        assert "dictionary containing" in func_docs.returns
 
     def test_extract_function_docs_minimal(self):
         """Test extracting from minimal documentation."""
-        func_docs = extract_function_docs(minimal_function)
+        func_docs = extract_docs_from_string(minimal_function.__doc__)
 
-        assert func_docs["description"] is not None
-        assert "minimal documentation" in func_docs["description"]
+        assert func_docs.description is not None
+        assert "minimal documentation" in func_docs.description
 
     def test_extract_function_docs_no_docstring(self):
         """Test extracting from function without docstring."""
-        func_docs = extract_function_docs(no_docstring_function)
+        func_docs = extract_docs_from_string(no_docstring_function.__doc__)
 
         # Should return minimal structure
-        assert func_docs["description"] == ""
-        assert func_docs["returns"] == ""
+        assert func_docs.description == ""
+        assert func_docs.returns == ""
 
 
 class TestGriffeIntegrationWithSchema:
@@ -230,7 +236,8 @@ class TestGriffeErrorHandling:
             return arg1
 
         # Should not raise exception
-        param_docs = extract_function_docs(malformed_docstring_function)["parameters"]
+        docstring_info = extract_docs_from_string(malformed_docstring_function.__doc__)
+        param_docs = docstring_info.parameters
 
         # Should handle gracefully, potentially with empty or partial results
         assert isinstance(param_docs, dict)
@@ -250,7 +257,8 @@ class TestGriffeErrorHandling:
             """
             return {"result": "test"}
 
-        param_docs = extract_function_docs(complex_function)["parameters"]
+        docstring_info = extract_docs_from_string(complex_function.__doc__)
+        param_docs = docstring_info.parameters
 
         # Should handle gracefully
         assert isinstance(param_docs, dict)

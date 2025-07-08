@@ -4,6 +4,7 @@ import json
 import pickle
 import sys
 from collections.abc import Callable
+from inspect import isclass
 from pathlib import Path
 from typing import Any, get_origin
 
@@ -45,16 +46,16 @@ def parse_cli_kwargs(kwargs: dict[str, Any], func_desc: FunctionDescription) -> 
 def add_cli_options(cli_func: click.Command, func_desc: FunctionDescription) -> click.Command:
     """Add CLI options for function parameters."""
     fields = func_desc.args_model.model_fields
-    
+
     if not fields:
         return cli_func
-    
+
     # Add named options for all parameters
     for field_name, field_info in fields.items():
         option_name = f"--{field_name.replace('_', '-')}"
         field_type = field_info.annotation or str
         help_text = field_info.description or f"Value for {field_name}"
-        
+
         if field_type is bool:
             cli_func = click.option(
                 option_name,
@@ -62,12 +63,11 @@ def add_cli_options(cli_func: click.Command, func_desc: FunctionDescription) -> 
                 is_flag=True,
                 help=help_text
             )(cli_func)
-        elif get_origin(field_type) is list:
+        elif isclass(get_origin(field_type)) and issubclass(
+            get_origin(field_type), list | tuple
+        ):
             cli_func = click.option(
-                option_name,
-                field_name,
-                multiple=True,
-                help=f"{help_text} (can be specified multiple times)"
+                option_name, field_name, multiple=True, help=f"{help_text}"
             )(cli_func)
         else:
             cli_func = click.option(
@@ -76,7 +76,7 @@ def add_cli_options(cli_func: click.Command, func_desc: FunctionDescription) -> 
                 type=get_click_type(field_type),
                 help=help_text
             )(cli_func)
-    
+
     return cli_func
 
 

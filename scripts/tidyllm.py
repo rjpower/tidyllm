@@ -1,6 +1,7 @@
 """TidyLLM CLI - Main entry point for all TidyLLM tools."""
 
 import logging
+import pathlib
 
 logging.basicConfig(
     level=logging.INFO,
@@ -10,7 +11,7 @@ logging.basicConfig(
 )
 
 from tidyllm.adapters.cli import cli_main
-from tidyllm.discover import discover_tools_in_package
+from tidyllm.discover import discover_tools_in_directory, discover_tools_in_package
 from tidyllm.registry import REGISTRY
 from tidyllm.tools.context import ToolContext
 
@@ -18,6 +19,7 @@ from tidyllm.tools.context import ToolContext
 def main():
     """CLI entry point for TidyLLM tools."""
     discover_tools_in_package("tidyllm.tools")
+    discover_tools_in_directory(pathlib.Path("apps/"))
 
     # Get all registered functions
     functions = [func_desc.function for func_desc in REGISTRY.functions]

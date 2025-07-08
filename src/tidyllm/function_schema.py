@@ -3,21 +3,19 @@
 import asyncio
 import inspect
 from collections.abc import Callable, Iterable
-from types import UnionType
-from typing import Any, Union, get_args, get_origin, get_type_hints
+from typing import Any, get_type_hints
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
 from tidyllm.docstring import (
-    update_schema_with_docstring,
+    DocstringInfo,
+    extract_docs_from_string,
 )
 from tidyllm.serialization import (
     create_model_from_field_definitions,
     transform_argument_type,
 )
-
-
 
 
 class FunctionSchema(TypedDict):
@@ -37,20 +35,14 @@ def function_schema_from_args(
     """Generate OpenAI-compatible tool schema from function using Pydantic models."""
     parameters_schema = args_json_schema
 
-    description = doc
-    description = description.strip()
-
     schema: JSONSchema = {
         "type": "function",
         "function": {
             "name": name,
-            "description": description,
+            "description": doc.strip(),
             "parameters": parameters_schema,
         },
     }
-
-    # Enhance schema with griffe-extracted documentation
-    schema = update_schema_with_docstring(schema, doc)  # type: ignore
 
     return schema
 
@@ -63,6 +55,7 @@ class FunctionDescription:
     name: str
     description: str
     tags: list[str]
+    docstring_info: DocstringInfo
 
     result_type: type
     args_model: type[BaseModel]
@@ -88,7 +81,7 @@ class FunctionDescription:
         self.function = func
         self.name = name or self.function.__name__
 
-        self.description = description
+        self.description = description or self.function.__doc__ or ""
         self.tags = tags or []
 
         self.sig = inspect.signature(func)
@@ -98,16 +91,21 @@ class FunctionDescription:
         hints = get_type_hints(func)
         self.result_type = hints.get('return', Any)
 
+        # Parse docstring early and cache result
+        doc_text = doc_override or (func.__doc__ or f"Function {self.name}")
+        self.docstring_info = extract_docs_from_string(doc_text)
+
         # Generate Pydantic model for argument validation
         self.args_model = self._create_args_model(func)
 
         # Pydantic handles schema generation robustly
         self.args_json_schema = self.args_model.model_json_schema()
 
-        # Use doc_override if provided, otherwise use function's docstring or generate default
-        doc_text = doc_override or (func.__doc__ or f"Function {self.name}")
+        # Use parsed docstring info for schema generation
         self.function_schema = function_schema_from_args(
-            self.args_json_schema, self.name, doc_text
+            self.args_json_schema,
+            self.name,
+            self.docstring_info.description or doc_text,
         )
 
     def _create_args_model(self, func: Callable) -> type[BaseModel]:
@@ -131,8 +129,32 @@ class FunctionDescription:
             param_type = hints.get(param_name, Any)
 
             if inspect.isclass(param_type) and issubclass(param_type, BaseModel):
-                # Already a Pydantic model - use it directly
-                return param_type
+                # Check if we have docstring info that could enhance the model
+                if any(field_name in self.docstring_info.parameters for field_name in param_type.model_fields):
+                    # We have parameter descriptions that could enhance the existing model
+                    # Create a new model with enhanced descriptions
+                    field_definitions = {}
+                    for field_name, field_info in param_type.model_fields.items():
+                        field_type = field_info.annotation
+                        field_type = transform_argument_type(field_type)
+                        param_description = self.docstring_info.parameters.get(field_name, "")
+
+                        if field_info.default is not ...:
+                            field_definitions[field_name] = (
+                                field_type,
+                                Field(default=field_info.default, description=param_description),
+                            )
+                        else:
+                            field_definitions[field_name] = (
+                                field_type,
+                                Field(description=param_description),
+                            )
+
+                    model_name = f"{self.name.title()}Args"
+                    return create_model_from_field_definitions(model_name, field_definitions)
+                else:
+                    # No parameter descriptions - use the model directly
+                    return param_type
 
         # Create dynamic model for multiple parameters or single non-model parameter
         field_definitions = {}
@@ -141,10 +163,19 @@ class FunctionDescription:
             param_type = hints.get(param_name, Any)
             param_type = transform_argument_type(param_type)
 
+            # Get parameter description from docstring info
+            param_description = self.docstring_info.parameters.get(param_name, "")
+
             if param.default is not inspect.Parameter.empty:
-                field_definitions[param_name] = (param_type, param.default)
+                field_definitions[param_name] = (
+                    param_type,
+                    Field(default=param.default, description=param_description),
+                )
             else:
-                field_definitions[param_name] = (param_type, ...)
+                field_definitions[param_name] = (
+                    param_type,
+                    Field(description=param_description),
+                )
 
         # Create the dynamic model using the refactored utility
         model_name = f"{self.name.title()}Args"

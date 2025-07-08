@@ -4,7 +4,6 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from tidyllm.docstring import extract_function_docs
 from tidyllm.function_schema import (
     FunctionDescription,
 )
@@ -116,32 +115,6 @@ def single_primitive_function(message: str) -> dict:
         message: The message to process
     """
     return {"processed": message}
-
-
-class TestParameterDocExtraction:
-    """Test parameter documentation extraction."""
-
-    def test_extract_docs_with_docstring(self):
-        """Test extracting parameter docs from function docstring."""
-        docs = extract_function_docs(simple_function)["parameters"]
-        assert "name" in docs
-        assert "count" in docs
-        assert "optional_flag" in docs
-        assert docs["name"] == "The name parameter"
-        assert docs["count"] == "Number of items to process"
-        assert docs["optional_flag"] == "Optional boolean flag"
-
-    def test_extract_docs_no_docstring(self):
-        """Test extracting docs from function without docstring."""
-        docs = extract_function_docs(no_docstring_function)["parameters"]
-        assert docs == {}
-
-    def test_extract_docs_complex_types(self):
-        """Test extracting docs for complex parameter types."""
-        docs = extract_function_docs(complex_function)["parameters"]
-        assert "items" in docs
-        assert "metadata" in docs
-        assert "config" in docs
 
 
 class TestFunctionDescription:
