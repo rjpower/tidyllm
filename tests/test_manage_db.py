@@ -20,10 +20,7 @@ def test_context():
     """Create a test context with temporary database."""
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
-        config = Config(
-            user_db=temp_path / "test.db",
-            notes_dir=temp_path / "notes",
-        )
+        config = Config(config_dir=temp_path)
         yield ToolContext(config=config)
 
 
@@ -31,19 +28,19 @@ def test_schema_operation(test_context):
     """Test getting database schema."""
     # Create a test table
     with set_tool_context(test_context):
-        db_execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT)")
-        
-        # Get schema
+        db_execute(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT)"
+        )
         schema = db_schema()
-    
+
     # Function completed successfully if no exception raised
     assert schema is not None
     assert "users" in schema
-    
+
     # Check column details
     users_schema = schema["users"]
     assert len(users_schema) == 3  # id, name, email
-    
+
     # Find the name column
     name_col = next(col for col in users_schema if col["name"] == "name")
     assert name_col["type"] == "TEXT"

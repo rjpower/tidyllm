@@ -22,7 +22,7 @@ def test_context():
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
         config = Config(
-            user_db=temp_path / "test.db",
+            config_dir=temp_path,
             notes_dir=temp_path / "notes",
         )
         yield ToolContext(config=config)

@@ -371,8 +371,9 @@ def audio_file(
     def file_generator(audio_data=audio_data):
         """Generator that yields audio chunks from file."""
         actual_sample_rate = sample_rate or file_sample_rate
+        if len(audio_data.shape) == 1:
+            audio_data = np.stack([audio_data, audio_data])
 
-        # Stereo file - ensure shape is (channels, samples)
         if audio_data.shape[0] > audio_data.shape[1]:
             audio_data = audio_data.T
         channels = audio_data.shape[0]

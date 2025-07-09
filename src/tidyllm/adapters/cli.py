@@ -6,15 +6,14 @@ import sys
 from collections.abc import Callable
 from inspect import isclass
 from pathlib import Path
-from typing import Any, Union, get_args, get_origin
+from typing import Any, get_args, get_origin
 
 import click
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from tidyllm.context import set_tool_context
 from tidyllm.data import to_json_dict
 from tidyllm.function_schema import FunctionDescription
-from tidyllm.source import SourceLike, as_source, is_source_like_type
 
 
 def get_click_type(annotation: type) -> Any:

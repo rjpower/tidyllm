@@ -4,11 +4,11 @@ from pydantic import BaseModel, Field
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.context import get_tool_context
-
-# Table is now an alias for Table
-from tidyllm.serialization import to_json_string, from_json_string
 from tidyllm.linq import Table
 from tidyllm.registry import register
+
+# Table is now an alias for Table
+from tidyllm.serialization import from_json_string, to_json_string
 from tidyllm.tools.context import ToolContext
 
 

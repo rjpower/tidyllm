@@ -7,8 +7,6 @@ using vision models, generating well-formatted markdown notes with frontmatter.
 
 import base64
 import io
-import tempfile
-from pathlib import Path
 
 import pypdfium2 as pdfium
 from pydantic import BaseModel, Field
