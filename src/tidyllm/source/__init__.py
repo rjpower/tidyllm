@@ -9,7 +9,7 @@ from tidyllm.source.gdrive import GDriveSource
 from tidyllm.source.lib import (
     SourceManager,
     as_source,
-    is_source_like,
+    is_source_like_type,
     read_bytes,
     read_text,
 )
@@ -19,16 +19,3 @@ from tidyllm.source.model import (
     Source,
     SourceLike,
 )
-
-__all__ = [
-    "Source",
-    "SourceLike",
-    "ByteSource",
-    "FileSource",
-    "GDriveSource",
-    "as_source",
-    "read_bytes",
-    "read_text",
-    "is_source_like",
-    "SourceManager",
-]

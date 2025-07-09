@@ -91,7 +91,6 @@ class TestReadFunctions:
         assert result == "Hello text"
 
 
-
 class TestSourceManager:
     """Test SourceManager functionality."""
 
@@ -137,18 +136,18 @@ class TestPydanticSerialization:
         """Test ByteSource serialization to dict format."""
         from pydantic import BaseModel
         from tidyllm.source.model import SourceLike
-        
+
         class TestModel(BaseModel):
             source: SourceLike
-        
+
         data = b"Hello world"
         source = as_source(data)
-        
+
         # Test serialization to dict
         serialized = source.model_dump(mode="json")
         assert serialized["type"] == "ByteSource"
         assert "data" in serialized
-        
+
         # Test deserialization through SourceLike adapter
         model = TestModel(source=serialized)
         deserialized = model.source
@@ -159,27 +158,26 @@ class TestPydanticSerialization:
         """Test FileSource serialization to dict format."""
         from pydantic import BaseModel
         from tidyllm.source.model import SourceLike
-        
+
         class TestModel(BaseModel):
             source: SourceLike
-        
-        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+
+        with tempfile.NamedTemporaryFile(mode="w") as f:
             f.write("Hello world")
             f.flush()
 
             source = FileSource(path=Path(f.name))
-            
+
             # Test serialization to dict
             serialized = source.model_dump(mode="json")
             assert serialized["type"] == "FileSource"
             assert serialized["path"] == str(Path(f.name))
-            
+
             # Test deserialization through SourceLike adapter
             model = TestModel(source=serialized)
             deserialized = model.source
             assert isinstance(deserialized, FileSource)
             assert deserialized.read() == b"Hello world"
-            
+
             source.close()
             deserialized.close()
-            Path(f.name).unlink()

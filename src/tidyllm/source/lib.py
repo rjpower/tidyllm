@@ -2,22 +2,28 @@
 
 import base64
 from pathlib import Path
-from typing import Any, cast
+from types import UnionType
+from typing import Annotated, Any, Union, cast, get_args, get_origin
 
 from tidyllm.source.gdrive import GDriveSource, parse_gdrive_url
 from tidyllm.source.model import ByteSource, FileSource, Source, SourceLike
 
 
-def is_source_like(value: Any) -> bool:
-    """Check if a value is SourceLike without expensive conversion.
-    
-    Args:
-        value: Value to check
-        
-    Returns:
-        True if value can be used as a SourceLike parameter
-    """
-    return hasattr(value, "read") and callable(value.read)
+def is_source_like_type(tp: Any) -> bool:
+    if get_origin(tp) is Annotated:
+        tp = get_args(tp)[0]
+        return is_source_like_type(tp)
+
+    if get_origin(tp) is Union:
+        return any(is_source_like_type(arg) for arg in get_args(tp))
+
+    if isinstance(tp, UnionType):
+        return any(is_source_like_type(arg) for arg in tp.__args__)
+
+    if tp == Path:
+        return True
+
+    return hasattr(tp, "read") and callable(tp.read)
 
 
 def as_source(data: SourceLike) -> Source:
@@ -31,26 +37,22 @@ def as_source(data: SourceLike) -> Source:
         if data.startswith('gdrive://'):
             path = parse_gdrive_url(data)
             return GDriveSource(path=path)
-        elif data.startswith('/') or Path(data).exists():
+        elif Path(data).exists():
             return FileSource(path=Path(data))
         else:
             raise ValueError(f"Unsupported URL scheme: {data}")
     elif isinstance(data, bytes):
         return ByteSource(data=base64.b64encode(data))
     else:
-        raise TypeError(f"Cannot convert {type(data)} to Source")
+        raise TypeError(f"Cannot convert {str(data)[:100]} to Source")
 
 
 def read_bytes(source: SourceLike) -> bytes:
     """Convenience function to read all bytes from a source-like object."""
-    src = as_source(source)
-    data = src.read()
-    if isinstance(data, bytes):
-        return data
-    elif isinstance(data, str):
-        return data.encode('utf-8')
-    else:
-        raise TypeError(f"Cannot convert {type(data)} to bytes")
+    if isinstance(source, bytes):
+        return source
+
+    return as_source(source).read()
 
 
 def read_text(source: SourceLike, encoding: str = 'utf-8') -> str:

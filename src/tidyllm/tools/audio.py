@@ -12,6 +12,7 @@ from typing import Annotated
 
 import librosa
 import numpy as np
+import soundfile as sf
 from pydantic import BaseModel
 from pydantic.functional_serializers import PlainSerializer
 from pydantic.functional_validators import WrapValidator
@@ -361,25 +362,20 @@ def audio_file(
     Returns:
         A stream of audio chunks read from the file
     """
+    import librosa
 
-    def file_generator():
+    print(file_path)
+
+    audio_data, file_sample_rate = librosa.load(file_path, sr=sample_rate, mono=False)
+
+    def file_generator(audio_data=audio_data):
         """Generator that yields audio chunks from file."""
-        import librosa
-
-        # Load audio file with librosa, preserving original channel count
-        audio_data, file_sample_rate = librosa.load(file_path, sr=sample_rate, mono=False)
         actual_sample_rate = sample_rate or file_sample_rate
 
-        # Normalize audio_data to always be 2D: (channels, samples)
-        if audio_data.ndim == 1:
-            # Mono file - reshape to (1, samples)
-            audio_data = audio_data.reshape(1, -1)
-            channels = 1
-        else:
-            # Stereo file - ensure shape is (channels, samples)
-            if audio_data.shape[0] > audio_data.shape[1]:
-                audio_data = audio_data.T
-            channels = audio_data.shape[0]
+        # Stereo file - ensure shape is (channels, samples)
+        if audio_data.shape[0] > audio_data.shape[1]:
+            audio_data = audio_data.T
+        channels = audio_data.shape[0]
 
         audio_format = AudioFormat(
             sample_rate=int(actual_sample_rate), channels=channels
@@ -654,9 +650,6 @@ def chunk_to_wav_bytes(chunk: AudioChunk) -> bytes:
     Returns:
         WAV file as bytes
     """
-    import io
-
-    import soundfile as sf
 
     # Get audio data as numpy array
     audio_array = chunk.as_array()

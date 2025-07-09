@@ -18,7 +18,6 @@ from pydantic import BaseModel
 from tidyllm.context import get_tool_context
 from tidyllm.function_schema import FunctionDescription
 from tidyllm.serialization import from_json_dict
-from tidyllm.source import is_source_like, read_bytes
 
 logger = logging.getLogger(__name__)
 

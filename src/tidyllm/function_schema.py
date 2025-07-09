@@ -128,7 +128,7 @@ class FunctionDescription:
         for param_name, param in all_params.items():
             # Use the raw annotation from the signature to preserve Annotated types
             param_type = param.annotation if param.annotation != inspect.Parameter.empty else Any
-            
+
             # Get parameter description from docstring info
             param_description = self.docstring_info.parameters.get(param_name, "")
 
@@ -167,20 +167,8 @@ class FunctionDescription:
         Returns:
             Validated and parsed arguments ready for function call
         """
-        # Use the Pydantic model to validate and parse
-        validated_model = self.args_model.model_validate(json_args)
-
-        # Extract field values, preserving Pydantic model instances for fields that are Pydantic models
-        result = {}
-        for field_name, field_value in validated_model:
-            # If the field value is a Pydantic model instance, keep it as is
-            # Otherwise, extract the raw value (this handles primitives, lists, etc.)
-            if isinstance(field_value, BaseModel):
-                result[field_name] = field_value
-            else:
-                result[field_name] = field_value
-        
-        return result
+        parsed_args = self.args_model.model_validate(json_args)
+        return {k: getattr(parsed_args, k) for k in self.args_model.model_fields.keys()}
 
     def call(self, *args, **kwargs) -> Any:
         """Call the function directly with args/kwargs, handling async properly.

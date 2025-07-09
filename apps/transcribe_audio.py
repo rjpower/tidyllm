@@ -21,6 +21,7 @@ from tidyllm.linq import Enumerable, Table, from_iterable
 from tidyllm.registry import register
 from tidyllm.serialization import to_json_dict
 from tidyllm.source import SourceLike
+from tidyllm.source.lib import as_source
 from tidyllm.tools.audio import (
     audio_from_source,
     chunk_by_vad_stream,
@@ -99,7 +100,7 @@ def transcribe_with_vad(
         print(segment.timestamp)
         wav_bytes = chunk_to_wav_bytes(segment)
         transcription_result = transcribe_audio(
-            wav_bytes,
+            as_source(wav_bytes),
             source_language=source_language,
             target_language=target_language,
         )

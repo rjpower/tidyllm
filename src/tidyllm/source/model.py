@@ -12,7 +12,7 @@ from pydantic_core import core_schema
 class Source(Protocol):
     """Base protocol for all data sources."""
 
-    def read(self, size: int = -1) -> bytes | str:
+    def read(self, size: int = -1) -> bytes:
         """Read data from the source."""
         ...
 
@@ -22,8 +22,7 @@ class ByteSource(BaseModel):
     type: Literal["ByteSource"] = "ByteSource"
     data: Base64Bytes = Field(description="The byte data as a base64 encoded string")
 
-    def __init__(self, **data):
-        super().__init__(**data)
+    def model_post_init(self, _ctx: Any):
         self._pos = 0
 
     def read(self, size: int = -1) -> bytes:
@@ -71,8 +70,8 @@ class SourceLikeAdapter:
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: Any
     ) -> core_schema.CoreSchema:
+
         def validate_source_like(value: Any) -> Any:
-            print(source_type, value)
             if isinstance(value, dict):
                 if value.get("type") == "FileSource":
                     return FileSource(path=Path(value["path"]))
@@ -80,20 +79,17 @@ class SourceLikeAdapter:
                     return ByteSource(data=value["data"])
             elif isinstance(value, Path):
                 return FileSource(path=value)
-            elif isinstance(value, bytes):
-                return ByteSource(data=base64.b64encode(value))
             elif hasattr(value, "read"):
                 return value
             raise ValueError(f"Cannot convert {type(value)} to SourceLike")
 
-        def serialize_source_like(value: Any) -> dict:
-            print("Serializing: ", value)
+        def serialize_source_like(
+            value: Any, info: core_schema.SerializationInfo
+        ) -> dict:
             if isinstance(value, FileSource | ByteSource):
-                return value.model_dump(mode="json")
+                return value.model_dump(mode=info.mode)
             elif isinstance(value, Path):
-                return FileSource(path=value).model_dump(mode="json")
-            elif isinstance(value, bytes):
-                return ByteSource(data=base64.b64encode(value)).model_dump(mode="json")
+                return FileSource(path=value).model_dump(mode=info.mode)
             raise ValueError(f"Unexpected type for SourceLike {type(value)}")
 
         return core_schema.no_info_after_validator_function(
@@ -108,9 +104,10 @@ class SourceLikeAdapter:
             ),
             serialization=core_schema.plain_serializer_function_ser_schema(
                 serialize_source_like,
+                info_arg=True,
                 return_schema=core_schema.dict_schema(),
             ),
         )
 
 
-SourceLike = Annotated[Path | bytes | Source, SourceLikeAdapter]
+SourceLike = Annotated[Path | Source, SourceLikeAdapter]

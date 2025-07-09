@@ -14,15 +14,13 @@ from pydantic import BaseModel, ValidationError
 from tidyllm.context import set_tool_context
 from tidyllm.data import to_json_dict
 from tidyllm.function_schema import FunctionDescription
-from tidyllm.source import SourceLike, as_source
+from tidyllm.source import SourceLike, as_source, is_source_like_type
 
 
 def get_click_type(annotation: type) -> Any:
     """Convert Python type to Click type."""
     if annotation == Path:
-        return click.Path(exists=False)
-    if annotation == SourceLike or (get_origin(annotation) == Union and SourceLike in get_args(annotation)):
-        return click.STRING  # Will be converted via as_source
+        return click.Path(exists=False, path_type=Path)
     if annotation in (str, int, float, bool):
         return annotation
     return str
@@ -32,23 +30,16 @@ def parse_cli_kwargs(kwargs: dict[str, Any], func_desc: FunctionDescription) -> 
     """Parse CLI kwargs into function arguments."""
     args_dict = {}
     fields = func_desc.args_model.model_fields
-    
+
     if not fields:
         return args_dict
-    
+
     # Direct field mapping
     for field_name in fields:
         value = kwargs.get(field_name)
         if value is not None:
-            field_info = fields[field_name]
-            annotation = field_info.annotation
-            
-            # Convert string parameters to Source if needed
-            if annotation == SourceLike or (get_origin(annotation) == Union and SourceLike in get_args(annotation)):
-                value = as_source(value)
-            
             args_dict[field_name] = value
-    
+
     return args_dict
 
 
@@ -66,26 +57,26 @@ def add_cli_options(cli_func: click.Command, func_desc: FunctionDescription) -> 
         help_text = field_info.description or f"Value for {field_name}"
 
         if field_type is bool:
-            cli_func = click.option(
-                option_name,
-                field_name,
-                is_flag=True,
-                help=help_text
-            )(cli_func)
+            option = click.option(option_name, field_name, is_flag=True, help=help_text)
+        elif is_source_like_type(field_type):
+            option = click.option(
+                option_name, field_name, type=click.Path(path_type=Path), help=help_text
+            )
         elif isclass(get_origin(field_type)) and issubclass(
             get_origin(field_type), list | tuple
         ):
-            cli_func = click.option(
-                option_name, field_name, multiple=True, help=f"{help_text}"
-            )(cli_func)
-        else:
-            cli_func = click.option(
+            option = click.option(
                 option_name,
                 field_name,
-                type=get_click_type(field_type),
-                help=help_text
-            )(cli_func)
-
+                multiple=True,
+                help=f"{help_text}",
+                type=get_args(field_type)[0],
+            )
+        else:
+            option = click.option(
+                option_name, field_name, type=get_click_type(field_type), help=help_text
+            )
+        cli_func = option(cli_func)
     return cli_func
 
 
@@ -131,18 +122,14 @@ def _generate_cli_from_description(
         else:
             args_dict = parse_cli_kwargs(kwargs, func_desc)
 
-        try:
-            if context_cls:
-                context = context_cls()
-                with set_tool_context(context):
-                    parsed_args = func_desc.validate_and_parse_args(args_dict)
-                    result = func_desc.call(**parsed_args)
-            else:
-                parsed_args = func_desc.validate_and_parse_args(args_dict)
+        parsed_args = func_desc.validate_and_parse_args(args_dict)
+
+        if context_cls:
+            context = context_cls()
+            with set_tool_context(context):
                 result = func_desc.call(**parsed_args)
-        except ValidationError as e:
-            click.echo(json.dumps({"error": f"Validation error: {str(e)}"}))
-            return
+        else:
+            result = func_desc.call(**parsed_args)
 
         output_result(result, output_format)
 
