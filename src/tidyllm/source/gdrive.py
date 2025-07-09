@@ -1,0 +1,195 @@
+"""Google Drive source adapter implementation."""
+
+import os
+from urllib.parse import urlparse
+
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from pydantic import BaseModel, Field
+
+
+class GDriveSource(BaseModel):
+    """Source backed by Google Drive file."""
+    
+    path: str = Field(description="Path to the file in Google Drive")
+    credentials_path: str | None = Field(default=None, description="Path to credentials file")
+    token_path: str | None = Field(default=None, description="Path to token file")
+    
+    def __init__(self, **data):
+        super().__init__(**data)
+        self._service = None
+        self._file_id = None
+        self._file_content = None
+
+    def _get_credentials(self) -> Credentials:
+        """Get Google Drive API credentials."""
+        SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+        
+        # Default paths - look for credentials in project root first
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        default_creds_path = os.path.join(project_root, 'credentials', 'gdrive_client_secret.json')
+        
+        token_path = self.token_path or os.path.expanduser('~/.config/tidyllm/gdrive_token.json')
+        credentials_path = self.credentials_path or default_creds_path
+        
+        creds = None
+        
+        # Load existing token
+        if os.path.exists(token_path):
+            creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+        
+        # If no valid credentials, get new ones
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                print("Refreshing Google Drive credentials...")
+                creds.refresh(Request())
+            else:
+                if not os.path.exists(credentials_path):
+                    raise ValueError(
+                        f"Google Drive credentials not found at {credentials_path}. "
+                        f"Please download credentials from Google Cloud Console and save there."
+                    )
+                
+                print("Google Drive authentication required. Opening browser...")
+                flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
+                creds = flow.run_local_server(port=0)
+                print("Authentication successful!")
+            
+            # Save credentials for next run
+            os.makedirs(os.path.dirname(token_path), exist_ok=True)
+            with open(token_path, 'w') as token:
+                token.write(creds.to_json())
+            print(f"Credentials saved to {token_path}")
+        
+        return creds
+
+    def _get_service(self):
+        """Get Google Drive API service."""
+        if self._service is None:
+            creds = self._get_credentials()
+            self._service = build('drive', 'v3', credentials=creds)
+        return self._service
+
+    def _find_file_by_path(self, path: str) -> str:
+        """Find file ID by path in Google Drive."""
+        service = self._get_service()
+        
+        # Remove leading slash if present
+        path = path.lstrip('/')
+        
+        # Split path into parts
+        parts = path.split('/')
+        
+        # Start from root
+        parent_id = 'root'
+        
+        print(f"Searching for file: {path}")
+        
+        # Navigate through folders
+        for i, part in enumerate(parts):
+            is_last = i == len(parts) - 1
+            
+            # Search for item with this name in current folder
+            query = f"name='{part}' and '{parent_id}' in parents"
+            if not is_last:
+                query += " and mimeType='application/vnd.google-apps.folder'"
+            
+            try:
+                print(f"Searching for {'file' if is_last else 'folder'}: {part}")
+                results = service.files().list(q=query).execute()
+                items = results.get('files', [])
+                
+                if not items:
+                    raise ValueError(f"File or folder '{part}' not found in path '{path}'")
+                
+                if len(items) > 1:
+                    print(f"Warning: Multiple files named '{part}' found, using first one")
+                
+                file_id = items[0]['id']
+                print(f"Found {'file' if is_last else 'folder'}: {part} (ID: {file_id})")
+                
+                if is_last:
+                    return file_id
+                else:
+                    parent_id = file_id
+                    
+            except HttpError as e:
+                raise ValueError(f"Error accessing Google Drive: {e}")
+        
+        raise ValueError(f"File not found: {path}")
+
+    def _get_file_id(self) -> str:
+        """Get file ID from path."""
+        if self._file_id is None:
+            self._file_id = self._find_file_by_path(self.path)
+        return self._file_id
+
+    def read(self, size: int = -1) -> bytes:
+        """Read data from the Google Drive file."""
+        if self._file_content is None:
+            service = self._get_service()
+            file_id = self._get_file_id()
+            
+            try:
+                # Get file metadata to check if it's a Google Docs file
+                print(f"Fetching file metadata for Google Drive file: {self.path}")
+                file_metadata = service.files().get(fileId=file_id).execute()
+                mime_type = file_metadata.get('mimeType', '')
+                file_name = file_metadata.get('name', 'unknown')
+                file_size = file_metadata.get('size', 'unknown')
+                
+                print(f"File: {file_name} ({file_size} bytes, {mime_type})")
+                
+                if mime_type.startswith('application/vnd.google-apps.'):
+                    # Export Google Docs files as PDF
+                    if 'document' in mime_type:
+                        export_mime_type = 'application/pdf'
+                    elif 'spreadsheet' in mime_type:
+                        export_mime_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                    elif 'presentation' in mime_type:
+                        export_mime_type = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+                    else:
+                        export_mime_type = 'application/pdf'
+                    
+                    print(f"Exporting Google Docs file as {export_mime_type}")
+                    request = service.files().export_media(fileId=file_id, mimeType=export_mime_type)
+                else:
+                    # Regular file download
+                    print("Downloading file from Google Drive...")
+                    request = service.files().get_media(fileId=file_id)
+                
+                self._file_content = request.execute()
+                print(f"Successfully downloaded {len(self._file_content)} bytes from Google Drive")
+                
+            except HttpError as e:
+                raise ValueError(f"Error downloading file from Google Drive: {e}")
+        
+        if size == -1:
+            return self._file_content
+        else:
+            return self._file_content[:size]
+
+    def close(self):
+        """Close the connection (no-op for Google Drive)."""
+        pass
+
+    def __del__(self):
+        """Clean up resources."""
+        self.close()
+
+
+def parse_gdrive_url(url: str) -> str:
+    """Parse gdrive:// URL to extract path."""
+    parsed = urlparse(url)
+    if parsed.scheme != 'gdrive':
+        raise ValueError(f"Not a gdrive URL: {url}")
+    
+    # Handle gdrive://path/to/file format
+    path = parsed.path
+    if parsed.netloc:
+        path = parsed.netloc + path
+    
+    return path

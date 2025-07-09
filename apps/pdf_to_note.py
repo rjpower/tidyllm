@@ -254,41 +254,6 @@ def extract_pdf_images(
 
 
 @register()
-def images_to_markdown(
-    images: list[ImageData],
-) -> TranscriptionResponse:
-    """Convert images to markdown using vision model.
-
-    Args:
-        images: List of ImageData objects
-
-    Returns:
-        TranscriptionResponse with title, tags, and content
-
-    Example: images_to_markdown(extracted_images)
-    """
-    console.print(
-        f"[bold blue]Step 2: Converting {len(images)} images to markdown[/bold blue]"
-    )
-
-    transcription = transcribe_images_to_markdown(images)
-
-    console.print("[green]✓ Transcription completed[/green]")
-    console.print(f"[blue]Generated title:[/blue] {transcription.title}")
-    console.print(f"[blue]Generated tags:[/blue] {', '.join(transcription.tags)}")
-
-    # Show preview of content
-    preview = (
-        transcription.content[:200] + "..."
-        if len(transcription.content) > 200
-        else transcription.content
-    )
-    console.print(f"[blue]Content preview:[/blue] {preview}")
-
-    return transcription
-
-
-@register()
 def transcription_to_note(
     transcription: TranscriptionResponse,
     title: str | None = None,
@@ -322,6 +287,20 @@ def transcription_to_note(
 
 
 @register()
+def pdf_to_markdown(
+    pdf_source: SourceLike,
+    title: str | None = None,
+    tags: tuple[str] = tuple(),
+    image_width: int = 768,
+    image_height: int = 1084,
+    jpeg_quality: int = 85,
+):
+    console.print("[bold blue]Converting PDF to note from source[/bold blue]")
+    images = extract_pdf_images(pdf_source, image_width, image_height, jpeg_quality)
+    return transcribe_images_to_markdown(images)
+
+
+@register()
 def pdf_to_note(
     pdf_source: SourceLike,
     title: str | None = None,
@@ -330,33 +309,10 @@ def pdf_to_note(
     image_height: int = 1084,
     jpeg_quality: int = 85,
 ) -> str:
-    """Convert PDF handwritten notes to markdown note (full pipeline).
-
-    Args:
-        pdf_source: PDF source (file path, bytes, URL, etc.)
-        title: Optional title override
-        tags: Optional tags override
-        image_width: Width for extracted images
-        image_height: Height for extracted images
-        jpeg_quality: JPEG quality for extracted images
-
-    Returns:
-        Path to created note file
-
-    Example: pdf_to_note("notes.pdf", title="Lecture Notes", tags=["physics", "equations"])
-    Example: pdf_to_note("gdrive://path/to/notes.pdf", title="Google Drive Notes")
-    """
-    console.print("[bold blue]Converting PDF to note from source[/bold blue]")
-
-    # Step 1: Extract images
-    images = extract_pdf_images(pdf_source, image_width, image_height, jpeg_quality)
-
-    # Step 2: Convert to markdown
-    transcription = images_to_markdown(images)
-
-    # Step 3: Create note
+    transcription = pdf_to_markdown(
+        pdf_source, title, tags, image_width, image_height, jpeg_quality
+    )
     note_path = transcription_to_note(transcription, title, tags)
-
     console.print("[bold green]Pipeline completed![/bold green]")
     return note_path
 
@@ -364,8 +320,7 @@ def pdf_to_note(
 if __name__ == "__main__":
     functions = [
         extract_pdf_images,
-        images_to_markdown,
-        transcription_to_note,
+        pdf_to_markdown,
         pdf_to_note,
     ]
     cli_main(functions, context_cls=ToolContext)

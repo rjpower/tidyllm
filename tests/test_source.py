@@ -8,8 +8,6 @@ import pytest
 from tidyllm.source import (
     ByteSource,
     FileSource,
-    FSSpecSource,
-    SliceSource,
     SourceManager,
     as_source,
     read_bytes,
@@ -24,40 +22,20 @@ class TestByteSource:
         """Test reading from ByteSource."""
         data = b"Hello world"
         source = ByteSource(data=data)
-        
+
         result = source.read()
         assert result == data
-        
+
     def test_byte_source_partial_read(self):
         """Test partial reading from ByteSource."""
         data = b"Hello world"
         source = ByteSource(data=data)
-        
+
         result = source.read(5)
         assert result == b"Hello"
-        
+
         result = source.read(6)
         assert result == b" world"
-
-
-class TestSliceSource:
-    """Test SliceSource functionality."""
-
-    def test_slice_source_string(self):
-        """Test SliceSource with string data."""
-        data = "Hello world"
-        source = SliceSource(data=data)
-        
-        result = source.read()
-        assert result == data
-        
-    def test_slice_source_partial_read(self):
-        """Test partial reading from SliceSource."""
-        data = "Hello world"
-        source = SliceSource(data=data)
-        
-        result = source.read(5)
-        assert result == "Hello"
 
 
 class TestFileSource:
@@ -85,13 +63,13 @@ class TestAsSource:
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
             f.write("Hello world")
             f.flush()
-            
+
             source = as_source(Path(f.name))
             assert isinstance(source, FileSource)
-            
+
             result = source.read()
             assert result == b"Hello world"
-            
+
             source.close()
             Path(f.name).unlink()
 
@@ -100,16 +78,7 @@ class TestAsSource:
         data = b"Hello bytes"
         source = as_source(data)
         assert isinstance(source, ByteSource)
-        
-        result = source.read()
-        assert result == data
 
-    def test_as_source_string_literal(self):
-        """Test converting string literal to Source."""
-        data = "Hello string"
-        source = as_source(data)
-        assert isinstance(source, SliceSource)
-        
         result = source.read()
         assert result == data
 
@@ -118,14 +87,14 @@ class TestAsSource:
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
             f.write("Hello world")
             f.flush()
-            
+
             # Use absolute path to ensure it's detected as file
             source = as_source(f.name)
-            assert isinstance(source, FSSpecSource)
-            
+            assert isinstance(source, FileSource)
+
             result = source.read()
             assert result == b"Hello world"
-            
+
             source.close()
             Path(f.name).unlink()
 

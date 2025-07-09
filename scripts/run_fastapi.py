@@ -7,13 +7,12 @@ from typing import Any
 from fastapi import FastAPI
 
 from tidyllm.adapters.fastapi_adapter import create_fastapi_app
-from tidyllm.discover import discover_tools_in_package
+from tidyllm.discover import discover_tools_in_directory, discover_tools_in_package
 from tidyllm.tools.config import Config
 from tidyllm.tools.context import ToolContext
 
 
 def create_fastapi_app_with_discovery(
-    context: ToolContext | None = None,
     title: str = "TidyLLM Tools API",
     description: str = "API for TidyLLM registered tools",
     version: str = "1.0.0",
@@ -40,15 +39,13 @@ def create_fastapi_app_with_discovery(
         context = ToolContext()
         app = create_fastapi_app_with_discovery(context)
 
-        # Run with: uvicorn scripts.fastapi:app --reload
+        # Run with: uvicorn scripts.run_fastapi:app --reload
     """
-    # Auto-discover tools from the specified package
     discover_tools_in_package(tools_package)
+    discover_tools_in_directory(Path("apps/"))
     
-    # Use provided context or create default
-    if context is None:
-        config = Config()
-        context = ToolContext(config=config)
+    config = Config()
+    context = ToolContext(config=config)
 
     return create_fastapi_app(
         context=context,
@@ -56,41 +53,6 @@ def create_fastapi_app_with_discovery(
         description=description,
         version=version
     )
-
-
-def create_portkit_api(
-    context: ToolContext | None = None,
-    title: str = "PortKit Tools API", 
-    description: str = "API for PortKit TinyAgent tools",
-) -> FastAPI:
-    """
-    Create a FastAPI app specifically for PortKit tools.
-
-    Args:
-        context: ToolContext for tools execution
-        title: API title
-        description: API description
-
-    Returns:
-        Configured FastAPI application with PortKit tools
-
-    Example:
-        from scripts.fastapi import create_portkit_api
-        from tidyllm.tools.context import ToolContext
-
-        context = ToolContext()
-        app = create_portkit_api(context=context)
-    """
-    return create_fastapi_app_with_discovery(
-        context=context,
-        title=title,
-        description=description,
-        tools_package="tidyllm.tools"
-    )
-
-
-# Default app instance for easy deployment
-app = create_fastapi_app_with_discovery()
 
 
 def main():
@@ -112,22 +74,12 @@ def main():
     if args.user_db:
         config_kwargs["user_db"] = Path(args.user_db)
         
-    config = Config(**config_kwargs)
-    context = ToolContext(config=config)
-    
-    # Create app with custom context
-    app = create_fastapi_app_with_discovery(
-        context=context,
-        title=args.title
-    )
-    
     # Run the server
     import uvicorn
     uvicorn.run(
-        app,
+        create_fastapi_app_with_discovery(),
         host=args.host,
         port=args.port,
-        reload=args.reload
     )
 
 
