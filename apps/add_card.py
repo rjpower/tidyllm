@@ -229,45 +229,27 @@ def add_card(
         term_ja=term_ja,
     )
 
-    # Infer missing fields using LLM
     console.print("[yellow]Inferring missing fields...[/yellow]")
     complete_request = _infer_missing_fields(request)
 
-    console.print("[green]Inferred fields:[/green]")
-    console.print(f"  EN: {complete_request.term_en}")
-    console.print(f"  JA: {complete_request.term_ja} ({complete_request.reading_ja})")
-    console.print(f"  Example EN: {complete_request.sentence_en}")
-    console.print(f"  Example JA: {complete_request.sentence_ja}")
-
-    # Generate TTS audio
-    audio_en_path = None
-    audio_ja_path = None
-
     console.print("[yellow]Generating TTS audio...[/yellow]")
 
-    # Generate English audio
-    audio_en_path = output_dir / f"{complete_request.term_en.replace(' ', '_')}_en.mp3"
     en_result = generate_speech(
         content=complete_request.sentence_en, language="English"
     )
-
-    # Write audio bytes to file
-    with open(audio_en_path, "wb") as f:
-        f.write(en_result.audio_bytes)
-
-    # Generate Japanese audio
-    audio_ja_path = output_dir / f"{complete_request.term_ja.replace(' ', '_')}_ja.mp3"
     ja_result = generate_speech(
         content=complete_request.sentence_ja, language="Japanese"
     )
 
-    # Write audio bytes to file
+    audio_ja_path = output_dir / f"{complete_request.term_ja.replace(' ', '_')}_ja.mp3"
+    audio_en_path = output_dir / f"{complete_request.term_en.replace(' ', '_')}_en.mp3"
+    with open(audio_en_path, "wb") as f:
+        f.write(en_result.audio_bytes)
+
     with open(audio_ja_path, "wb") as f:
         f.write(ja_result.audio_bytes)
 
     console.print(f"Generated audio files: EN: {audio_en_path}, JA: {audio_ja_path}")
-
-    # Create the vocab card
     console.print("[yellow]Creating Anki card...[/yellow]")
 
     vocab_card = AddVocabCardRequest(
@@ -330,10 +312,8 @@ def add_from_csv(
 
     console.print(f"[green]Found {len(card_requests)} valid cards to process[/green]")
 
-    if failed_cards:
-        console.print(f"[yellow]Skipped {len(failed_cards)} invalid rows[/yellow]")
-        for failure in failed_cards:
-            console.print(f"  [yellow]- {failure}[/yellow]")
+    for failure in failed_cards:
+        console.print(f"  [yellow]- {failure}[/yellow]")
 
     review_and_add(card_requests, deck_name, interactive=interactive)
 
@@ -474,11 +454,8 @@ def review_and_add(
     cards_created = result.cards_created
 
     console.print(f"[green]Cards created: {cards_created}/{len(card_requests)}[/green]")
-
-    if failed_cards:
-        console.print(f"[red]Failed cards: {len(failed_cards)}[/red]")
-        for failure in failed_cards:
-            console.print(f"  [red]- {failure}[/red]")
+    for failure in failed_cards:
+        console.print(f"  [red]- {failure}[/red]")
 
 
 if __name__ == "__main__":

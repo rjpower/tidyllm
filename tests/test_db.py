@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from tidyllm.database import Cursor, Database, Row, json_decode, json_encode
+from tidyllm.database import Cursor, Database, Row
+from tidyllm.serialization import to_json_string, from_json_string
 
 
 class TestDatabaseModels:
@@ -103,7 +104,7 @@ class TestDatabase:
         # Insert a record
         affected = memory_db.mutate(
             "INSERT INTO vocab (word, translation, examples, tags) VALUES (?, ?, ?, ?)",
-            ("hello", "hola", json_encode(["Hello world"]), json_encode(["greetings"]))
+            ("hello", "hola", to_json_string(["Hello world"]), to_json_string(["greetings"]))
         )
         assert affected == 1
 
@@ -114,7 +115,7 @@ class TestDatabase:
         # Insert test data
         memory_db.mutate(
             "INSERT INTO vocab (word, translation, examples, tags) VALUES (?, ?, ?, ?)",
-            ("hello", "hola", json_encode(["Hello world"]), json_encode(["greetings"]))
+            ("hello", "hola", to_json_string(["Hello world"]), to_json_string(["greetings"]))
         )
         
         # Query the data
@@ -125,8 +126,8 @@ class TestDatabase:
         assert row is not None
         assert row["word"] == "hello"
         assert row["translation"] == "hola"
-        assert json_decode(row["examples"]) == ["Hello world"]
-        assert json_decode(row["tags"]) == ["greetings"]
+        assert from_json_string(row["examples"], list) == ["Hello world"]
+        assert from_json_string(row["tags"], list) == ["greetings"]
 
     def test_query_multiple_rows(self, memory_db):
         """Test querying multiple rows."""

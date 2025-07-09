@@ -62,18 +62,9 @@ def main():
     parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
     parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
     parser.add_argument("--title", default="TidyLLM Tools API", help="API title")
-    parser.add_argument("--notes-dir", help="Override notes directory")
-    parser.add_argument("--user-db", help="Override user database path")
-    
+
     args = parser.parse_args()
-    
-    # Create config with overrides
-    config_kwargs: dict[str, Any] = {}
-    if args.notes_dir:
-        config_kwargs["notes_dir"] = Path(args.notes_dir)
-    if args.user_db:
-        config_kwargs["user_db"] = Path(args.user_db)
-        
+
     # Run the server
     import uvicorn
     uvicorn.run(

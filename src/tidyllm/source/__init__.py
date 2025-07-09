@@ -7,15 +7,13 @@ files, bytes, stdin, and remote resources.
 # Import all core components for backwards compatibility
 from tidyllm.source.gdrive import GDriveSource
 from tidyllm.source.lib import (
+    ByteSource,
+    FileSource,
+    Source,
+    SourceLike,
     SourceManager,
     as_source,
     is_source_like_type,
     read_bytes,
     read_text,
-)
-from tidyllm.source.model import (
-    ByteSource,
-    FileSource,
-    Source,
-    SourceLike,
 )

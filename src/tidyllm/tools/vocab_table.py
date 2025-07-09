@@ -6,7 +6,7 @@ from tidyllm.adapters.cli import cli_main
 from tidyllm.context import get_tool_context
 
 # Table is now an alias for Table
-from tidyllm.database import json_decode, json_encode
+from tidyllm.serialization import to_json_string, from_json_string
 from tidyllm.linq import Table
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
@@ -54,8 +54,8 @@ def vocab_add(
         (
             word,
             translation,
-            json_encode(examples),
-            json_encode(tags),
+            to_json_string(examples),
+            to_json_string(tags),
         ),
     )
 
@@ -111,8 +111,8 @@ def vocab_search(
                 id=row["id"],
                 word=row["word"],
                 translation=row["translation"],
-                examples=json_decode(row["examples"]),
-                tags=json_decode(row["tags"]),
+                examples=from_json_string(row["examples"], list) if row["examples"] else [],
+                tags=from_json_string(row["tags"], list) if row["tags"] else [],
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
             )
@@ -150,10 +150,10 @@ def vocab_update(
         params.append(translation)
     if examples is not None:
         update_parts.append("examples = ?")
-        params.append(json_encode(examples))
+        params.append(to_json_string(examples))
     if tags is not None:
         update_parts.append("tags = ?")
-        params.append(json_encode(tags))
+        params.append(to_json_string(tags))
 
     if not update_parts:
         raise ValueError("No fields to update")

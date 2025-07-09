@@ -58,10 +58,6 @@ def add_cli_options(cli_func: click.Command, func_desc: FunctionDescription) -> 
 
         if field_type is bool:
             option = click.option(option_name, field_name, is_flag=True, help=help_text)
-        elif is_source_like_type(field_type):
-            option = click.option(
-                option_name, field_name, type=click.Path(path_type=Path), help=help_text
-            )
         elif isclass(get_origin(field_type)) and issubclass(
             get_origin(field_type), list | tuple
         ):

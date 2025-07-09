@@ -1,15 +1,12 @@
 """Database class for SQLite operations with initialization utilities."""
 
 import datetime
-import json
 import sqlite3
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
-
-from .tools.config import Config
 
 
 def adapt_date_iso(val):
@@ -291,33 +288,6 @@ class Database:
                 UPDATE vocab SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
             END
         ''')
-
-
-def init_database(config: Config) -> None:
-    """Initialize database with required tables using legacy interface."""
-    db_path = config.user_db
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    db = Database(str(db_path))
-    db.init_schema()
-    db.close()
-
-
-def json_encode(value: list[Any] | None) -> str | None:
-    """Encode a list as JSON for storage."""
-    if value is None:
-        return None
-    return json.dumps(value)
-
-
-def json_decode(value: str | None) -> list[Any]:
-    """Decode JSON string to list."""
-    if not value:
-        return []
-    try:
-        return json.loads(value)
-    except (json.JSONDecodeError, TypeError):
-        return []
 
 
 def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:

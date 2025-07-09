@@ -135,7 +135,7 @@ class TestPydanticSerialization:
     def test_byte_source_dict_serialization(self):
         """Test ByteSource serialization to dict format."""
         from pydantic import BaseModel
-        from tidyllm.source.model import SourceLike
+        from tidyllm.source.lib import SourceLike
 
         class TestModel(BaseModel):
             source: SourceLike
@@ -157,7 +157,7 @@ class TestPydanticSerialization:
     def test_file_source_dict_serialization(self):
         """Test FileSource serialization to dict format."""
         from pydantic import BaseModel
-        from tidyllm.source.model import SourceLike
+        from tidyllm.source.lib import SourceLike
 
         class TestModel(BaseModel):
             source: SourceLike

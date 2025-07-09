@@ -10,7 +10,7 @@ class Config(BaseSettings):
     """Configuration for tidyllm tools."""
 
     notes_dir: Path = Path.home() / "Documents" / "Notes"
-    user_db: Path = Path.home() / ".config" / "tidyllm" / "user.db"
+    config_dir: Path = Path.home() / ".config"
     anki_path: Path | None = Field(default=None)
     fast_model: str = "gemini/gemini-2.5-flash"
     slow_model: str = "gemini/gemini-2.5-pro"
@@ -21,6 +21,10 @@ class Config(BaseSettings):
         "env_file_encoding": "utf-8",
         "extra": "ignore",
     }
+
+    @property
+    def user_db(self):
+        return self.config_dir / "tidyllm" / "user.db"
 
     def ensure_notes_dir(self) -> Path:
         """Ensure notes directory exists and return it."""
