@@ -1,5 +1,6 @@
 """Core source library functions."""
 
+import base64
 from pathlib import Path
 from typing import Any, cast
 
@@ -16,10 +17,7 @@ def is_source_like(value: Any) -> bool:
     Returns:
         True if value can be used as a SourceLike parameter
     """
-    return (
-        isinstance(value, (Path | str | bytes)) or 
-        (hasattr(value, 'read') and callable(value.read))
-    )
+    return hasattr(value, "read") and callable(value.read)
 
 
 def as_source(data: SourceLike) -> Source:
@@ -38,7 +36,7 @@ def as_source(data: SourceLike) -> Source:
         else:
             raise ValueError(f"Unsupported URL scheme: {data}")
     elif isinstance(data, bytes):
-        return ByteSource(data=data)
+        return ByteSource(data=base64.b64encode(data))
     else:
         raise TypeError(f"Cannot convert {type(data)} to Source")
 

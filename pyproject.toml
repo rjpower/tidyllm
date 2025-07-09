@@ -78,8 +78,8 @@ dev = [
 # Add script entry points here:
 tidyllm-mcp = "tidyllm.adapters.fastmcp_adapter:run_tidyllm_mcp_server"
 tidyllm = "scripts.run_tidyllm:main"
-tidy-fastapi = "scripts.run_fastapi:main"
-tidy-fastmcp = "scripts.run_fastmcp:main"
+tidyapi = "scripts.run_fastapi:main"
+tidymcp = "scripts.run_fastmcp:main"
 
 [project.optional-dependencies]
 audio = [

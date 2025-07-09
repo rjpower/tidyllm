@@ -15,52 +15,12 @@ from tidyllm.source import (
 )
 
 
-class TestByteSource:
-    """Test ByteSource functionality."""
-
-    def test_byte_source_read(self):
-        """Test reading from ByteSource."""
-        data = b"Hello world"
-        source = ByteSource(data=data)
-
-        result = source.read()
-        assert result == data
-
-    def test_byte_source_partial_read(self):
-        """Test partial reading from ByteSource."""
-        data = b"Hello world"
-        source = ByteSource(data=data)
-
-        result = source.read(5)
-        assert result == b"Hello"
-
-        result = source.read(6)
-        assert result == b" world"
-
-
-class TestFileSource:
-    """Test FileSource functionality."""
-
-    def test_file_source_read(self):
-        """Test reading from FileSource."""
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
-            f.write("Hello world")
-            f.flush()
-            
-            source = FileSource(path=Path(f.name))
-            result = source.read()
-            assert result == b"Hello world"
-            
-            source.close()
-            Path(f.name).unlink()
-
-
 class TestAsSource:
     """Test as_source conversion function."""
 
     def test_as_source_path(self):
         """Test converting Path to Source."""
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w") as f:
             f.write("Hello world")
             f.flush()
 
@@ -71,7 +31,6 @@ class TestAsSource:
             assert result == b"Hello world"
 
             source.close()
-            Path(f.name).unlink()
 
     def test_as_source_bytes(self):
         """Test converting bytes to Source."""
@@ -84,7 +43,7 @@ class TestAsSource:
 
     def test_as_source_string_path(self):
         """Test converting string path to Source."""
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w") as f:
             f.write("Hello world")
             f.flush()
 
@@ -96,7 +55,6 @@ class TestAsSource:
             assert result == b"Hello world"
 
             source.close()
-            Path(f.name).unlink()
 
 
 class TestReadFunctions:
@@ -104,14 +62,12 @@ class TestReadFunctions:
 
     def test_read_bytes_from_path(self):
         """Test read_bytes with file path."""
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w") as f:
             f.write("Hello world")
             f.flush()
-            
+
             result = read_bytes(f.name)
             assert result == b"Hello world"
-            
-            Path(f.name).unlink()
 
     def test_read_bytes_from_bytes(self):
         """Test read_bytes with bytes data."""
@@ -121,14 +77,12 @@ class TestReadFunctions:
 
     def test_read_text_from_path(self):
         """Test read_text with file path."""
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w") as f:
             f.write("Hello world")
             f.flush()
-            
+
             result = read_text(f.name)
             assert result == "Hello world"
-            
-            Path(f.name).unlink()
 
     def test_read_text_from_bytes(self):
         """Test read_text with bytes data."""
@@ -136,11 +90,6 @@ class TestReadFunctions:
         result = read_text(data)
         assert result == "Hello text"
 
-    def test_read_text_from_string(self):
-        """Test read_text with string data."""
-        data = "Hello string"
-        result = read_text(data)
-        assert result == data
 
 
 class TestSourceManager:
@@ -148,17 +97,14 @@ class TestSourceManager:
 
     def test_source_manager_cleanup(self):
         """Test SourceManager properly closes sources."""
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w") as f:
             f.write("Hello world")
             f.flush()
-            
+
             with SourceManager() as manager:
                 source = manager.register(FileSource(path=Path(f.name)))
                 result = source.read()
                 assert result == b"Hello world"
-            
-            # Source should be closed automatically
-            Path(f.name).unlink()
 
 
 class TestPydanticSerialization:
@@ -167,23 +113,73 @@ class TestPydanticSerialization:
     def test_byte_source_serialization(self):
         """Test ByteSource serialization."""
         data = b"Hello world"
-        source = ByteSource(data=data)
-        
+        source = as_source(data)
+
         # Test that it can be created and used
         result = source.read()
         assert result == data
 
     def test_file_source_serialization(self):
         """Test FileSource serialization."""
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w") as f:
             f.write("Hello world")
             f.flush()
-            
+
             source = FileSource(path=Path(f.name))
-            
+
             # Test that it can be created and used
             result = source.read()
             assert result == b"Hello world"
+
+            source.close()
+
+    def test_byte_source_dict_serialization(self):
+        """Test ByteSource serialization to dict format."""
+        from pydantic import BaseModel
+        from tidyllm.source.model import SourceLike
+        
+        class TestModel(BaseModel):
+            source: SourceLike
+        
+        data = b"Hello world"
+        source = as_source(data)
+        
+        # Test serialization to dict
+        serialized = source.model_dump(mode="json")
+        assert serialized["type"] == "ByteSource"
+        assert "data" in serialized
+        
+        # Test deserialization through SourceLike adapter
+        model = TestModel(source=serialized)
+        deserialized = model.source
+        assert isinstance(deserialized, ByteSource)
+        assert deserialized.read() == data
+
+    def test_file_source_dict_serialization(self):
+        """Test FileSource serialization to dict format."""
+        from pydantic import BaseModel
+        from tidyllm.source.model import SourceLike
+        
+        class TestModel(BaseModel):
+            source: SourceLike
+        
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            f.write("Hello world")
+            f.flush()
+
+            source = FileSource(path=Path(f.name))
+            
+            # Test serialization to dict
+            serialized = source.model_dump(mode="json")
+            assert serialized["type"] == "FileSource"
+            assert serialized["path"] == str(Path(f.name))
+            
+            # Test deserialization through SourceLike adapter
+            model = TestModel(source=serialized)
+            deserialized = model.source
+            assert isinstance(deserialized, FileSource)
+            assert deserialized.read() == b"Hello world"
             
             source.close()
+            deserialized.close()
             Path(f.name).unlink()

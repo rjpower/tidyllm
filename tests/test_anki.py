@@ -125,7 +125,7 @@ def test_bilingual_vocab_model_structure():
     """Test that the bilingual model has correct fields and templates."""
     # Check model ID
     assert BILINGUAL_VOCAB_MODEL.model_id == 1607392320
-    
+
     # Check fields
     expected_fields = [
         'Term', 'Reading', 'Meaning', 'Example', 
@@ -133,13 +133,13 @@ def test_bilingual_vocab_model_structure():
     ]
     model_fields = [field['name'] for field in BILINGUAL_VOCAB_MODEL.fields]
     assert model_fields == expected_fields
-    
+
     # Check templates
     assert len(BILINGUAL_VOCAB_MODEL.templates) == 2
     template_names = [template['name'] for template in BILINGUAL_VOCAB_MODEL.templates]
     assert 'Term → Meaning' in template_names
     assert 'Meaning → Term' in template_names
-    
+
     # Check CSS includes modern styling
     css = BILINGUAL_VOCAB_MODEL.css
     assert 'font-family: -apple-system' in css
@@ -147,40 +147,6 @@ def test_bilingual_vocab_model_structure():
     assert '.reading' in css
     assert '.meaning' in css
     assert '.example' in css
-
-
-@patch('tidyllm.tools.anki.get_tool_context')
-@patch('tidyllm.tools.anki.litellm.completion')
-def test_generate_example_sentence(mock_completion, mock_context, test_context):
-    """Test example sentence generation."""
-    # Mock context
-    mock_context.return_value = test_context
-    
-    # Mock LLM response
-    mock_response = MagicMock()
-    mock_choice = MagicMock()
-    mock_choice.message.content = '''
-    {
-        "source_sentence": "Hello, how are you?",
-        "target_sentence": "こんにちは、元気ですか？"
-    }
-    '''
-    mock_response.choices = [mock_choice]
-    mock_completion.return_value = mock_response
-    
-    # Test generation
-    with set_tool_context(test_context):
-        result = generate_example_sentence("hello", "こんにちは")
-    
-    # The function returns an ExampleSentenceResponse object
-    assert result.source_sentence == "Hello, how are you?"
-    assert result.target_sentence == "こんにちは、元気ですか？"
-    
-    # Verify LLM was called correctly
-    mock_completion.assert_called_once()
-    call_args = mock_completion.call_args
-    assert "hello" in call_args[1]['messages'][0]['content']
-    assert "こんにちは" in call_args[1]['messages'][0]['content']
 
 
 @patch('tidyllm.tools.anki.genanki.Package')

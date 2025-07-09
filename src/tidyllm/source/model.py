@@ -38,14 +38,15 @@ class ByteSource(BaseModel):
     type: Literal["ByteSource"] = "ByteSource"
     data: Base64Bytes = Field(description="The byte data as a base64 encoded string")
 
-    def __init__(self):
+    def __init__(self, **data):
+        super().__init__(**data)
         self._pos = 0
 
     def read(self, size: int = -1) -> bytes:
         """Read bytes from the source."""
         if size == -1:
             result = self.data[self._pos :]
-            self.pos = len(self.data)
+            self._pos = len(self.data)
         else:
             result = self.data[self._pos : self._pos + size]
             self._pos += len(result)
@@ -89,15 +90,14 @@ class SourceLikeAdapter:
     ) -> core_schema.CoreSchema:
         def validate_source_like(value: Any) -> Any:
             if isinstance(value, dict):
-                # Handle deserialization from JSON
                 if value.get("type") == "FileSource":
                     return FileSource(path=Path(value["path"]))
                 elif value.get("type") == "ByteSource":
-                    return ByteSource(data=base64.b64decode(value["data"]))
+                    return ByteSource(data=value["data"])
             elif isinstance(value, Path):
                 return FileSource(path=value)
             elif isinstance(value, bytes):
-                return ByteSource(data=value)
+                return ByteSource(data=base64.b64encode(value))
             elif hasattr(value, "read"):
                 return value
             raise ValueError(f"Cannot convert {type(value)} to SourceLike")

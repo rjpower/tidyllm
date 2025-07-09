@@ -272,7 +272,7 @@ class AudioChunk(BaseModel):
 
 
 @register(
-    name="audio.mic",
+    name="audio_mic",
     description="Stream audio from microphone",
     tags=["audio", "source", "streaming"],
 )
@@ -340,7 +340,7 @@ def audio_mic(
 
 
 @register(
-    name="audio.file",
+    name="audio_file",
     description="Stream audio from a file",
     tags=["audio", "source", "streaming"],
 )
@@ -421,7 +421,7 @@ def audio_file(
 
 
 @register(
-    name="audio.from_source",
+    name="audio_from_source",
     description="Stream audio from any source",
     tags=["audio", "source", "streaming"],
 )
@@ -607,7 +607,7 @@ def chunk_by_vad_stream(
 
 
 @register(
-    name="audio.chunk_by_vad",
+    name="audio_chunk_by_vad",
     description="Apply VAD to audio file and return speech segments as JSON",
     tags=["audio", "vad", "file"],
 )
@@ -640,6 +640,11 @@ def chunk_by_vad(
     return chunks
 
 
+@register(
+    name="audio_chunk_to_wav_bytes",
+    description="Convert AudioChunk to WAV bytes",
+    tags=["audio", "export", "bytes"],
+)
 def chunk_to_wav_bytes(chunk: AudioChunk) -> bytes:
     """Convert an AudioChunk to WAV format bytes.
 
@@ -669,26 +674,7 @@ def chunk_to_wav_bytes(chunk: AudioChunk) -> bytes:
 
 
 @register(
-    name="audio.chunk_to_wav_bytes",
-    description="Convert AudioChunk to WAV bytes",
-    tags=["audio", "export", "bytes"],
-)
-def chunk_to_wav_bytes_tool(chunk: AudioChunk) -> bytes:
-    """Convert an AudioChunk to WAV format bytes.
-
-    Args:
-        chunk: AudioChunk containing PCM audio data
-
-    Returns:
-        WAV file as bytes
-
-    Example: wav_data = chunk_to_wav_bytes_tool(audio_chunk)
-    """
-    return chunk_to_wav_bytes(chunk)
-
-
-@register(
-    name="audio.play",
+    name="audio_play",
     description="Play audio from a file or stdin",
     tags=["audio", "playback"],
 )
