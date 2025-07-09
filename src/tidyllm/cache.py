@@ -108,11 +108,8 @@ class _FunctionCacheHandler(Generic[P, R]):
 
     def compute_arg_hash(self, *args: P.args, **kwargs: P.kwargs) -> str:
         """Compute a hash of the function arguments."""
-        # Process SourceLike arguments to use content for hashing
-        processed_args, processed_kwargs = self._process_source_like_args(*args, **kwargs)
-        
-        # Create argument model with processed args
-        args_instance = self.description.arg_model_from_args(*processed_args, **processed_kwargs)
+        # Create argument model with original args first for validation
+        args_instance = self.description.arg_model_from_args(*args, **kwargs)
         args_json = args_instance.model_dump_json()
         args_hash = hashlib.sha256(args_json.encode("utf-8")).hexdigest()
         return args_hash
@@ -140,26 +137,6 @@ class _FunctionCacheHandler(Generic[P, R]):
             f"INSERT OR REPLACE INTO {self.table_name} (arg_hash, result) VALUES (?, ?)"
         )
         self.cache_context.db.mutate(sql, [arg_hash, result_json])
-
-    def _process_source_like_args(self, *args: P.args, **kwargs: P.kwargs) -> tuple[tuple, dict]:
-        """Process arguments, replacing SourceLike values with their content bytes."""
-        # Process positional args
-        processed_args = []
-        for arg in args:
-            if is_source_like(arg):
-                processed_args.append(read_bytes(arg))
-            else:
-                processed_args.append(arg)
-        
-        # Process keyword args
-        processed_kwargs = {}
-        for key, value in kwargs.items():
-            if is_source_like(value):
-                processed_kwargs[key] = read_bytes(value)
-            else:
-                processed_kwargs[key] = value
-        
-        return tuple(processed_args), processed_kwargs
 
 
 def cached_function(func: Callable[P, R]) -> Callable[P, R]:

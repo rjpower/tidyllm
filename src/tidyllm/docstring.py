@@ -1,7 +1,6 @@
 """Docstring parsing using griffe for enhanced parameter extraction."""
 
 import logging
-from collections.abc import Callable
 from typing import Any
 
 from griffe import Docstring

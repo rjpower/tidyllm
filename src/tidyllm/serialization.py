@@ -5,11 +5,10 @@ Provides simple helpers for JSON serialization using Pydantic's robust system,
 plus dynamic model creation utilities.
 """
 
-import inspect
 from datetime import date, datetime
 from decimal import Decimal
 from types import UnionType
-from typing import Any, TypeVar, Union, get_args, get_origin
+from typing import Annotated, Any, TypeVar, Union, get_args, get_origin
 from uuid import UUID
 
 from pydantic import Base64Bytes, BaseModel, ConfigDict, TypeAdapter, create_model
@@ -87,7 +86,11 @@ def transform_argument_type(param_type: Any) -> Any:
     """
     origin = get_origin(param_type)
 
-    if origin is Union or origin is UnionType:
+    if origin is Annotated:
+        # For Annotated types, return the original type unchanged
+        # This preserves SourceLike and other custom annotated types
+        return param_type
+    elif origin is Union or origin is UnionType:
         args = get_args(param_type)
         transformed_args = []
 

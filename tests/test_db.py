@@ -222,6 +222,3 @@ class TestDatabase:
         assert cursor.all() == []
 
 
-class TestUtilityFunctions:
-    """Test utility functions."""
-    pass  # Removed basic JSON serialization tests - these test standard library behavior

@@ -21,6 +21,7 @@ from tidyllm.serialization import (
     to_json_string,
     transform_argument_type,
 )
+from tidyllm.source import SourceLike
 
 
 class Color(Enum):
@@ -275,6 +276,18 @@ class TestTransformArgumentType:
         result = transform_argument_type(union_type)
         # This is complex to test exactly, but should not raise an error
         assert result is not None
+    
+    def test_sourcelike_annotation_preservation(self):
+        """Test that SourceLike annotations are preserved during transformation."""
+        from typing import get_origin, get_args
+        
+        # SourceLike should be preserved as-is
+        result = transform_argument_type(SourceLike)
+        assert result == SourceLike
+        
+        # Check that it's still an Annotated type
+        assert get_origin(result) is get_origin(SourceLike)
+        assert get_args(result) == get_args(SourceLike)
 
 
 class TestCreateModelFromFieldDefinitions:
@@ -628,3 +641,66 @@ class TestIntegrationDynamicModels:
         assert new_user.user_id == 3
         assert new_user.username == "charlie"
         assert new_user.active is True
+
+    def test_function_schema_with_sourcelike_annotation(self):
+        """Test that SourceLike annotations are preserved in function schemas."""
+        from tidyllm.function_schema import FunctionDescription
+        from typing import get_origin, get_args
+        
+        def test_function_with_sourcelike(data: SourceLike, name: str) -> str:
+            """Test function with SourceLike parameter.
+            
+            Args:
+                data: Source-like data input
+                name: A string name
+            """
+            return f"Processing {name}"
+        
+        desc = FunctionDescription(test_function_with_sourcelike)
+        
+        # Should create args model successfully
+        assert desc.args_model.__name__ == "Test_Function_With_SourcelikeArgs"
+        assert 'data' in desc.args_model.model_fields
+        assert 'name' in desc.args_model.model_fields
+        
+        # Check that the data field preserves SourceLike annotation
+        data_field = desc.args_model.model_fields['data']
+        data_annotation = data_field.annotation
+        
+        # The annotation should preserve the structure of SourceLike
+        # Debug: print what we actually got
+        print(f"DEBUG: data_annotation = {data_annotation}")
+        print(f"DEBUG: SourceLike = {SourceLike}")
+        print(f"DEBUG: data_annotation == SourceLike = {data_annotation == SourceLike}")
+        
+        # Check that we can reconstruct the original annotation from metadata
+        from typing import Annotated
+        if data_field.metadata:
+            reconstructed = Annotated[data_annotation, *data_field.metadata]
+            print(f"DEBUG: reconstructed = {reconstructed}")
+            # Check structural identity - the reconstructed annotation should match SourceLike
+            assert get_origin(reconstructed) is get_origin(SourceLike)
+            assert get_args(reconstructed) == get_args(SourceLike)
+        else:
+            # If no metadata, the annotation should be structurally equivalent to SourceLike's args
+            assert get_origin(data_annotation) is get_origin(get_args(SourceLike)[0])
+            assert get_args(data_annotation) == get_args(get_args(SourceLike)[0])
+        
+        # Should be able to validate with Path objects
+        from pathlib import Path
+        import tempfile
+        
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
+            f.write(b"test data")
+            test_path = Path(f.name)
+        
+        try:
+            validated = desc.validate_and_parse_args({
+                "data": str(test_path),  # Pass as string, will be converted to Path
+                "name": "test"
+            })
+            assert validated["name"] == "test"
+            # The data should be converted to a SourceLike-compatible type
+            assert validated["data"] is not None
+        finally:
+            test_path.unlink(missing_ok=True)

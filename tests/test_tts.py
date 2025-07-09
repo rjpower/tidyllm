@@ -8,7 +8,7 @@ from tidyllm.tools.tts import SpeechResult, Voice, generate_speech
 class TestGenerateSpeech:
     """Test TTS speech generation."""
     
-    @patch('tidyllm.tools.tts.litellm.speech')
+    @patch('litellm.speech')
     def test_generate_speech_basic(self, mock_speech):
         """Test basic speech generation."""
         # Mock TTS response
@@ -34,7 +34,7 @@ class TestGenerateSpeech:
             voice=Voice.ZEPHYR
         )
     
-    @patch('tidyllm.tools.tts.litellm.speech')
+    @patch('litellm.speech')
     def test_generate_speech_with_voice(self, mock_speech):
         """Test speech generation with specific voice."""
         # Mock TTS response
@@ -57,7 +57,7 @@ class TestGenerateSpeech:
             voice=Voice.PUCK
         )
     
-    @patch('tidyllm.tools.tts.litellm.speech')
+    @patch('litellm.speech')
     def test_generate_speech_with_language(self, mock_speech):
         """Test speech generation with language specification."""
         # Mock TTS response
@@ -79,7 +79,7 @@ class TestGenerateSpeech:
             voice=Voice.ZEPHYR
         )
     
-    @patch('tidyllm.tools.tts.litellm.speech')
+    @patch('litellm.speech')
     def test_generate_speech_with_custom_model(self, mock_speech):
         """Test speech generation with custom model."""
         # Mock TTS response
@@ -101,7 +101,7 @@ class TestGenerateSpeech:
             voice=Voice.ZEPHYR
         )
     
-    @patch('tidyllm.tools.tts.litellm.speech')
+    @patch('litellm.speech')
     def test_generate_speech_chunked_response(self, mock_speech):
         """Test speech generation with chunked audio response."""
         # Mock TTS response with multiple chunks

@@ -9,7 +9,6 @@ import csv
 import json
 import tempfile
 from pathlib import Path
-from typing import cast
 
 from pydantic import BaseModel
 from rich.console import Console

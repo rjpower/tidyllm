@@ -6,7 +6,7 @@ import sys
 from collections.abc import Callable
 from inspect import isclass
 from pathlib import Path
-from typing import Any, get_origin, get_args, Union
+from typing import Any, Union, get_args, get_origin
 
 import click
 from pydantic import BaseModel, ValidationError
@@ -36,8 +36,7 @@ def parse_cli_kwargs(kwargs: dict[str, Any], func_desc: FunctionDescription) -> 
     if not fields:
         return args_dict
     
-    # Click passes all parameters by their original names, with values
-    # We just need to extract non-None values and convert SourceLike types
+    # Direct field mapping
     for field_name in fields:
         value = kwargs.get(field_name)
         if value is not None:
@@ -60,7 +59,7 @@ def add_cli_options(cli_func: click.Command, func_desc: FunctionDescription) -> 
     if not fields:
         return cli_func
 
-    # Add named options for all parameters
+    # Direct field mapping
     for field_name, field_info in fields.items():
         option_name = f"--{field_name.replace('_', '-')}"
         field_type = field_info.annotation or str

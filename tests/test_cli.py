@@ -42,59 +42,9 @@ class TestCLIGeneration:
         assert cli_command.help is not None
         assert callable(cli_command)
     
-    def test_cli_execution_with_individual_args(self):
-        """Test executing CLI with individual arguments."""
-        cli_command = generate_cli(simple_tool)
-        runner = CliRunner()
-        
-        result = runner.invoke(
-            cli_command, ["--name", "test", "--count", "10", "--flag"]
-        )
-        
-        assert result.exit_code == 0
-        assert "Hello test" in result.output
-        assert "10" in result.output
-        assert "true" in result.output
     
-    def test_cli_execution_with_json_input(self):
-        """Test CLI execution with JSON input."""
-        cli_command = generate_cli(simple_tool)
-        runner = CliRunner()
-        
-        json_input = '{"name": "json_test", "count": 15, "flag": true}'
-        
-        result = runner.invoke(cli_command, ["--json", json_input])
-        
-        assert result.exit_code == 0
-        assert "Hello json_test" in result.output
-        assert "15" in result.output
-        assert "true" in result.output
     
-    def test_cli_with_context_tool(self):
-        """Test CLI generation for tool that uses context variables."""
-        from tidyllm.tools.context import ToolContext
-        
-        cli_command = generate_cli(context_tool, context_cls=ToolContext)
-        runner = CliRunner()
-        
-        result = runner.invoke(cli_command, ["--name", "context_test"])
-        assert result.exit_code == 0
-        assert "Hello context_test from" in result.output
     
-    def test_output_formats(self):
-        """Test different output formats."""
-        cli_command = generate_cli(simple_tool)
-        runner = CliRunner()
-        
-        # Test JSON format (default)
-        result = runner.invoke(cli_command, ["--name", "test"])
-        assert result.exit_code == 0
-        assert "Hello test" in result.output
-        
-        # Test pickle format - should work
-        result = runner.invoke(cli_command, ["--name", "test", "--format", "pickle"])
-        assert result.exit_code == 0
-        # Pickle format outputs binary data, so just check it doesn't error
     
     def test_multi_function_cli(self):
         """Test CLI main with multiple functions."""

@@ -16,25 +16,16 @@ from tidyllm.source.lib import (
 from tidyllm.source.model import (
     ByteSource,
     FileSource,
-    Sliceable,
-    SliceType,
     Source,
     SourceLike,
-    ValueType,
 )
 
 __all__ = [
-    # Protocols and types
     "Source",
-    "SourceLike", 
-    "Sliceable",
-    "ValueType",
-    "SliceType",
-    # Source implementations
+    "SourceLike",
     "ByteSource",
     "FileSource",
     "GDriveSource",
-    # Utility functions
     "as_source",
     "read_bytes",
     "read_text",

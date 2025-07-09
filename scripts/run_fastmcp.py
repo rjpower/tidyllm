@@ -1,8 +1,6 @@
 """FastMCP server script with auto-discovery of TidyLLM tools."""
 
-import argparse
 from pathlib import Path
-from typing import Any
 
 from tidyllm.adapters.fastmcp_adapter import create_fastmcp_server
 from tidyllm.discover import discover_tools_in_directory, discover_tools_in_package

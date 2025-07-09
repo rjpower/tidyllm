@@ -9,9 +9,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Iterator
 from functools import reduce
 from itertools import islice
-from typing import Any, Generic, Protocol, TypeAlias, TypeVar
+from typing import Any, Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel
 from pydantic_core import core_schema
 
 from tidyllm.serialization import create_model_from_data_sample

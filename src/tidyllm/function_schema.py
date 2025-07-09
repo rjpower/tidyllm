@@ -14,7 +14,6 @@ from tidyllm.docstring import (
 )
 from tidyllm.serialization import (
     create_model_from_field_definitions,
-    transform_argument_type,
 )
 
 
@@ -118,51 +117,18 @@ class FunctionDescription:
             Dynamically created Pydantic model class
         """
         sig = inspect.signature(func)
-        hints = get_type_hints(func)
+        get_type_hints(func)
 
         # Get all parameters (no context filtering needed with contextvar approach)
         all_params = sig.parameters
 
-        if len(all_params) == 1:
-            # Single parameter - check if it's already a Pydantic model
-            param_name, param = next(iter(all_params.items()))
-            param_type = hints.get(param_name, Any)
-
-            if inspect.isclass(param_type) and issubclass(param_type, BaseModel):
-                # Check if we have docstring info that could enhance the model
-                if any(field_name in self.docstring_info.parameters for field_name in param_type.model_fields):
-                    # We have parameter descriptions that could enhance the existing model
-                    # Create a new model with enhanced descriptions
-                    field_definitions = {}
-                    for field_name, field_info in param_type.model_fields.items():
-                        field_type = field_info.annotation
-                        field_type = transform_argument_type(field_type)
-                        param_description = self.docstring_info.parameters.get(field_name, "")
-
-                        if field_info.default is not ...:
-                            field_definitions[field_name] = (
-                                field_type,
-                                Field(default=field_info.default, description=param_description),
-                            )
-                        else:
-                            field_definitions[field_name] = (
-                                field_type,
-                                Field(description=param_description),
-                            )
-
-                    model_name = f"{self.name.title()}Args"
-                    return create_model_from_field_definitions(model_name, field_definitions)
-                else:
-                    # No parameter descriptions - use the model directly
-                    return param_type
-
-        # Create dynamic model for multiple parameters or single non-model parameter
+        # Always create a unified model - no special casing for single Pydantic models
         field_definitions = {}
 
         for param_name, param in all_params.items():
-            param_type = hints.get(param_name, Any)
-            param_type = transform_argument_type(param_type)
-
+            # Use the raw annotation from the signature to preserve Annotated types
+            param_type = param.annotation if param.annotation != inspect.Parameter.empty else Any
+            
             # Get parameter description from docstring info
             param_description = self.docstring_info.parameters.get(param_name, "")
 
@@ -188,20 +154,7 @@ class FunctionDescription:
         bound_args = self.sig.bind(*args, **kwargs)
         bound_args.apply_defaults()
 
-        # Special case: function takes single Pydantic model, but we're called with it wrapped
-        if (len(bound_args.arguments) == 1 and 
-            len(self.sig.parameters) == 1):
-
-            param_name = list(self.sig.parameters.keys())[0]
-            param_value = bound_args.arguments[param_name]
-
-            # If the parameter value is already a Pydantic model matching the expected type
-            if isinstance(param_value, BaseModel):
-                param_annotation = list(self.sig.parameters.values())[0].annotation
-                if isinstance(param_value, param_annotation):
-                    return param_value
-
-        # Original behavior
+        # Always use the unified args model
         args_instance = self.args_model(**bound_args.arguments)
         return args_instance
 
@@ -217,24 +170,17 @@ class FunctionDescription:
         # Use the Pydantic model to validate and parse
         validated_model = self.args_model.model_validate(json_args)
 
-        # Check if original function has single Pydantic model parameter
-        # In this case, we let the user pass the "flattened" arguments to the
-        # model directly instead of { "args": { "x": 1}}, the user can write {"x": 1}
-        sig = inspect.signature(self.function)
-        hints = get_type_hints(self.function)
-        all_params = sig.parameters
-
-        if len(all_params) == 1:
-            param_name, _ = next(iter(all_params.items()))
-            param_type = hints.get(param_name, Any)
-
-            if inspect.isclass(param_type) and issubclass(param_type, BaseModel):
-                # Single Pydantic model - return the model instance
-                return {param_name: validated_model}
-
-        # Multiple parameters or single primitive - return field values
-        # The annotated types handle conversion automatically
-        return validated_model.model_dump()
+        # Extract field values, preserving Pydantic model instances for fields that are Pydantic models
+        result = {}
+        for field_name, field_value in validated_model:
+            # If the field value is a Pydantic model instance, keep it as is
+            # Otherwise, extract the raw value (this handles primitives, lists, etc.)
+            if isinstance(field_value, BaseModel):
+                result[field_name] = field_value
+            else:
+                result[field_name] = field_value
+        
+        return result
 
     def call(self, *args, **kwargs) -> Any:
         """Call the function directly with args/kwargs, handling async properly.

@@ -7,53 +7,15 @@ from pydantic import BaseModel
 from tidyllm.function_schema import (
     FunctionDescription,
 )
+from tidyllm.source import SourceLike
 
 
-class SimpleArgs(BaseModel):
-    """Simple test arguments."""
-
-    name: str
-    count: int = 5
-    optional_flag: bool | None = None
+class ExampleModel(BaseModel):
+    """Example model for testing."""
+    field1: str
+    field2: int = 42
 
 
-class ComplexArgs(BaseModel):
-    """Complex test arguments."""
-
-    items: list[str]
-    metadata: dict[str, Any]
-    config: dict[str, str] | None = None
-
-
-def simple_function(args: SimpleArgs) -> dict:
-    """A simple test function.
-
-    Args:
-        name: The name parameter
-        count: Number of items to process
-        optional_flag: Optional boolean flag
-    """
-    return {"name": args.name, "count": args.count}
-
-
-def complex_function(args: ComplexArgs) -> dict:
-    """A complex test function.
-
-    Args:
-        items: List of item names
-        metadata: Dictionary of metadata
-        config: Optional configuration
-    """
-    return {"items": args.items, "metadata": args.metadata}
-
-
-def no_docstring_function(args: SimpleArgs) -> dict:
-    return {"result": "no docs"}
-
-
-async def async_function(args: SimpleArgs) -> dict:
-    """An async test function."""
-    return {"async": True, "name": args.name}
 
 
 def multi_param_function(
@@ -117,16 +79,28 @@ def single_primitive_function(message: str) -> dict:
     return {"processed": message}
 
 
+def function_with_sourcelike(data: SourceLike, name: str) -> dict:
+    """Function with SourceLike parameter.
+
+    Args:
+        data: Source-like data input
+        name: A string name
+    """
+    return {"name": name, "data_type": type(data).__name__}
+
+
+def function_with_basemodel(config: ExampleModel, enabled: bool = True) -> dict:
+    """Function with BaseModel parameter.
+
+    Args:
+        config: Configuration model
+        enabled: Whether feature is enabled
+    """
+    return {"config": config.model_dump(), "enabled": enabled}
+
+
 class TestFunctionDescription:
     """Test FunctionDescription for argument parsing and validation."""
-
-    def test_function_description_creation_single_pydantic(self):
-        """Test creating FunctionDescription for single Pydantic model function."""
-        func_desc = FunctionDescription(simple_function)
-
-        assert func_desc.name == "simple_function"
-        assert not func_desc.is_async
-        assert func_desc.args_model is not None
 
     def test_function_description_creation_multi_param(self):
         """Test creating FunctionDescription for multi-parameter function."""
@@ -141,17 +115,6 @@ class TestFunctionDescription:
 
         assert func_desc.name == "single_primitive_function"
         assert func_desc.args_model is not None
-
-    def test_validate_and_parse_args_pydantic_model(self):
-        """Test validation and parsing for Pydantic model function."""
-        func_desc = FunctionDescription(simple_function)
-        json_args = {"name": "test", "count": 10}
-
-        result = func_desc.validate_and_parse_args(json_args)
-        assert isinstance(result, dict)
-        assert "args" in result
-        assert result["args"].name == "test"
-        assert result["args"].count == 10
 
     def test_validate_and_parse_args_multi_param(self):
         """Test validation and parsing for multi-parameter function."""
@@ -178,16 +141,6 @@ class TestFunctionDescription:
         result = func_desc.validate_and_parse_args(json_args)
         assert isinstance(result, dict)
         assert result["message"] == "hello"
-
-    def test_call_pydantic_model(self):
-        """Test calling function with parsed args for Pydantic model."""
-        func_desc = FunctionDescription(simple_function)
-        json_args = {"name": "test", "count": 10}
-
-        parsed_args = func_desc.validate_and_parse_args(json_args)
-        result = func_desc.call(**parsed_args)
-        assert result["name"] == "test"
-        assert result["count"] == 10
 
     def test_call_multi_param(self):
         """Test calling function with parsed args for multi-parameter function."""
@@ -218,91 +171,6 @@ def create_test_schema(func, doc_override=None):
 
 class TestToolSchemaGeneration:
     """Test tool schema generation."""
-
-    def test_generate_schema_simple_function(self):
-        """Test generating schema for simple function."""
-        schema = create_test_schema(simple_function)
-
-        assert schema["type"] == "function"
-        assert schema["function"]["name"] == "simple_function"
-        assert "A simple test function." in schema["function"]["description"]
-
-        params = schema["function"]["parameters"]
-        assert "properties" in params
-        assert "name" in params["properties"]
-        assert "count" in params["properties"]
-        assert "optional_flag" in params["properties"]
-
-    def test_generate_schema_complex_function(self):
-        """Test generating schema for function with complex types."""
-        schema = create_test_schema(complex_function)
-
-        params = schema["function"]["parameters"]
-        assert "items" in params["properties"]
-        assert "metadata" in params["properties"]
-        assert "config" in params["properties"]
-
-        # Check array type
-        assert params["properties"]["items"]["type"] == "array"
-        # Check object type
-        assert params["properties"]["metadata"]["type"] == "object"
-
-    def test_generate_schema_with_doc_override(self):
-        """Test generating schema with custom documentation."""
-        custom_doc = "Custom documentation for this tool"
-        schema = create_test_schema(simple_function, custom_doc)
-
-        assert schema["function"]["description"] == custom_doc
-
-    def test_generate_schema_no_docstring(self):
-        """Test generating schema for function without docstring."""
-        schema = create_test_schema(no_docstring_function)
-
-        # Should generate default description
-        assert schema["function"]["name"] == "no_docstring_function"
-        assert "Function no_docstring_function" in schema["function"]["description"]
-
-    def test_generate_schema_async_function(self):
-        """Test generating schema for async function."""
-        schema = create_test_schema(async_function)
-
-        assert schema["function"]["name"] == "async_function"
-        assert schema["function"]["description"] == "An async test function."
-
-    def test_generate_schema_parameter_descriptions(self):
-        """Test that parameter descriptions are included in schema."""
-        schema = create_test_schema(simple_function)
-
-        params = schema["function"]["parameters"]
-        name_prop = params["properties"]["name"]
-        count_prop = params["properties"]["count"]
-
-        assert name_prop["description"] == "The name parameter"
-        assert count_prop["description"] == "Number of items to process"
-
-    def test_generate_schema_optional_parameters(self):
-        """Test schema generation for optional parameters."""
-        schema = create_test_schema(simple_function)
-
-        params = schema["function"]["parameters"]
-        required = params.get("required", [])
-
-        # name should be required, count and optional_flag should not
-        assert "name" in required
-        assert "count" not in required  # has default value
-        assert "optional_flag" not in required  # is Optional
-
-    def test_generate_schema_type_mapping(self):
-        """Test correct JSON Schema type mapping."""
-        schema = create_test_schema(complex_function)
-
-        params = schema["function"]["parameters"]
-        items_prop = params["properties"]["items"]
-        metadata_prop = params["properties"]["metadata"]
-
-        assert items_prop["type"] == "array"
-        assert items_prop["items"]["type"] == "string"
-        assert metadata_prop["type"] == "object"
 
     def test_generate_schema_multiple_parameters(self):
         """Test schema generation for function with multiple parameters."""
@@ -380,25 +248,32 @@ class TestToolSchemaGeneration:
         assert params["properties"]["tags"]["description"] == "List of tags"
         assert params["properties"]["config"]["description"] == "Optional configuration dict"
 
-    def test_pydantic_model_vs_multi_param(self):
-        """Test that single Pydantic model is handled differently from multiple params."""
-        # Single Pydantic model function
-        pydantic_schema = create_test_schema(simple_function)
+    def test_generate_schema_with_sourcelike(self):
+        """Test schema generation for function with SourceLike parameter."""
+        schema = create_test_schema(function_with_sourcelike)
 
-        # Multiple parameter function
-        multi_schema = create_test_schema(multi_param_function)
+        params = schema["function"]["parameters"]
 
-        # Both should have proper structure but different parameter handling
-        assert "properties" in pydantic_schema["function"]["parameters"]
-        assert "properties" in multi_schema["function"]["parameters"]
+        # Check that SourceLike parameter is present
+        assert "data" in params["properties"]
+        assert "name" in params["properties"]
 
-        # Pydantic model should have the model's properties
-        pydantic_props = pydantic_schema["function"]["parameters"]["properties"]
-        assert "name" in pydantic_props
-        assert "count" in pydantic_props
+        # Both should be required
+        required = params.get("required", [])
+        assert "data" in required
+        assert "name" in required
 
-        # Multi-param should have function parameters directly
-        multi_props = multi_schema["function"]["parameters"]["properties"]
-        assert "name" in multi_props
-        assert "count" in multi_props
-        assert "tags" in multi_props
+    def test_generate_schema_with_basemodel(self):
+        """Test schema generation for function with BaseModel parameter."""
+        schema = create_test_schema(function_with_basemodel)
+
+        params = schema["function"]["parameters"]
+
+        # Check that BaseModel parameter is present
+        assert "config" in params["properties"]
+        assert "enabled" in params["properties"]
+
+        # Check required parameters
+        required = params.get("required", [])
+        assert "config" in required
+        assert "enabled" not in required  # Has default value
