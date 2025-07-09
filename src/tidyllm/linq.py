@@ -889,7 +889,7 @@ class Table(SchemaInferringEnumerable[T]):
         """Create empty table."""
         return cls(rows=[], table_schema=None)
 
-    def to_table(self) -> "Table":
+    def to_table(self) -> "Table[T]":
         return self
 
 

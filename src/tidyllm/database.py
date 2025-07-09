@@ -160,29 +160,15 @@ class Database:
         self._schema_initialized = False
 
     def connection(self) -> sqlite3.Connection:
-        """Get a connection as a context manager with proper transaction handling."""
         if self._conn is None:
             self._conn = sqlite3.connect(self.path, **self.connect_kwargs)
             self._conn.row_factory = sqlite3.Row
             if not self._schema_initialized:
-                self._init_schema_with_connection(self._conn)
                 self._conn.commit()
                 self._schema_initialized = True
         return self._conn
 
-    def connect(self) -> sqlite3.Connection:
-        """Open the SQLite connection (legacy method - use connection() instead)."""
-        if self._conn is None:
-            self._conn = sqlite3.connect(self.path, **self.connect_kwargs)
-            self._conn.row_factory = sqlite3.Row
-            if not self._schema_initialized:
-                self._init_schema_with_connection(self._conn)
-                self._schema_initialized = True
-
-        return self._conn
-
     def close(self) -> None:
-        """Close the SQLite connection."""
         if self._conn:
             self._conn.close()
 
@@ -251,46 +237,8 @@ class Database:
                 tables.append(TableSchema(name=name, columns=cols))
             return Schema(tables=tables)
 
-    def __enter__(self) -> 'Database':
-        self.connect()
-        return self
+    def __enter__(self):
+        return self.connection()
 
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        del exc_type, exc_value, traceback  # Unused parameters
-        self.close()
-
-    def init_schema(self) -> None:
-        """Initialize database with required tables."""
-        with self.connection() as conn:
-            self._init_schema_with_connection(conn)
-            conn.commit()
-        self._schema_initialized = True
-
-    def _init_schema_with_connection(self, conn: sqlite3.Connection) -> None:
-        """Initialize database schema using provided connection."""
-        # Vocab table
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS vocab (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                word TEXT NOT NULL UNIQUE,
-                translation TEXT NOT NULL,
-                examples TEXT,  -- JSON array
-                tags TEXT,      -- JSON array
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
-        # Create trigger to update updated_at
-        conn.execute('''
-            CREATE TRIGGER IF NOT EXISTS update_vocab_timestamp 
-            AFTER UPDATE ON vocab
-            BEGIN
-                UPDATE vocab SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-            END
-        ''')
-
-
-def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
-    """Convert a sqlite3.Row to a dictionary."""
-    return dict(zip(row.keys(), row, strict=False))
+    def __exit__(self, _exc_type, _exc_value, _traceback) -> None:
+        pass

@@ -1,21 +1,20 @@
 """Interactive table selection UI using questionary."""
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypeVar
 
 import questionary
 from rich.console import Console
 from rich.table import Table as RichTable
 
+from tidyllm.context import get_tool_context
 from tidyllm.linq import Table
 
-# Table is now an alias for Table
-
-console = Console()
+T = TypeVar("T")
 
 
 def select_ui(
-    table: Table,
+    table: Table[T],
     title: str = "Select Items",
     display_columns: list[str] | None = None,
     multi_select: bool = True,
@@ -23,7 +22,7 @@ def select_ui(
     show_preview: bool = True,
     compact: bool = False,
     pre_selected: list[int] | None = None,
-) -> Table:
+) -> Table[T]:
     """Interactive table selection using questionary.
     
     Shows an interactive selector where users can navigate with arrow keys
@@ -49,6 +48,8 @@ def select_ui(
         ... )
         >>> selected = select_ui(data, title="Choose people")
     """
+    console = get_tool_context().console
+
     # Check empty table
     if len(table) == 0:
         console.print("[yellow]No items to select[/yellow]")
@@ -68,10 +69,10 @@ def select_ui(
 
     # Show preview if requested
     if show_preview and not compact:
-        _show_preview_table(table, title, columns_to_show, formatter)
+        _show_preview_table(table, title, columns_to_show, formatter, console)
 
     # Build choices
-    choices = _build_choices(table, columns_to_show, formatter, compact)
+    choices = _build_choices(table, columns_to_show, formatter, compact, console)
 
     # Show interactive selector
     try:
@@ -100,19 +101,20 @@ def select_ui(
 
 
 def _show_preview_table(
-    table: Table,
+    table: Table[T],
     title: str,
     columns: list[str],
-    formatter: dict[str, Callable] | None
+    formatter: dict[str, Callable] | None,
+    console: Console,
 ) -> None:
     """Display a rich table preview."""
     rich_table = RichTable(title=title)
-    
+
     # Add columns
     rich_table.add_column("#", style="dim", width=4)
     for col in columns:
         rich_table.add_column(col, style="cyan")
-    
+
     # Add rows
     for i, row in enumerate(table):
         row_data = [str(i)]
@@ -120,7 +122,7 @@ def _show_preview_table(
             value = _get_formatted_value(row, col, formatter)
             row_data.append(value)
         rich_table.add_row(*row_data)
-    
+
     console.print(rich_table)
     console.print()
 
@@ -129,11 +131,12 @@ def _build_choices(
     table: Table,
     columns: list[str],
     formatter: dict[str, Callable] | None,
-    compact: bool
+    compact: bool,
+    console: Console,
 ) -> list[questionary.Choice]:
     """Build questionary Choice objects for each row."""
     choices = []
-    
+
     for i, row in enumerate(table):
         if compact:
             # Compact format: "0: value1 | value2"
@@ -149,9 +152,9 @@ def _build_choices(
                 value = _get_formatted_value(row, col, formatter)
                 parts.append(f"{col}: {value}")
             display = " | ".join(parts)
-        
+
         choices.append(questionary.Choice(title=display, value=i))
-    
+
     return choices
 
 
@@ -211,35 +214,3 @@ def _run_selector(
         ).ask()
         
         return [result] if result is not None else None
-
-
-def select_ui_compact(table: Table, **kwargs) -> Table:
-    """Compact version of select_ui (no preview, minimal output)."""
-    return select_ui(table, compact=True, show_preview=False, **kwargs)
-
-
-def select_one(table: Table, **kwargs) -> Any | None:
-    """Select a single row and return it (not a table)."""
-    kwargs['multi_select'] = False
-    result = select_ui(table, **kwargs)
-    
-    if len(result) > 0:
-        return result[0]
-    return None
-
-
-def confirm_selection(
-    table: Table,
-    message: str = "Confirm these selections?"
-) -> bool:
-    """Show selected items and ask for confirmation."""
-    if len(table) == 0:
-        return False
-    
-    # Show what was selected
-    console.print(f"\n[bold]Selected {len(table)} items:[/bold]")
-    for i, row in enumerate(table):
-        console.print(f"  {i+1}. {row}")
-    
-    # Ask for confirmation
-    return questionary.confirm(message, default=True).ask()

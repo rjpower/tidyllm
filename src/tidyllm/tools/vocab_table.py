@@ -4,12 +4,40 @@ from pydantic import BaseModel, Field
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.context import get_tool_context
+from tidyllm.database import Database
 from tidyllm.linq import Table
 from tidyllm.registry import register
 
 # Table is now an alias for Table
 from tidyllm.serialization import from_json_string, to_json_string
 from tidyllm.tools.context import ToolContext
+
+
+def _create_tables(database: Database) -> None:
+    """Initialize database schema using provided connection."""
+    database.mutate(
+        """
+        CREATE TABLE IF NOT EXISTS vocab (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            word TEXT NOT NULL UNIQUE,
+            translation TEXT NOT NULL,
+            examples TEXT,  -- JSON array
+            tags TEXT,      -- JSON array
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """
+    )
+
+    database.mutate(
+        """
+        CREATE TRIGGER IF NOT EXISTS update_vocab_timestamp 
+        AFTER UPDATE ON vocab
+        BEGIN
+            UPDATE vocab SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+        END
+    """
+    )
 
 
 class VocabItem(BaseModel):
@@ -42,6 +70,8 @@ def vocab_add(
     """
     ctx = get_tool_context()
     db = ctx.db
+    with db:
+        _create_tables(db)
 
     if examples is None:
         examples = []
@@ -82,6 +112,8 @@ def vocab_search(
     """
     ctx = get_tool_context()
     db = ctx.db
+    with db:
+        _create_tables(db)
 
     # Build query with filters
     where_clauses = []
@@ -140,6 +172,8 @@ def vocab_update(
     """
     ctx = get_tool_context()
     db = ctx.db
+    with db:
+        _create_tables(db)
 
     # Build update query dynamically
     update_parts = []
@@ -178,6 +212,8 @@ def vocab_delete(word: str) -> None:
     """
     ctx = get_tool_context()
     db = ctx.db
+    with db:
+        _create_tables(db)
 
     rowcount = db.mutate("DELETE FROM vocab WHERE word = ?", (word,))
 

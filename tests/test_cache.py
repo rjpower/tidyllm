@@ -35,7 +35,6 @@ def memory_db():
     """Create an in-memory SQLite database for testing."""
     # Use check_same_thread=False to allow cross-thread access for async tests
     db = Database(":memory:", check_same_thread=False)
-    db.connect()
     yield db
     db.close()
 

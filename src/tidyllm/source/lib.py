@@ -90,7 +90,6 @@ def url_mapping(url: str):
 
 def as_source(data: Any) -> Source:
     """Convert various input types to a Source."""
-    print(f"As source {data}")
     if hasattr(data, 'read') and callable(data.read): # type: ignore
         return cast(Source, data)
     elif isinstance(data, Path):
