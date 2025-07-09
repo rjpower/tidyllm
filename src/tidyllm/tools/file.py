@@ -5,15 +5,16 @@ from pathlib import Path
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.registry import register
+from tidyllm.source import SourceLike, read_bytes, read_text
 from tidyllm.tools.context import ToolContext
 
 
 @register()
-def read_file(path: str | Path) -> bytes:
-    """Read file contents as binary data.
+def source_read_bytes(source: SourceLike) -> bytes:
+    """Read file contents as binary data from any source.
 
     Args:
-        path: Path to file to read
+        source: Source to read from (file path, URL, bytes, etc.)
 
     Returns:
         Binary file contents
@@ -21,17 +22,31 @@ def read_file(path: str | Path) -> bytes:
     Examples:
         file.read 'config.json'
         file.read '/path/to/audio.mp3'
+        file.read 'https://example.com/data.json'
     """
-    file_path = Path(path)
-
-    if not file_path.exists():
-        raise FileNotFoundError(f"File not found: {path}")
-
-    return file_path.read_bytes()
+    return read_bytes(source)
 
 
 @register()
-def write_file(path: str | Path, data: bytes | None) -> str:
+def source_read_text(source: SourceLike, encoding: str = "utf-8") -> str:
+    """Read file contents as text from any source.
+
+    Args:
+        source: Source to read from (file path, URL, bytes, etc.)
+        encoding: Text encoding to use (default: utf-8)
+
+    Returns:
+        Text file contents
+
+    Examples:
+        file.read_text 'document.txt'
+        file.read_text 'https://example.com/data.txt'
+    """
+    return read_text(source, encoding)
+
+
+@register()
+def file_write(path: str | Path, data: bytes | None) -> str:
     """Write binary data from stdin to file.
 
     Args:
@@ -62,4 +77,4 @@ def write_file(path: str | Path, data: bytes | None) -> str:
 
 
 if __name__ == "__main__":
-    cli_main([read_file, write_file], context_cls=ToolContext)
+    cli_main([source_read_bytes, source_read_text, file_write], context_cls=ToolContext)

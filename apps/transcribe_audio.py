@@ -20,12 +20,17 @@ from tidyllm.duration import Duration
 from tidyllm.linq import Enumerable, Table, from_iterable
 from tidyllm.registry import register
 from tidyllm.serialization import to_json_dict
-from tidyllm.tools.audio import audio_file, chunk_by_vad_stream, chunk_to_wav_bytes
+from tidyllm.source import SourceLike
+from tidyllm.tools.audio import (
+    audio_from_source,
+    chunk_by_vad_stream,
+    chunk_to_wav_bytes,
+)
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.transcribe import (
     TranscribedWord,
     TranscriptionResult,
-    transcribe_bytes,
+    transcribe_audio,
 )
 from tidyllm.tools.vocab_table import vocab_add, vocab_search
 from tidyllm.ui.selection import select_ui
@@ -60,16 +65,16 @@ class FullPipelineResult(BaseModel):
 
 
 @register()
-def transcribe_audio(
-    audio_path: Path,
+def transcribe_with_vad(
+    audio_source: SourceLike,
     source_language: str | None = None,
     target_language: str = "en",
     output: Path | None = None,
 ) -> TranscribeAudioResult:
-    """Transcribe audio file with VAD segmentation and extract vocabulary.
+    """Transcribe audio from any source with VAD segmentation and extract vocabulary.
 
     Args:
-        audio_path: Path to audio file
+        audio_source: Audio source (file path, bytes, URL, etc.)
         source_language: Source language (auto-detect if not provided)
         target_language: Target language for translation
         output: File to write output to. If not specified, writes to stdout
@@ -77,16 +82,13 @@ def transcribe_audio(
     Returns:
         TranscribeAudioResult containing transcriptions and metadata
 
-    Example: transcribe_audio(Path("speech.mp3"), target_language="en")
+    Example: transcribe_with_vad("speech.mp3", target_language="en")
     """
-    if not audio_path.exists():
-        raise FileNotFoundError(f"Audio file not found: {audio_path}")
-
-    console.print(f"[bold blue]Transcribing audio:[/bold blue] {audio_path}")
+    console.print("[bold blue]Transcribing audio from source[/bold blue]")
 
     # Step 1: Segment audio using VAD
     console.print("[yellow]Segmenting audio using Voice Activity Detection...[/yellow]")
-    audio_stream = audio_file(audio_path)
+    audio_stream = audio_from_source(audio_source)
     segments = chunk_by_vad_stream(
         audio_stream, min_speech_duration=Duration.from_ms(10000)
     )
@@ -95,13 +97,9 @@ def transcribe_audio(
     def transcribe_segment_with_index(indexed_segment):
         index, segment = indexed_segment
         print(segment.timestamp)
-        # Convert AudioChunk to WAV bytes (no temporary files!)
         wav_bytes = chunk_to_wav_bytes(segment)
-
-        # Transcribe segment using bytes-based function (cacheable!)
-        transcription_result = transcribe_bytes(
+        transcription_result = transcribe_audio(
             wav_bytes,
-            "audio/wav",
             source_language=source_language,
             target_language=target_language,
         )
@@ -255,7 +253,7 @@ def export_csv(
 
 @register()
 def full_pipeline(
-    audio_path: Path,
+    audio_source: SourceLike,
     source_language: str | None = None,
     target_language: str = "en",
     output_dir: Path | None = None,
@@ -264,7 +262,7 @@ def full_pipeline(
     """Run complete transcription and vocabulary extraction pipeline.
 
     Args:
-        audio_path: Path to audio file
+        audio_source: Audio source (file path, bytes, URL, etc.)
         source_language: Source language
         target_language: Target language
         output_dir: Output directory for intermediate files
@@ -273,12 +271,9 @@ def full_pipeline(
     Returns:
         FullPipelineResult containing pipeline statistics
 
-    Example: full_pipeline(Path("speech.mp3"), auto_add=True)
+    Example: full_pipeline("speech.mp3", auto_add=True)
     """
-    if not audio_path.exists():
-        raise FileNotFoundError(f"Audio file not found: {audio_path}")
-
-    console.print(f"[bold blue]Running full pipeline on:[/bold blue] {audio_path}")
+    console.print("[bold blue]Running full pipeline on audio source[/bold blue]")
 
     # Setup output directory
     if not output_dir:
@@ -294,8 +289,8 @@ def full_pipeline(
 
     # Step 1: Transcribe audio with segmentation
     console.print("\n[bold]Step 1: Transcribing audio with VAD segmentation[/bold]")
-    transcribe_result = transcribe_audio(
-        audio_path=audio_path,
+    transcribe_result = transcribe_with_vad(
+        audio_source=audio_source,
         source_language=source_language,
         target_language=target_language,
         output=transcription_file,
@@ -346,7 +341,7 @@ def full_pipeline(
 
 if __name__ == "__main__":
     functions = [
-        transcribe_audio,
+        transcribe_with_vad,
         diff_vocab,
         export_csv,
         full_pipeline,

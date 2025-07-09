@@ -57,8 +57,8 @@ def select_ui(
     # Determine columns
     if display_columns:
         columns_to_show = display_columns
-    elif table._table_schema:
-        columns_to_show = list(table._table_schema.model_fields.keys())
+    elif table.table_schema:
+        columns_to_show = list(table.table_schema().model_fields.keys())
     else:
         # Fallback: try to infer from first row
         if table.rows and hasattr(table.rows[0], "__dict__"):
@@ -92,7 +92,7 @@ def select_ui(
         if not compact:
             console.print(f"\n[green]✓ Selected {len(selected_rows)} item(s)[/green]")
 
-        return Table(table_schema=table._table_schema, rows=selected_rows)
+        return Table(table_schema=table.table_schema, rows=selected_rows)
 
     except (KeyboardInterrupt, EOFError):
         console.print("\n[yellow]Selection cancelled[/yellow]")

@@ -1,9 +1,8 @@
 """Audio transcription tool using Gemini via litellm."""
 
 import base64
-from pathlib import Path
-from typing import cast
 
+import filetype
 from pydantic import BaseModel, Field
 
 from tidyllm.adapters.cli import cli_main
@@ -11,6 +10,7 @@ from tidyllm.cache import cached_function
 from tidyllm.context import get_tool_context
 from tidyllm.llm import completion_with_schema
 from tidyllm.registry import register
+from tidyllm.source import SourceLike, read_bytes
 from tidyllm.tools.context import ToolContext
 
 
@@ -26,28 +26,10 @@ class TranscriptionResult(BaseModel):
     words: list[TranscribedWord] = Field(default_factory=list)
 
 
-def get_audio_mime_type(file_path: Path) -> str:
-    """Get MIME type for audio file."""
-    suffix = file_path.suffix.lower()
-    mime_types = {
-        ".mp3": "audio/mp3",
-        ".wav": "audio/wav",
-        ".m4a": "audio/mp4",
-        ".ogg": "audio/ogg",
-        ".flac": "audio/flac",
-        ".aac": "audio/aac",
-        ".wma": "audio/x-ms-wma",
-        ".webm": "audio/webm",
-        ".mov": "video/quicktime",
-    }
-    return mime_types.get(suffix, 'audio/mpeg')
-
-
 @register()
 @cached_function
-def transcribe_bytes(
-    audio_data: bytes,
-    mime_type: str,
+def transcribe_audio(
+    audio_data: SourceLike,
     source_language: str | None = None,
     target_language: str = "en",
 ) -> TranscriptionResult:
@@ -55,7 +37,6 @@ def transcribe_bytes(
 
     Args:
         audio_data: Audio file data as bytes
-        mime_type: MIME type of the audio (e.g., "audio/wav", "audio/mp3")
         language: Language of the audio (auto-detect if not provided)
         translate_to: Target language for translation (default: "en")
 
@@ -63,6 +44,8 @@ def transcribe_bytes(
     """
     ctx = get_tool_context()
 
+    audio_data = read_bytes(audio_data)
+    mime_type = filetype.guess_mime(audio_data)
     print(f"Transcribing: {len(audio_data)} bytes of data.")
 
     # Encode audio data as base64
@@ -124,31 +107,5 @@ Only include key words/phrases that would benefit from translation, not every si
     )
 
 
-@register()
-def transcribe(
-    audio_file_path: Path, language: str | None = None, translate_to: str = "en"
-) -> TranscriptionResult:
-    """Transcribe audio file using Gemini Flash via litellm.
-
-    This is a wrapper around transcribe_bytes that reads the file and determines the MIME type.
-
-    Args:
-        audio_file_path: Path to audio file to transcribe
-        language: Language of the audio (auto-detect if not provided)
-        translate_to: Target language for translation (default: "en")
-
-    Example usage: transcribe(Path("/path/to/audio.mp3"), "es", "en")
-    """
-    if not audio_file_path.exists():
-        raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
-
-    # Read audio file and determine MIME type
-    audio_data = audio_file_path.read_bytes()
-    mime_type = get_audio_mime_type(audio_file_path)
-
-    # Call the cached bytes-based function
-    return transcribe_bytes(audio_data, mime_type, language, translate_to)
-
-
 if __name__ == "__main__":
-    cli_main(transcribe, context_cls=ToolContext)
+    cli_main(transcribe_audio, context_cls=ToolContext)

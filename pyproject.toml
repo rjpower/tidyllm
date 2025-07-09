@@ -41,6 +41,9 @@ dependencies = [
     "click>=8.2.1",
     "fastapi>=0.115.14",
     "fastmcp>=2.9.1",
+    "filetype>=1.2.0",
+    "gdrive-fsspec>=0.2.0",
+    "gdrivefs>=0.14.13",
     "genanki>=0.13.1",
     "griffe>=1.7.3",
     "litellm>=1.73.6",
@@ -181,3 +184,6 @@ filterwarnings = [
    "ignore::DeprecationWarning:audioread.*",
    "ignore::DeprecationWarning:_pytest.*",
 ]
+
+[tool.uv.sources]
+gdrive-fsspec = { git = "https://github.com/fsspec/gdrivefs" }

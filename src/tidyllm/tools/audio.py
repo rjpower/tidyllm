@@ -3,6 +3,7 @@
 import io
 import queue
 import sys
+import tempfile
 import time
 import warnings
 from dataclasses import dataclass
@@ -17,8 +18,9 @@ from pydantic.functional_validators import WrapValidator
 
 from tidyllm.context import get_tool_context
 from tidyllm.duration import Duration
-from tidyllm.registry import register
 from tidyllm.linq import Enumerable, from_iterable
+from tidyllm.registry import register
+from tidyllm.source import SourceLike, read_bytes
 
 # VAD Configuration
 VAD_SAMPLE_RATE = 16000
@@ -419,34 +421,39 @@ def audio_file(
 
 
 @register(
-    name="audio.merge_chunks",
-    description="Merge a list of audio chunks into one",
-    tags=["audio", "transform"],
+    name="audio.from_source",
+    description="Stream audio from any source",
+    tags=["audio", "source", "streaming"],
 )
-def merge_chunks(chunks: list[AudioChunk]) -> AudioChunk:
-    """Merge multiple audio chunks into a single chunk.
+def audio_from_source(
+    source: SourceLike,
+    sample_rate: int | None = None,
+    max_duration: Duration | None = None,
+    chunk_duration=DEFAULT_CHUNK_DURATION,
+) -> Enumerable[AudioChunk]:
+    """Stream audio from any source (file, bytes, URL, etc.).
 
     Args:
-        chunks: List of audio chunks to merge
+        source: Audio source (file path, bytes, URL, etc.)
+        sample_rate: Override sample rate (uses source's rate if None)
+        max_duration: Maximum duration to read
+        chunk_duration: Length of each chunk
 
     Returns:
-        A single merged audio chunk
-
-    Raises:
-        ValueError: If no chunks provided
+        A stream of audio chunks read from the source
     """
-    if not chunks:
-        raise ValueError("No chunks to merge")
+    # If it's already a Path, just use audio_file directly
+    if isinstance(source, Path | str):
+        return audio_file(Path(source), sample_rate, max_duration, chunk_duration)
 
-    first = chunks[0]
-    merged_arrays = [chunk.as_array() for chunk in chunks]
-    merged_data = np.concatenate(merged_arrays)
+    audio_bytes = read_bytes(source)
 
-    return AudioChunk(
-        data=merged_data,
-        timestamp=first.timestamp,
-        format=first.format,
-    )
+    with tempfile.NamedTemporaryFile(suffix=".tmp", delete=False) as temp_file:
+        temp_file.write(audio_bytes)
+        temp_file.flush()
+        return audio_file(
+            Path(temp_file.name), sample_rate, max_duration, chunk_duration
+        )
 
 
 class VADBuffer:

@@ -6,7 +6,7 @@ import sys
 from collections.abc import Callable
 from inspect import isclass
 from pathlib import Path
-from typing import Any, get_origin
+from typing import Any, get_origin, get_args, Union
 
 import click
 from pydantic import BaseModel, ValidationError
@@ -14,12 +14,15 @@ from pydantic import BaseModel, ValidationError
 from tidyllm.context import set_tool_context
 from tidyllm.data import to_json_dict
 from tidyllm.function_schema import FunctionDescription
+from tidyllm.source import SourceLike, as_source
 
 
 def get_click_type(annotation: type) -> Any:
     """Convert Python type to Click type."""
     if annotation == Path:
         return click.Path(exists=False)
+    if annotation == SourceLike or (get_origin(annotation) == Union and SourceLike in get_args(annotation)):
+        return click.STRING  # Will be converted via as_source
     if annotation in (str, int, float, bool):
         return annotation
     return str
@@ -34,10 +37,17 @@ def parse_cli_kwargs(kwargs: dict[str, Any], func_desc: FunctionDescription) -> 
         return args_dict
     
     # Click passes all parameters by their original names, with values
-    # We just need to extract non-None values
+    # We just need to extract non-None values and convert SourceLike types
     for field_name in fields:
         value = kwargs.get(field_name)
         if value is not None:
+            field_info = fields[field_name]
+            annotation = field_info.annotation
+            
+            # Convert string parameters to Source if needed
+            if annotation == SourceLike or (get_origin(annotation) == Union and SourceLike in get_args(annotation)):
+                value = as_source(value)
+            
             args_dict[field_name] = value
     
     return args_dict

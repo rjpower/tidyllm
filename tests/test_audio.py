@@ -11,7 +11,6 @@ from tidyllm.tools.audio import (
     AudioFormat,
     audio_file,
     chunk_by_vad_stream,
-    merge_chunks,
 )
 from tidyllm.tools.context import ToolContext
 
@@ -91,22 +90,6 @@ class TestAudioLoading:
 
 class TestAudioProcessing:
     """Tests for audio processing functions."""
-
-    def test_merge_chunks(self, audio_stream, tool_context):
-        """Test merging audio chunks."""
-        with set_tool_context(tool_context):
-            chunks = list(audio_stream.take(3))
-            merged = merge_chunks(chunks)
-
-            assert isinstance(merged, AudioChunk)
-            assert len(merged.data) == sum(len(chunk.data) for chunk in chunks)
-            assert merged.timestamp == chunks[0].timestamp
-            assert merged.sample_rate == chunks[0].sample_rate
-
-    def test_merge_chunks_empty(self):
-        """Test merging empty chunk list raises error."""
-        with pytest.raises(ValueError, match="No chunks to merge"):
-            merge_chunks([])
 
     def test_resample_chunk(self, audio_stream, tool_context):
         """Test resampling a chunk to different format."""
