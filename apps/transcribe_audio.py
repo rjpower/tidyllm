@@ -14,10 +14,7 @@ from pydantic import BaseModel
 from rich.console import Console
 
 from tidyllm.adapters.cli import cli_main
-from tidyllm.model.duration import Duration
-from tidyllm.model.linq import Enumerable, Table, from_iterable
 from tidyllm.registry import register
-from tidyllm.model.source import SourceLike, as_source, read_bytes
 from tidyllm.tools.audio import (
     audio_from_source,
     chunk_by_vad_stream,
@@ -30,6 +27,9 @@ from tidyllm.tools.transcribe import (
     transcribe_audio,
 )
 from tidyllm.tools.vocab_table import vocab_add, vocab_search
+from tidyllm.types.duration import Duration
+from tidyllm.types.linq import Enumerable, Table, from_iterable
+from tidyllm.types.source import SourceLike, as_source, read_bytes
 from tidyllm.ui.selection import select_ui
 
 console = Console()

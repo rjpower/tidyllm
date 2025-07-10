@@ -32,7 +32,6 @@ class ContextManager(Generic[T]):
         return self.get()
 
 
-# Global context manager for tool context
 _tool_context: ContextManager[Any] = ContextManager("tool_context")
 
 

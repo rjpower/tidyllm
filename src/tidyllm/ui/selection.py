@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.table import Table as RichTable
 
 from tidyllm.context import get_tool_context
-from tidyllm.model.linq import Table
+from tidyllm.types.linq import Table
 
 T = TypeVar("T")
 

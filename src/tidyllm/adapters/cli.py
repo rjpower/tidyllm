@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from tidyllm.context import set_tool_context
 from tidyllm.function_schema import FunctionDescription
-from tidyllm.model.serialization import to_json_dict
+from tidyllm.types.serialization import to_json_dict
 
 
 def get_click_type(annotation: type) -> Any:

@@ -7,15 +7,13 @@ from pydantic import BaseModel
 from tidyllm.function_schema import (
     FunctionDescription,
 )
-from tidyllm.model.source import SourceLike
+from tidyllm.types.source import SourceLike
 
 
 class ExampleModel(BaseModel):
     """Example model for testing."""
     field1: str
     field2: int = 42
-
-
 
 
 def multi_param_function(

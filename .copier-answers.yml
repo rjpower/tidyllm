@@ -1,9 +1,0 @@
-# Changes here will be overwritten by Copier. Do not edit manually.
-_commit: v0.2.14
-_src_path: gh:jlevy/simple-modern-uv
-package_author_email: russell.power@gmail.com
-package_author_name: Russell Power
-package_description: Easy LLM tool management.
-package_github_org: rjpower
-package_module: tidyllm
-package_name: tidyllm

@@ -16,9 +16,9 @@ from tidyllm.adapters.cli import cli_main
 from tidyllm.context import get_tool_context
 from tidyllm.llm import completion_with_schema
 from tidyllm.registry import register
-from tidyllm.model.source import SourceLike, read_bytes
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.notes import NoteAddArgs, note_add
+from tidyllm.types.source import SourceLike, read_bytes
 
 console = Console()
 

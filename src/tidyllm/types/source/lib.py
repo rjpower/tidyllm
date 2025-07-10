@@ -18,7 +18,7 @@ from typing import (
 from pydantic import Base64Bytes, BaseModel, Field
 from pydantic_core import core_schema
 
-from tidyllm.model.source.gdrive import GDriveSource
+from tidyllm.types.source.gdrive import GDriveSource
 
 
 @runtime_checkable

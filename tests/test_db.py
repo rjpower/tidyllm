@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from tidyllm.database import Cursor, Database, Row
-from tidyllm.model.serialization import to_json_string, from_json_string
+from tidyllm.types.serialization import to_json_string, from_json_string
 
 
 def create_vocab_table(db: Database) -> None:

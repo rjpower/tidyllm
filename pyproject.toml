@@ -40,7 +40,7 @@ classifiers = [
 dependencies = [
     "click>=8.2.1",
     "fastapi>=0.115.14",
-    "fastmcp>=2.9.1",
+    "fastmcp>=2.10.1",
     "filetype>=1.2.0",
     "gdrive-fsspec>=0.2.0",
     "gdrivefs>=0.14.13",
@@ -76,8 +76,6 @@ dev = [
 ]
 
 [project.scripts]
-# Add script entry points here:
-tidyllm-mcp = "tidyllm.adapters.fastmcp_adapter:run_tidyllm_mcp_server"
 tidyllm = "scripts.run_tidyllm:main"
 tidyapi = "scripts.run_fastapi:main"
 tidymcp = "scripts.run_fastmcp:main"
@@ -94,6 +92,10 @@ audio = [
 
 automation = [
     "rpaframework>=29.0.0",
+]
+
+browser = [
+    "playwright>=1.40.0",
 ]
 
 

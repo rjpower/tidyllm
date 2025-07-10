@@ -1,5 +1,14 @@
 """FastMCP server script with auto-discovery of TidyLLM tools."""
 
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname).1s %(asctime)s.%(msecs)03d %(filename)s:%(lineno)d - %(message)s",
+    datefmt="%H:%M:%S",
+    handlers=[logging.StreamHandler(), logging.FileHandler("./logs/mcp.log")],
+)
+
 from pathlib import Path
 
 from tidyllm.adapters.fastmcp_adapter import create_fastmcp_server

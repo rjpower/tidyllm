@@ -5,8 +5,8 @@ files, bytes, stdin, and remote resources.
 """
 
 # Import all core components for backwards compatibility
-from tidyllm.model.source.gdrive import GDriveSource
-from tidyllm.model.source.lib import (
+from tidyllm.types.source.gdrive import GDriveSource
+from tidyllm.types.source.lib import (
     ByteSource,
     FileSource,
     Source,

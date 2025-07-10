@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from tidyllm.context import set_tool_context
-from tidyllm.model.duration import Duration
+from tidyllm.types.duration import Duration
 from tidyllm.tools.audio import (
     AudioChunk,
     AudioFormat,

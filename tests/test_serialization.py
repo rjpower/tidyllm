@@ -9,8 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from tidyllm.model.linq import Table
-from tidyllm.model.serialization import (
+from tidyllm.types.linq import Table
+from tidyllm.types.serialization import (
     create_model_from_data_sample,
     create_model_from_field_definitions,
     from_json_dict,
@@ -21,7 +21,7 @@ from tidyllm.model.serialization import (
     to_json_string,
     transform_argument_type,
 )
-from tidyllm.model.source import SourceLike
+from tidyllm.types.source import SourceLike
 
 
 class Color(Enum):
@@ -594,7 +594,7 @@ class TestIntegrationDynamicModels:
 
     def test_linq_schema_serialization_integration(self):
         """Test LINQ schema with serialization roundtrip."""
-        from tidyllm.model.linq import from_iterable
+        from tidyllm.types.linq import from_iterable
 
         # Start with data
         data = [

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import traceback
 from collections import OrderedDict
 from collections.abc import Callable
 from functools import wraps
@@ -92,34 +93,16 @@ class Registry:
 
         func_desc = self._tools.get(tool_name)
         if not func_desc:
-            error = f"Tool '{tool_name}' not found"
-            logger.error(error)
-            return ToolError(error=error)
+            raise KeyError(f"Tool {tool_name} does not exist.")
 
-        try:
-            call_kwargs = func_desc.validate_and_parse_args(arguments)
-        except ValidationError as e:
-            error = f"Invalid arguments: {e}"
-            logger.error(error)
-            return ToolError(error=error, details={"validation_errors": e.errors()})
-        except Exception as e:
-            error = f"Invalid arguments: {str(e)}"
-            logger.error(error)
-            return ToolError(error=error)
+        call_kwargs = func_desc.validate_and_parse_args(arguments)
+        result = func_desc.function(**call_kwargs)
 
-        try:
-            result = func_desc.function(**call_kwargs)
-
-            if func_desc.is_async:
-                return result
-
-            logger.info(f"Tool {tool_name} completed successfully")
+        if func_desc.is_async:
             return result
 
-        except Exception as e:
-            error = f"Tool execution failed: {str(e)}"
-            logger.exception(e, stack_info=True)
-            return ToolError(error=error)
+        logger.info(f"Tool {tool_name} completed successfully")
+        return result
 
     def call_with_json_response(self, name: str, args: dict, id: str) -> str:
         """Execute a tool call, returning a tool call message with the result or error."""
@@ -136,7 +119,13 @@ class Registry:
             return result
         except Exception as e:
             logger.exception(e, stack_info=True)
-            return json.dumps({"error": str(e), "type": type(e)})
+            return json.dumps(
+                {
+                    "error": str(e),
+                    "type": type(e),
+                    "stack": "\n".join(traceback.format_stack()),
+                }
+            )
 
 
 # Global registry instance

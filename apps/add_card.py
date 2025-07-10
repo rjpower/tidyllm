@@ -17,7 +17,6 @@ from tidyllm.adapters.cli import cli_main
 from tidyllm.cache import cached_function
 from tidyllm.context import get_tool_context
 from tidyllm.llm import completion_with_schema
-from tidyllm.model.linq import Table, from_iterable
 from tidyllm.registry import register
 from tidyllm.tools.anki import (
     AddVocabCardRequest,
@@ -25,6 +24,7 @@ from tidyllm.tools.anki import (
 )
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.tts import generate_speech
+from tidyllm.types.linq import Table, from_iterable
 from tidyllm.ui.selection import select_ui
 
 console = Console()

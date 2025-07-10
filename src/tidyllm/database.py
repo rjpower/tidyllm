@@ -153,7 +153,6 @@ class Database:
             path: Path to the SQLite database file. Use ':memory:' for in-memory.
             connect_kwargs: Optional keyword args forwarded to sqlite3.connect().
         """
-        print(f"Opening database at {path}")
         self.path = Path(path)
         self.connect_kwargs = connect_kwargs
         self._conn = None

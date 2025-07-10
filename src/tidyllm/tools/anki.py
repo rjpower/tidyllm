@@ -17,9 +17,9 @@ from tidyllm.context import get_tool_context
 
 # Table is now an alias for Table
 from tidyllm.llm import completion_with_schema
-from tidyllm.model.linq import Table
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
+from tidyllm.types.linq import Table
 
 
 class AnkiListResult(BaseModel):

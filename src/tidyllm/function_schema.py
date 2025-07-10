@@ -12,7 +12,7 @@ from tidyllm.docstring import (
     DocstringInfo,
     extract_docs_from_string,
 )
-from tidyllm.model.serialization import (
+from tidyllm.types.serialization import (
     create_model_from_field_definitions,
 )
 

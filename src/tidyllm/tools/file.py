@@ -4,9 +4,9 @@ import sys
 from pathlib import Path
 
 from tidyllm.adapters.cli import cli_main
-from tidyllm.model.source import SourceLike, read_bytes, read_text
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
+from tidyllm.types.source import SourceLike, read_bytes, read_text
 
 
 @register()
