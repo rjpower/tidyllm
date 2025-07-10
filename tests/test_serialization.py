@@ -9,8 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from tidyllm.linq import Table
-from tidyllm.serialization import (
+from tidyllm.model.linq import Table
+from tidyllm.model.serialization import (
     create_model_from_data_sample,
     create_model_from_field_definitions,
     from_json_dict,
@@ -21,7 +21,7 @@ from tidyllm.serialization import (
     to_json_string,
     transform_argument_type,
 )
-from tidyllm.source import SourceLike
+from tidyllm.model.source import SourceLike
 
 
 class Color(Enum):
@@ -594,7 +594,7 @@ class TestIntegrationDynamicModels:
 
     def test_linq_schema_serialization_integration(self):
         """Test LINQ schema with serialization roundtrip."""
-        from tidyllm.linq import from_iterable
+        from tidyllm.model.linq import from_iterable
 
         # Start with data
         data = [
@@ -646,7 +646,7 @@ class TestIntegrationDynamicModels:
         """Test that SourceLike annotations are preserved in function schemas."""
         from tidyllm.function_schema import FunctionDescription
         from typing import get_origin, get_args
-        
+
         def test_function_with_sourcelike(data: SourceLike, name: str) -> str:
             """Test function with SourceLike parameter.
             
@@ -655,24 +655,24 @@ class TestIntegrationDynamicModels:
                 name: A string name
             """
             return f"Processing {name}"
-        
+
         desc = FunctionDescription(test_function_with_sourcelike)
-        
+
         # Should create args model successfully
         assert desc.args_model.__name__ == "Test_Function_With_SourcelikeArgs"
         assert 'data' in desc.args_model.model_fields
         assert 'name' in desc.args_model.model_fields
-        
+
         # Check that the data field preserves SourceLike annotation
         data_field = desc.args_model.model_fields['data']
         data_annotation = data_field.annotation
-        
+
         # The annotation should preserve the structure of SourceLike
         # Debug: print what we actually got
         print(f"DEBUG: data_annotation = {data_annotation}")
         print(f"DEBUG: SourceLike = {SourceLike}")
         print(f"DEBUG: data_annotation == SourceLike = {data_annotation == SourceLike}")
-        
+
         # Check that we can reconstruct the original annotation from metadata
         from typing import Annotated
         if data_field.metadata:
@@ -685,15 +685,15 @@ class TestIntegrationDynamicModels:
             # If no metadata, the annotation should be structurally equivalent to SourceLike's args
             assert get_origin(data_annotation) is get_origin(get_args(SourceLike)[0])
             assert get_args(data_annotation) == get_args(get_args(SourceLike)[0])
-        
+
         # Should be able to validate with Path objects
         from pathlib import Path
         import tempfile
-        
+
         with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
             f.write(b"test data")
             test_path = Path(f.name)
-        
+
         try:
             validated = desc.validate_and_parse_args({
                 "data": str(test_path),  # Pass as string, will be converted to Path

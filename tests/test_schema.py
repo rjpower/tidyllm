@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from tidyllm.function_schema import (
     FunctionDescription,
 )
-from tidyllm.source import SourceLike
+from tidyllm.model.source import SourceLike
 
 
 class ExampleModel(BaseModel):

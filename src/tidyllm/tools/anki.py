@@ -14,10 +14,10 @@ from unidecode import unidecode
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.context import get_tool_context
-from tidyllm.linq import Table
 
 # Table is now an alias for Table
 from tidyllm.llm import completion_with_schema
+from tidyllm.model.linq import Table
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 

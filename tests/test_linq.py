@@ -3,8 +3,8 @@
 import pytest
 from pydantic import BaseModel
 
-from tidyllm.linq import Table, from_iterable
-from tidyllm.serialization import create_model_from_data_sample
+from tidyllm.model.linq import Table, from_iterable
+from tidyllm.model.serialization import create_model_from_data_sample
 
 
 class User(BaseModel):

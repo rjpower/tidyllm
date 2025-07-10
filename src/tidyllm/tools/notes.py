@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.context import get_tool_context
-from tidyllm.linq import Enumerable, from_iterable
+from tidyllm.model.linq import Enumerable, from_iterable
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 

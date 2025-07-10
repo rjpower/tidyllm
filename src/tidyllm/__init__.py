@@ -11,9 +11,9 @@ from tidyllm.discover import discover_tools_in_directory, discover_tools_in_pack
 from tidyllm.function_schema import FunctionDescription
 
 # Data models and serialization
-from tidyllm.linq import Enumerable, Table, from_iterable
+from tidyllm.model.linq import Enumerable, Table, from_iterable
+from tidyllm.model.serialization import Serializable, from_json_dict, to_json_dict
 from tidyllm.registry import REGISTRY, ToolError, register
-from tidyllm.serialization import Serializable, from_json_dict, to_json_dict
 
 # Context management - import if available
 try:

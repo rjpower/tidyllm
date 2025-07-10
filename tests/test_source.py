@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from tidyllm.source import (
+from tidyllm.model.source import (
     ByteSource,
     FileSource,
     SourceManager,
@@ -135,7 +135,7 @@ class TestPydanticSerialization:
     def test_byte_source_dict_serialization(self):
         """Test ByteSource serialization to dict format."""
         from pydantic import BaseModel
-        from tidyllm.source.lib import SourceLike
+        from tidyllm.model.source import SourceLike
 
         class TestModel(BaseModel):
             source: SourceLike
@@ -157,7 +157,7 @@ class TestPydanticSerialization:
     def test_file_source_dict_serialization(self):
         """Test FileSource serialization to dict format."""
         from pydantic import BaseModel
-        from tidyllm.source.lib import SourceLike
+        from tidyllm.model.source import SourceLike
 
         class TestModel(BaseModel):
             source: SourceLike

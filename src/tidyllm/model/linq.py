@@ -14,7 +14,7 @@ from typing import Any, Generic, TypeVar
 from pydantic import BaseModel
 from pydantic_core import core_schema
 
-from tidyllm.serialization import create_model_from_data_sample
+from tidyllm.model.serialization import create_model_from_data_sample
 
 T = TypeVar("T")
 U = TypeVar("U")

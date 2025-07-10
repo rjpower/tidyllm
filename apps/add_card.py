@@ -16,8 +16,8 @@ from rich.console import Console
 from tidyllm.adapters.cli import cli_main
 from tidyllm.cache import cached_function
 from tidyllm.context import get_tool_context
-from tidyllm.linq import Table, from_iterable
 from tidyllm.llm import completion_with_schema
+from tidyllm.model.linq import Table, from_iterable
 from tidyllm.registry import register
 from tidyllm.tools.anki import (
     AddVocabCardRequest,

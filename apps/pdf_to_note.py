@@ -9,14 +9,14 @@ import base64
 import io
 
 import pypdfium2 as pdfium
-from pydantic import BaseModel, Field
+from pydantic import Base64Bytes, BaseModel, Field
 from rich.console import Console
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.context import get_tool_context
 from tidyllm.llm import completion_with_schema
 from tidyllm.registry import register
-from tidyllm.source import SourceLike, read_bytes
+from tidyllm.model.source import SourceLike, read_bytes
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.notes import NoteAddArgs, note_add
 
@@ -27,15 +27,10 @@ class ImageData(BaseModel):
     """Image data extracted from PDF."""
 
     page_number: int
-    content_base64: str = Field(description="Base64 encoded image content")
+    content: Base64Bytes
     mime_type: str = "image/jpeg"
     width: int
     height: int
-
-    @property
-    def content(self) -> bytes:
-        """Get binary content from base64."""
-        return base64.b64decode(self.content_base64)
 
 
 class TranscriptionResponse(BaseModel):
@@ -87,7 +82,7 @@ def extract_pdf_images(
         images.append(
             ImageData(
                 page_number=page_num + 1,
-                content_base64=base64.b64encode(img_bytes.getvalue()).decode(),
+                content=base64.b64encode(img_bytes.getvalue()),
                 width=image_width,
                 height=image_height,
             )
@@ -175,7 +170,7 @@ def transcribe_images_to_markdown(images: list[ImageData]) -> TranscriptionRespo
             {
                 "type": "image_url",
                 "image_url": {
-                    "url": f"data:{img.mime_type};base64,{img.content_base64}"
+                    "url": f"data:{img.mime_type};base64,{base64.b64encode(img.content)}"
                 },
             }
         )

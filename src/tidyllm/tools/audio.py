@@ -18,10 +18,10 @@ from pydantic.functional_serializers import PlainSerializer
 from pydantic.functional_validators import WrapValidator
 
 from tidyllm.context import get_tool_context
-from tidyllm.duration import Duration
-from tidyllm.linq import Enumerable, from_iterable
+from tidyllm.model.duration import Duration
+from tidyllm.model.linq import Enumerable, from_iterable
 from tidyllm.registry import register
-from tidyllm.source import SourceLike, read_bytes
+from tidyllm.model.source import SourceLike, read_bytes
 
 # VAD Configuration
 VAD_SAMPLE_RATE = 16000

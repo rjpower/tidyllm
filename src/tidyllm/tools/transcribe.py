@@ -10,7 +10,7 @@ from tidyllm.cache import cached_function
 from tidyllm.context import get_tool_context
 from tidyllm.llm import completion_with_schema
 from tidyllm.registry import register
-from tidyllm.source import SourceLike, read_bytes
+from tidyllm.model.source import SourceLike, read_bytes
 from tidyllm.tools.context import ToolContext
 
 

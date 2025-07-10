@@ -123,10 +123,10 @@ def create_model_from_field_definitions(
             json_schema_extra={"additionalProperties": False}
         )
     
-    return create_model(model_name, __config__=config, **field_definitions)
+    return create_model(model_name, __config__=config, **field_definitions) # type: ignore
 
 
-def infer_type_from_values(values: list[Any]) -> type:
+def infer_type_from_values(values: list[Any]) -> type | Any:
     """Infer a type from a list of sample values.
     
     Args:
