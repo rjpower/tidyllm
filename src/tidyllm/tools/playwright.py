@@ -51,32 +51,33 @@ async def _fetch_screenshot_async(url: str, full_page: bool) -> list[PngPart]:
     async def take_screenshot(page: Page) -> list[PngPart]:
         # Set viewport width to 1024
         await page.set_viewport_size({"width": 1024, "height": 768})
-        
+
         screenshot_bytes = await page.screenshot(full_page=full_page, type="png")
-        
+
         # Check image height and slice if needed
-        from PIL import Image
         import io
-        
+
+        from PIL import Image
+
         image = Image.open(io.BytesIO(screenshot_bytes))
         width, height = image.size
-        
+
         if height <= 1024:
             return [PngPart.from_bytes(screenshot_bytes)]
-        
+
         # Slice image into 1024px height chunks
         parts = []
         for y in range(0, height, 1024):
             box = (0, y, width, min(y + 1024, height))
             slice_img = image.crop(box)
-            
+
             # Convert slice back to bytes
             slice_buffer = io.BytesIO()
             slice_img.save(slice_buffer, format='PNG')
             slice_bytes = slice_buffer.getvalue()
-            
+
             parts.append(PngPart.from_bytes(slice_bytes))
-        
+
         return parts
 
     return await _fetch(url, take_screenshot)
@@ -111,4 +112,3 @@ def playwright_fetch_screenshot(url: str, full_page: bool = False) -> list[PngPa
 def playwright_fetch_html(url: str) -> HtmlPart:
     """Fetch the html content of `url` using Playwright."""
     return _run_async(_fetch_html_async(url))
-

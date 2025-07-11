@@ -1,11 +1,12 @@
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
 
 from tidyllm.database import Database
 from tidyllm.tools.config import Config
 
+R = TypeVar("R")
 
 class ToolContext(BaseModel):
     """Shared context for all tools."""
@@ -18,7 +19,10 @@ class ToolContext(BaseModel):
     def model_post_init(self, _ctx: Any):
         self.db = Database(str(self.config.user_db))
 
-    def get_ref(self, key: str, load_fn: Callable[[], Any]) -> Any:
+    def set_ref(self, key: str, value: Any):
+        self.refs[key] = value
+
+    def get_ref(self, key: str, load_fn: Callable[[], R] | None = None) -> R:
         """Get or create a cached reference using the provided loader function.
 
         Args:
@@ -29,5 +33,7 @@ class ToolContext(BaseModel):
             The cached or newly loaded item
         """
         if key not in self.refs:
+            if not load_fn:
+                raise KeyError(f"No ref for {key} found.")
             self.refs[key] = load_fn()
         return self.refs[key]

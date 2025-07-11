@@ -63,7 +63,7 @@ Be precise with measurements and include all details."""
                 {
                     "type": "image_url",
                     "image_url": {
-                        "url": f"data:image/png;base64,{part.base64_bytes}",
+                        "url": f"data:image/png;base64,{part.base64_bytes.decode()}",
                     },
                 }
             )
@@ -75,8 +75,13 @@ Be precise with measurements and include all details."""
 
 
 @register()
-def recipe_extract(input_page: Iterable[TextContentPart | ImagePart]) -> Recipe:
-    """Extract a recipe from the given html, text, or image content."""
+def recipe_extract(
+    input_page: Iterable[TextContentPart | ImagePart],
+) -> Recipe:
+    """Extract a recipe from HTML content.
+
+    HTML may be a list of screenshots or HTML page content.
+    """
     recipe = completion_with_schema(
         model=get_tool_context().config.fast_model,
         messages=create_recipe_messages(input_page),
