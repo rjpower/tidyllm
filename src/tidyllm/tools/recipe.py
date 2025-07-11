@@ -12,7 +12,7 @@ from tidyllm.registry import register
 from tidyllm.types import duration
 from tidyllm.types.part import (
     ImagePart,
-    TextContentPart,
+    TextPart,
     is_image_part,
     is_text_content_part,
 )
@@ -36,7 +36,7 @@ class Recipe(BaseModel):
 
 
 def create_recipe_messages(
-    input_page: Iterable[ImagePart | TextContentPart],
+    input_page: Iterable[ImagePart | TextPart],
 ) -> list[dict]:
     """Create messages for recipe extraction."""
     system_prompt = """You are a recipe extraction expert. Extract complete recipe information including:
@@ -76,7 +76,7 @@ Be precise with measurements and include all details."""
 
 @register()
 def recipe_extract(
-    input_page: Iterable[TextContentPart | ImagePart],
+    input_page: Iterable[TextPart | ImagePart],
 ) -> Recipe:
     """Extract a recipe from HTML content.
 

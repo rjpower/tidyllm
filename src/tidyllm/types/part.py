@@ -1,28 +1,50 @@
 """Core Part type for tidyllm.
-Tracks a mime_type and a data payload, with subtypes to simplify type-based
-pattern matching and annotation.
-Adapted from the google.genai package.
+
+Provides registry to resolve a `Part` from a URL during validation and
+type guards for common part types. Typical usage is to define your tool
+as accepting some kind of Part:
+
+@register
+def my_image_analyzer(image: ImagePart):
+  img = image_part_to_pil(image)
+
+When using the CLI/API/MCP adapters, your tool will automatically accept
+Parts serialized as JSON, but also data: and any custom URLs which have
+been loaded. So for example:
+
+tidyllm my_image_analyzer --image=file://foo.png
+
+Will automatically load the image file from disk.
 """
 
 import base64
-import uuid
-from typing import Any, TypeGuard
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any, TypeAlias, TypeGuard
 
+import filetype
 from pydantic import (
     Base64Bytes,
     BaseModel,
-    model_serializer,
     model_validator,
 )
 from pydantic_core import Url
 
-from tidyllm.context import get_tool_context
+
+class PartRegistry(dict):
+    def register_part_creator(self, scheme: str, creator: Callable[[Url], "Part"]):
+        self[scheme] = creator
+
+    def create(self, url: Url) -> "Part":
+        return self[url.scheme](url)
+
+
+PART_REGISTRY = PartRegistry()
 
 
 class Part(BaseModel):
     mime_type: str
     data: Base64Bytes = b""
-    url: str = ""
 
     @property
     def text(self):
@@ -35,184 +57,79 @@ class Part(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def validate_part_input(cls, value: Any) -> Any:
-        """Validate Part input: Url | {"mimetype": ..., "data": ...}"""
-        # Handle URL format (ref:// URLs)
-        if isinstance(value, Url):
-            value = str(value)
-
-        if isinstance(value, str) and value.startswith("ref://"):
-            ctx = get_tool_context()
-            part = ctx.get_ref(value)
-            # Return the dict representation to avoid nested validation issues
-            return {
-                "mime_type": part.mime_type,
-                "data": base64.b64encode(part.data).decode(),
-                "url": part.url,
-            }
-        # Handle dict format with mimetype/data
+        """Validate Part input: str | Url | {"mimetype": ..., "data": ...}"""
         if isinstance(value, dict):
-            # If it's a ref:// dict from serialization, deserialize from context
-            if "url" in value and value["url"].startswith("ref://"):
-                ref_id = value["url"]
-                ctx = get_tool_context()
-                part = ctx.get_ref(ref_id)
-                return {
-                    "mime_type": part.mime_type,
-                    "data": base64.b64encode(part.data).decode(),
-                    "url": part.url,
-                }
+            return value
 
-            # Handle direct {"mimetype": ..., "data": ...} format
-            if "mimetype" in value and "data" in value:
-                data = value["data"]
-                # If data is a string, assume it's base64 encoded
-                if isinstance(data, str):
-                    data_bytes = base64.b64decode(data)
-                elif isinstance(data, bytes):
-                    data_bytes = data
-                else:
-                    raise ValueError(f"Data must be string or bytes, got {type(data)}")
-
-                return {
-                    "mime_type": value["mimetype"],
-                    "data": base64.b64encode(data_bytes).decode(),
-                    "url": value.get("url", ""),
-                }
-
-            # Handle standard Part dict format
-            if "mime_type" in value:
-                return value
-
-        # If it's a regular string (not ref://), treat as text content
         if isinstance(value, str):
-            return {
-                "mime_type": "text/plain",
-                "data": base64.b64encode(value.encode()).decode(),
-                "url": "",
-            }
+            value = Url(value)
 
-        # Otherwise, let Pydantic handle normal validation
-        return value
+        assert isinstance(value, Url), f"Unknown value type for Part {value}."
+
+        if value.scheme == "data":
+            # handle the common data:image/png;base64,... format
+            mime_type, b64 = value.path.split(";", maxsplit=1)
+            b64_prefix, payload = b64.split(",", maxsplit=1)
+            assert b64_prefix == "base64"
+            return {"mime_type": mime_type, "data": payload}
+
+        if value.scheme not in PART_REGISTRY:
+            raise KeyError(f"Unregistered URL type {value.scheme} from {value}.")
+
+        return PART_REGISTRY[value](value)
 
     @classmethod
     def __get_pydantic_json_schema__(cls, core_schema, handler):
         """
         Customize schema to show Part accepts: Url | {"mimetype": ..., "data": ...}
         """
-        # Get the original schema
         original_schema = handler(core_schema)
-
-        # Create the union schema
         return {
             "title": "Part",
             "anyOf": [
                 {
                     "type": "string",
                     "format": "uri",
-                    "description": "Reference URL to a stored Part (ref://...)",
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "mimetype": {
-                            "type": "string",
-                            "description": "MIME type of the content",
-                        },
-                        "data": {
-                            "anyOf": [
-                                {
-                                    "type": "string",
-                                    "description": "Base64 encoded content",
-                                },
-                                {
-                                    "type": "string",
-                                    "format": "binary",
-                                    "description": "Raw bytes content",
-                                },
-                            ]
-                        },
-                    },
-                    "required": ["mimetype", "data"],
-                    "additionalProperties": False,
+                    "description": "Resource URL to load into a part",
                 },
                 original_schema,
             ],
         }
 
-    @model_serializer
-    def serialize_part(self) -> dict[str, Any]:
-        """Serialize Part to RemotePart with ref:// URL."""
-        # Generate a unique reference ID
-        ref_id = f"ref://{uuid.uuid4()}"
 
-        # Store the Part in the tool context
-        ctx = get_tool_context()
-        ctx.set_ref(ref_id, self)
+class LocalFileHandler:
+    def __init__(self, allowed_dirs: list[Path]):
+        self._allowed_dirs = [dir.resolve() for dir in allowed_dirs]
 
-        # Create preview data
-        if is_text_content_part(self):
-            data_preview = self.data[:128].decode()
-        else:
-            data_preview = base64.b85encode(self.data[:128]).decode()
+    def __call__(self, url: Url) -> Part:
+        path = Path(url.path).resolve()
+        for dir in self._allowed_dirs:
+            if path.is_relative_to(dir):
+                data = path.read_bytes()
+                mime_type = filetype.guess_mime(data)
+                return Part(mime_type=mime_type, data=base64.b64encode(data))
 
-        if len(self.data) > 512:
-            data_preview += "[truncated]..."
-
-        # Return RemotePart as dict
-        return {
-            "url": ref_id,
-            "mime_type": self.mime_type,
-            "data": data_preview,
-            "note": """
-This is a reference to a resource on the server.
-You can pass it to any function which expects a `Part` by passing the URL directly e.g. tool("ref://...")
-You can fetch the raw content using `fetch_part_content`.
-""",
-        }
+        raise ValueError(
+            f"URL path {path} not found in allowed set of directories {self._allowed_dirs}"
+        )
 
 
-class PngPart(Part):
-    mime_type: str = "image/png"
+PART_REGISTRY.register_part_creator("file", LocalFileHandler([Path(".")]))
 
-    @staticmethod
-    def from_bytes(data: bytes):
-        return PngPart(data=base64.b64encode(data))
-
-
-class JpegPart(Part):
-    mime_type: str = "image/jpeg"
+ImagePart: TypeAlias = Part
+AudioPart: TypeAlias = Part
+TextPart: TypeAlias = Part
+PngPart: TypeAlias = Part
+HtmlPart: TypeAlias = Part
 
 
-class WavPart(Part):
-    mime_type: str = "audio/wav"
-
-
-class Mp3Part(Part):
-    mime_type: str = "audio/mp3"
-
-
-class MovPart(Part):
-    mime_type: str = "audio/mov"
-
-
-class HtmlPart(Part):
-    mime_type: str = "text/html"
-
-
-class TextPart(Part):
-    mime_type: str = "text/plain"
-
-ImagePart = PngPart | JpegPart
-TextContentPart = TextPart | HtmlPart
-
-
-def is_image_part(part: Part) -> TypeGuard[PngPart | JpegPart]:
+def is_image_part(part: Part) -> TypeGuard[ImagePart]:
     return part.mime_type in ("image/png", "image/jpeg")
 
 
-def is_audio_part(part: Part) -> TypeGuard[WavPart | Mp3Part | MovPart]:
+def is_audio_part(part: Part) -> TypeGuard[AudioPart]:
     return part.mime_type in ("audio/wav", "audio/mp3", "audio/mov")
 
 
-def is_text_content_part(part: Part) -> TypeGuard[HtmlPart | TextPart]:
+def is_text_content_part(part: Part) -> TypeGuard[TextPart]:
     return part.mime_type in ("text/html", "text/plain")

@@ -1,4 +1,8 @@
-"""Dependency injection helpers for passing additional context information to tools."""
+"""Dependency injection helpers for passing additional context information to tools.
+
+Typical usage is to use `with set_tool_context(MyToolContextClass())` at the entry point
+to your program, e.g. at CLI startup or on each request to an API/MCP adapter.
+"""
 
 from contextlib import contextmanager
 from contextvars import ContextVar

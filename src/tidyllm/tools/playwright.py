@@ -42,7 +42,7 @@ async def _fetch_html_async(url: str) -> HtmlPart:
 
     async def extract_content(page: Page) -> HtmlPart:
         content = await page.content()
-        return HtmlPart(data=base64.b64encode(content.encode()))
+        return HtmlPart(mime_type="text/html", data=base64.b64encode(content.encode()))
 
     return await _fetch(url, extract_content)
 
@@ -63,7 +63,9 @@ async def _fetch_screenshot_async(url: str, full_page: bool) -> list[PngPart]:
         width, height = image.size
 
         if height <= 1024:
-            return [PngPart.from_bytes(screenshot_bytes)]
+            return [
+                PngPart(mime_type="image/png", data=base64.b64encode(screenshot_bytes))
+            ]
 
         # Slice image into 1024px height chunks
         parts = []
@@ -76,7 +78,9 @@ async def _fetch_screenshot_async(url: str, full_page: bool) -> list[PngPart]:
             slice_img.save(slice_buffer, format='PNG')
             slice_bytes = slice_buffer.getvalue()
 
-            parts.append(PngPart.from_bytes(slice_bytes))
+            parts.append(
+                PngPart(mime_type="image/png", data=base64.b64encode(slice_bytes))
+            )
 
         return parts
 

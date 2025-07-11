@@ -307,7 +307,7 @@ def add_from_csv(
         _parse_csv_row
     )
 
-    card_requests = successful_results.to_table()
+    card_requests = successful_results.materialize()
     failed_cards = [str(exception) for exception in failed_results]
 
     console.print(f"[green]Found {len(card_requests)} valid cards to process[/green]")
@@ -450,7 +450,7 @@ def review_and_add(
 
     failed_cards = [f"Processing error: {str(exception)}" for exception in failed_results]
 
-    result = anki_add_vocab_cards(deck_name, cards.to_table())
+    result = anki_add_vocab_cards(deck_name, cards.materialize())
     cards_created = result.cards_created
 
     console.print(f"[green]Cards created: {cards_created}/{len(card_requests)}[/green]")

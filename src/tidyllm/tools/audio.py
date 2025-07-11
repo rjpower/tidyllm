@@ -8,7 +8,7 @@ import time
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, BinaryIO
 
 import librosa
 import numpy as np
@@ -21,7 +21,6 @@ from tidyllm.context import get_tool_context
 from tidyllm.registry import register
 from tidyllm.types.duration import Duration
 from tidyllm.types.linq import Enumerable, from_iterable
-from tidyllm.types.source import SourceLike, read_bytes
 
 # VAD Configuration
 VAD_SAMPLE_RATE = 16000
@@ -341,12 +340,12 @@ def audio_mic(
 
 
 @register(
-    name="audio_file",
-    description="Stream audio from a file",
+    name="audio_stream",
+    description="Stream audio from a file or byte source",
     tags=["audio", "source", "streaming"],
 )
-def audio_file(
-    file_path: Path,
+def audio_stream(
+    input_source: Source,
     sample_rate: int | None = None,
     max_duration: Duration | None = None,
     chunk_duration=DEFAULT_CHUNK_DURATION,
@@ -363,10 +362,9 @@ def audio_file(
         A stream of audio chunks read from the file
     """
     import librosa
-
-    print(file_path)
-
-    audio_data, file_sample_rate = librosa.load(file_path, sr=sample_rate, mono=False)
+    audio_data, file_sample_rate = librosa.load(
+        input_source, sr=sample_rate, mono=False
+    )
 
     def file_generator(audio_data=audio_data):
         """Generator that yields audio chunks from file."""
@@ -415,42 +413,6 @@ def audio_file(
             samples_read = chunk_end
 
     return from_iterable(file_generator())
-
-
-@register(
-    name="audio_from_source",
-    description="Stream audio from any source",
-    tags=["audio", "source", "streaming"],
-)
-def audio_from_source(
-    source: SourceLike,
-    sample_rate: int | None = None,
-    max_duration: Duration | None = None,
-    chunk_duration=DEFAULT_CHUNK_DURATION,
-) -> Enumerable[AudioChunk]:
-    """Stream audio from any source (file, bytes, URL, etc.).
-
-    Args:
-        source: Audio source (file path, bytes, URL, etc.)
-        sample_rate: Override sample rate (uses source's rate if None)
-        max_duration: Maximum duration to read
-        chunk_duration: Length of each chunk
-
-    Returns:
-        A stream of audio chunks read from the source
-    """
-    # If it's already a Path, just use audio_file directly
-    if isinstance(source, Path | str):
-        return audio_file(Path(source), sample_rate, max_duration, chunk_duration)
-
-    audio_bytes = read_bytes(source)
-
-    with tempfile.NamedTemporaryFile(suffix=".tmp", delete=False) as temp_file:
-        temp_file.write(audio_bytes)
-        temp_file.flush()
-        return audio_file(
-            Path(temp_file.name), sample_rate, max_duration, chunk_duration
-        )
 
 
 class VADBuffer:

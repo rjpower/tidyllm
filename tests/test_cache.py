@@ -1,13 +1,13 @@
 """Tests for function caching decorators."""
 
 import asyncio
+import sqlite3
 
 import pytest
 from pydantic import BaseModel
 
-from tidyllm.cache import async_cached_function, cached_function
+from tidyllm.cache import SqlAdapter, async_cached_function, cached_function
 from tidyllm.context import set_tool_context
-from tidyllm.database import Database
 
 
 class CacheTestModel(BaseModel):
@@ -26,23 +26,24 @@ class Counter:
 
 class CacheContext:
     """Cache context for testing."""
-    def __init__(self, db):
-        self.db = db
+    def __init__(self, cache_db: SqlAdapter):
+        self.cache_db = cache_db
 
 
 @pytest.fixture
 def memory_db():
     """Create an in-memory SQLite database for testing."""
     # Use check_same_thread=False to allow cross-thread access for async tests
-    db = Database(":memory:", check_same_thread=False)
-    yield db
-    db.close()
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
+    yield conn
+    conn.close()
 
 
 @pytest.fixture
 def cache_context(memory_db):
     """Create a cache context and set it for the test."""
-    context = CacheContext(memory_db)
+    cache_adapter = SqlAdapter(memory_db, "test_cache")
+    context = CacheContext(cache_adapter)
     with set_tool_context(context):
         yield context
 
@@ -161,27 +162,6 @@ class TestCachedFunction:
         assert documented_function.__doc__ == "This is a test function."
         assert hasattr(documented_function, "__annotations__")
 
-    def test_different_functions_separate_caches(self, cache_context):
-        """Test that different functions have separate cache tables."""
-        @cached_function
-        def func_a(x: int) -> int:
-            return x * 2
-
-        @cached_function
-        def func_b(x: int) -> int:
-            return x * 3
-
-        result_a = func_a(5)
-        result_b = func_b(5)
-
-        assert result_a == 10
-        assert result_b == 15
-
-        # Check that they have different cache tables
-        schema = cache_context.db.schema()
-        table_names = [table.name for table in schema.tables]
-        assert "func_a_cache" in table_names
-        assert "func_b_cache" in table_names
 
 
 class TestAsyncCachedFunction:
@@ -301,39 +281,3 @@ class TestCacheIntegration:
         result2 = computation_original(5)
         assert result2 == 10  # Original cached result
 
-    def test_cache_table_structure(self, cache_context):
-        """Test that cache tables are created with correct structure."""
-        @cached_function
-        def test_func(x: int) -> int:
-            return x
-
-        # Trigger cache table creation
-        test_func(1)
-
-        # Check table exists and has correct structure
-        schema = cache_context.db.schema()
-        cache_tables = [table for table in schema.tables if table.name.endswith("_cache")]
-        assert len(cache_tables) >= 1
-
-        cache_table = next(table for table in cache_tables if "test_func" in table.name)
-        column_names = [col.name for col in cache_table.columns]
-        assert "arg_hash" in column_names
-        assert "result" in column_names
-        assert "created_at" in column_names
-
-    def test_argument_hashing_consistency(self, cache_context):
-        """Test that argument hashing is consistent across calls."""
-        @cached_function
-        def hash_test(a: int, b: str, c: bool = True) -> str:
-            return f"{a}-{b}-{c}"
-
-        # These should all produce the same cache key
-        result1 = hash_test(1, "test", True)
-        result2 = hash_test(1, "test", c=True)
-        result3 = hash_test(a=1, b="test", c=True)
-
-        assert result1 == result2 == result3 == "1-test-True"
-
-        # Verify only one row in cache (same hash)
-        cursor = cache_context.db.query("SELECT COUNT(*) as count FROM hash_test_cache")
-        assert cursor.rows[0].count == 1

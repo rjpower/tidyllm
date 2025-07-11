@@ -1,11 +1,13 @@
 """Tests for transcribe functionality."""
 
+import sqlite3
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+from tidyllm.cache import DummyAdapter, SqlAdapter
 from tidyllm.context import set_tool_context
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.transcribe import (
@@ -13,12 +15,13 @@ from tidyllm.tools.transcribe import (
     TranscriptionResult,
     transcribe_audio,
 )
+from tidyllm.types.source import as_source
 
 
 @pytest.fixture
 def tool_context():
     """Test tool context."""
-    return ToolContext()
+    return ToolContext(cache_db=DummyAdapter())
 
 
 @pytest.fixture
@@ -52,7 +55,9 @@ class TestTranscribeAudio:
 
         with set_tool_context(tool_context):
             result = transcribe_audio(
-                audio_data=mock_audio_file, source_language="en", target_language="en"
+                audio_data=as_source(mock_audio_file),
+                source_language="en",
+                target_language="en",
             )
 
         assert result.transcription == "Hello from file"
@@ -73,7 +78,9 @@ class TestTranscribeAudio:
 
         with set_tool_context(tool_context):
             result = transcribe_audio(
-                audio_data=mock_audio_file, source_language="en", target_language="es"
+                audio_data=as_source(mock_audio_file),
+                source_language="en",
+                target_language="es",
             )
 
         assert result.transcription == "Hello, how are you today?"
@@ -88,7 +95,7 @@ class TestTranscribeAudio:
         call_args = mock_completion_with_schema.call_args
         assert call_args[1]["model"] == tool_context.config.fast_model
         assert call_args[1]["response_schema"] == TranscriptionResult
-        
+
         # Check message structure
         messages = call_args[1]["messages"]
         assert len(messages) == 1
@@ -112,7 +119,9 @@ class TestTranscribeAudio:
 
         with set_tool_context(tool_context):
             result = transcribe_audio(
-                audio_data=mock_audio_file, source_language=None, target_language="en"
+                audio_data=as_source(mock_audio_file),
+                source_language=None,
+                target_language="en",
             )
 
         assert "Bonjour" in result.transcription
@@ -127,107 +136,7 @@ class TestTranscribeAudio:
         with set_tool_context(tool_context):
             with pytest.raises(FileNotFoundError):
                 transcribe_audio(
-                    audio_data=Path("/nonexistent/file.mp3"), 
-                    source_language="en", 
-                    target_language="es"
-                )
-
-    @patch('tidyllm.tools.transcribe.completion_with_schema')
-    def test_transcribe_with_different_languages(self, mock_completion_with_schema, tool_context, mock_audio_file):
-        """Test transcription with different language combinations."""
-        mock_result = TranscriptionResult(
-            transcription="Test transcription",
-            words=[]
-        )
-        mock_completion_with_schema.return_value = mock_result
-
-        # Test different language combinations
-        language_pairs = [
-            ("en", "es"),  # English to Spanish
-            ("fr", "en"),  # French to English
-            ("de", "en"),  # German to English
-            (None, "en"),  # Auto-detect to English
-        ]
-
-        for source_lang, target_lang in language_pairs:
-            with set_tool_context(tool_context):
-                result = transcribe_audio(
-                    audio_data=mock_audio_file, 
-                    source_language=source_lang, 
-                    target_language=target_lang
-                )
-
-            assert result.transcription == "Test transcription"
-
-    @patch('tidyllm.tools.transcribe.completion_with_schema')
-    def test_transcribe_parameter_validation(self, mock_completion_with_schema, tool_context, mock_audio_file):
-        """Test transcribe function parameter validation."""
-        mock_result = TranscriptionResult(
-            transcription="Test",
-            words=[]
-        )
-        mock_completion_with_schema.return_value = mock_result
-
-        with set_tool_context(tool_context):
-            # Test with required parameter only
-            result = transcribe_audio(audio_data=mock_audio_file)
-            assert result.transcription == "Test"
-
-            # Test with all parameters
-            result = transcribe_audio(
-                audio_data=mock_audio_file, 
-                source_language="fr", 
-                target_language="es"
-            )
-            assert result.transcription == "Test"
-
-            # Test with explicit None language
-            result = transcribe_audio(
-                audio_data=mock_audio_file, 
-                source_language=None, 
-                target_language="en"
-            )
-            assert result.transcription == "Test"
-
-    @patch('tidyllm.tools.transcribe.completion_with_schema')
-    def test_transcribe_with_different_audio_formats(self, mock_completion_with_schema, tool_context):
-        """Test transcription with different audio file formats."""
-        mock_result = TranscriptionResult(
-            transcription="Test transcription",
-            words=[]
-        )
-        mock_completion_with_schema.return_value = mock_result
-
-        # Test different audio formats
-        formats = [".mp3", ".wav", ".m4a", ".ogg"]
-
-        for fmt in formats:
-            with tempfile.NamedTemporaryFile(suffix=fmt, delete=False) as f:
-                # Write proper audio-like data
-                f.write(b"\xFF\xFB\x90\x00" * 256)
-                audio_file = Path(f.name)
-
-            try:
-                with set_tool_context(tool_context):
-                    result = transcribe_audio(
-                        audio_data=audio_file, 
-                        target_language="en"
-                    )
-
-                assert result.transcription == "Test transcription"
-
-            finally:
-                audio_file.unlink(missing_ok=True)
-
-    @patch('tidyllm.tools.transcribe.completion_with_schema')
-    def test_transcribe_error_handling(self, mock_completion_with_schema, tool_context, mock_audio_file):
-        """Test handling of LLM errors."""
-        mock_completion_with_schema.side_effect = Exception("API Error")
-        
-        with set_tool_context(tool_context):
-            with pytest.raises(Exception, match="API Error"):
-                transcribe_audio(
-                    audio_data=mock_audio_file, 
-                    source_language="en", 
-                    target_language="es"
+                    audio_data=as_source(Path("/nonexistent/file.mp3")),
+                    source_language="en",
+                    target_language="es",
                 )

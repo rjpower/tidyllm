@@ -3,7 +3,7 @@
 import pytest
 from pydantic import BaseModel
 
-from tidyllm.registry import REGISTRY, Registry, ToolError
+from tidyllm.registry import REGISTRY, Registry
 
 
 
@@ -151,25 +151,26 @@ def execution_registry():
     return registry
 
 def test_call_nonexistent_function(execution_registry):
-    """Test calling a non-existent function returns ToolError."""
-    result = execution_registry.call("nonexistent", {})
-    
-    assert isinstance(result, ToolError)
-    assert "not found" in result.error
+    """Test calling a non-existent function raises KeyError."""
+    func_desc = execution_registry.get_description("nonexistent")
+    assert func_desc is None
 
 
 def test_call_with_invalid_arguments(execution_registry):
-    """Test calling function with invalid arguments returns ToolError."""
-    # Missing required argument
-    result = execution_registry.call("multi_param_function", {"count": 5})
+    """Test calling function with invalid arguments raises ValidationError."""
+    func_desc = execution_registry.get_description("multi_param_function")
+    import pytest
+    from pydantic import ValidationError
     
-    assert isinstance(result, ToolError)
-    assert "Invalid arguments" in result.error
+    # Missing required argument
+    with pytest.raises(ValidationError):
+        func_desc.call_with_json_args({"count": 5})
 
 
 def test_call_multi_param_function(execution_registry):
     """Test calling function with multiple parameters."""
-    result = execution_registry.call("multi_param_function", {
+    func_desc = execution_registry.get_description("multi_param_function")
+    result = func_desc.call_with_json_args({
         "name": "test", 
         "count": 42, 
         "enabled": False
@@ -180,7 +181,8 @@ def test_call_multi_param_function(execution_registry):
 
 def test_call_multi_param_function_with_defaults(execution_registry):
     """Test calling function with default parameter values."""
-    result = execution_registry.call("multi_param_function", {
+    func_desc = execution_registry.get_description("multi_param_function")
+    result = func_desc.call_with_json_args({
         "name": "test", 
         "count": 42
     })
@@ -190,7 +192,8 @@ def test_call_multi_param_function_with_defaults(execution_registry):
 
 def test_call_primitive_param_function(execution_registry):
     """Test calling function with single primitive parameter."""
-    result = execution_registry.call("primitive_param_function", {"message": "hello"})
+    func_desc = execution_registry.get_description("primitive_param_function")
+    result = func_desc.call_with_json_args({"message": "hello"})
     
     assert result == {"processed": "HELLO"}
 
@@ -205,33 +208,3 @@ def test_get_schemas(execution_registry):
     assert "primitive_param_function" in schema_names
 
 
-def test_call_with_json_response(execution_registry):
-    """Test call_with_json_response method."""
-    result = execution_registry.call_with_json_response(
-        "multi_param_function", 
-        {"name": "test", "count": 5, "enabled": True},
-        "test_id"
-    )
-    
-    # Should return JSON string
-    assert isinstance(result, str)
-    import json
-    parsed = json.loads(result)
-    assert parsed["name"] == "test"
-    assert parsed["count"] == 5
-    assert parsed["enabled"] == True
-
-
-def test_call_with_json_response_error(execution_registry):
-    """Test call_with_json_response with error."""
-    result = execution_registry.call_with_json_response(
-        "nonexistent", 
-        {},
-        "test_id"
-    )
-    
-    # Should return JSON error string
-    assert isinstance(result, str)
-    import json
-    parsed = json.loads(result)
-    assert "error" in parsed

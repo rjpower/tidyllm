@@ -345,7 +345,7 @@ class TestTable:
         """Test converting enumerable to table."""
         data = [1, 2, 3, 4, 5]
         enum = from_iterable(data)
-        table = enum.to_table()
+        table = enum.materialize()
 
         assert isinstance(table, Table)
         assert list(table) == data
@@ -457,7 +457,7 @@ class TestIntegration:
             {'name': 'Charlie Brown', 'age': 29, 'department': 'Engineering', 'salary': 80000},
             {'name': 'Diana Prince', 'age': 31, 'department': 'Sales', 'salary': 70000}
         ]
-        
+
         # Complex transformation pipeline
         pipeline = (from_iterable(raw_data)
                    .where(lambda p: p['age'] >= 30)  # Adults only
@@ -468,18 +468,18 @@ class TestIntegration:
                        'years_experience': p['age'] - 22  # Assume started at 22
                    })
                    .with_schema_inference())
-        
+
         # Get schema
         schema = pipeline.table_schema()
         assert 'full_name' in schema.model_fields
         assert 'is_engineer' in schema.model_fields
         assert 'salary_category' in schema.model_fields
         assert 'years_experience' in schema.model_fields
-        
+
         # Get results
         results = list(pipeline)
         assert len(results) == 2  # Bob and Diana
-        
+
         # Verify transformation worked
         bob_result = next(r for r in results if 'Bob' in r['full_name'])
         assert bob_result['is_engineer'] is False
@@ -494,11 +494,11 @@ class TestIntegration:
             User(name='Bob', age=30, active=False),
             User(name='Charlie', age=35, active=True)
         ]
-        
+
         table = Table.from_pydantic(users)
         original_schema = table.table_schema()
         assert original_schema is User
-        
+
         # Transform through LINQ
         transformed = (table
                       .where(lambda u: u.active)
@@ -507,20 +507,20 @@ class TestIntegration:
                           'age_group': 'young' if u.age < 30 else 'adult'
                       })
                       .with_schema_inference())
-        
+
         # Get new schema
         new_schema = transformed.table_schema()
         assert 'username' in new_schema.model_fields
         assert 'age_group' in new_schema.model_fields
-        
+
         # Convert back to table
-        result_table = transformed.to_table()
+        result_table = transformed.materialize()
         final_schema = result_table.table_schema()
-        
+
         # Schemas should be compatible
         assert 'username' in final_schema.model_fields
         assert 'age_group' in final_schema.model_fields
-        
+
         # Data should be correct
         results = list(result_table)
         assert len(results) == 2  # Only Alice and Charlie (active users)

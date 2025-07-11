@@ -1,25 +1,14 @@
 """Global registry for tools."""
 
-import json
 import logging
-import traceback
 from collections import OrderedDict
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar
 
-from pydantic import BaseModel, ValidationError
-
 from tidyllm.function_schema import FunctionDescription, JSONSchema
 
 logger = logging.getLogger(__name__)
-
-
-class ToolError(BaseModel):
-    """Error response from a tool."""
-
-    error: str
-    details: dict[str, Any] | None = None
 
 
 class Registry:
@@ -47,12 +36,7 @@ class Registry:
         name = name or func.__name__
 
         if name in self._tools:
-            # warnings.warn(
-            #     f"Tool '{name}' already registered, previous definition: {self._tools[name].function.__code__.co_filename}. "
-            #     f"Skipping duplicate registration from: {func.__code__.co_filename}",
-            #     UserWarning,
-            #     stacklevel=2,
-            # )
+            logger.debug(f"Tool {name} already registered, skipping")
             return
 
         # Create FunctionDescription once at registration time
@@ -87,45 +71,6 @@ class Registry:
         """Get OpenAI-format schemas for all tools."""
         return [func_desc.function_schema for func_desc in self._tools.values()]
 
-    def call(self, tool_name: str, arguments: dict) -> Any:
-        """Execute a function call with JSON arguments."""
-        logger.info(f"Calling tool: {tool_name} with arguments: {arguments}")
-
-        func_desc = self._tools.get(tool_name)
-        if not func_desc:
-            raise KeyError(f"Tool {tool_name} does not exist.")
-
-        call_kwargs = func_desc.validate_and_parse_args(arguments)
-        result = func_desc.function(**call_kwargs)
-
-        if func_desc.is_async:
-            return result
-
-        logger.info(f"Tool {tool_name} completed successfully")
-        return result
-
-    def call_with_json_response(self, name: str, args: dict, id: str) -> str:
-        """Execute a tool call, returning a tool call message with the result or error."""
-        try:
-            result = self.call(name, args)
-
-            if hasattr(result, "to_message"):
-                result = result.to_message()
-            elif isinstance(result, BaseModel):
-                result = result.model_dump_json()
-            else:
-                result = json.dumps(result)
-
-            return result
-        except Exception as e:
-            logger.exception(e, stack_info=True)
-            return json.dumps(
-                {
-                    "error": str(e),
-                    "type": type(e),
-                    "stack": "\n".join(traceback.format_stack()),
-                }
-            )
 
 
 # Global registry instance
@@ -172,7 +117,3 @@ def register(
         return wrapper
 
     return decorator
-
-
-# Tool results can be errors or any JSON-serializable success value
-ToolResult = ToolError | Any

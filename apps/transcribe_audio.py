@@ -29,7 +29,7 @@ from tidyllm.tools.transcribe import (
 from tidyllm.tools.vocab_table import vocab_add, vocab_search
 from tidyllm.types.duration import Duration
 from tidyllm.types.linq import Enumerable, Table, from_iterable
-from tidyllm.types.source import SourceLike, as_source, read_bytes
+from tidyllm.types.source import Source, as_source, read_bytes
 from tidyllm.ui.selection import select_ui
 
 console = Console()
@@ -59,7 +59,7 @@ class FullPipelineResult(BaseModel):
 
 @register()
 def transcribe_with_vad(
-    audio_source: SourceLike,
+    audio_source: Source,
     source_language: str | None = None,
     target_language: str = "en",
 ) -> TranscribeAudioResult:
@@ -120,7 +120,7 @@ def transcribe_with_vad(
 
 
 @register()
-def diff_vocab(transcriptions: SourceLike) -> Table[TranscribedWord]:
+def diff_vocab(transcriptions: Source) -> Table[TranscribedWord]:
     """Find new vocabulary words not in database.
 
     Args:
@@ -161,7 +161,7 @@ def export_csv(
 
     Example: export_csv(vocab_table, Path("vocabulary.csv"))
     """
-    new_words_table = new_words_table.to_table()
+    new_words_table = new_words_table.materialize()
 
     # Write CSV
     with open(output_csv, "w", newline="", encoding="utf-8") as csvfile:
@@ -184,7 +184,7 @@ def export_csv(
 
 @register()
 def full_pipeline(
-    audio_source: SourceLike,
+    audio_source: Source,
     source_language: str | None = None,
     target_language: str = "en",
     auto_add: bool = False,
@@ -242,7 +242,7 @@ def full_pipeline(
             title="New Vocabulary Words - Select words to add",
         )
 
-    selected_words = selected_words.to_table()
+    selected_words = selected_words.materialize()
 
     for vocab_word in selected_words.with_progress():
         vocab_add(

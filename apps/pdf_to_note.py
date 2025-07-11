@@ -18,7 +18,7 @@ from tidyllm.llm import completion_with_schema
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.notes import NoteAddArgs, note_add
-from tidyllm.types.source import SourceLike, read_bytes
+from tidyllm.types.source import Source, read_bytes
 
 console = Console()
 
@@ -43,7 +43,7 @@ class TranscriptionResponse(BaseModel):
 
 @register()
 def extract_pdf_images(
-    pdf_source: SourceLike,
+    pdf_source: Source,
     image_width: int = 768,
     image_height: int = 1084,
     jpeg_quality: int = 85,
@@ -202,7 +202,7 @@ def transcribe_images_to_markdown(images: list[ImageData]) -> TranscriptionRespo
 
 @register()
 def pdf_to_markdown(
-    pdf_source: SourceLike,
+    pdf_source: Source,
     image_width: int = 768,
     image_height: int = 1084,
     jpeg_quality: int = 85,
@@ -214,7 +214,7 @@ def pdf_to_markdown(
 
 @register()
 def pdf_to_note(
-    pdf_source: SourceLike,
+    pdf_source: Source,
     title: str | None = None,
     tags: tuple[str] = tuple(),
     image_width: int = 768,

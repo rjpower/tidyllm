@@ -18,10 +18,9 @@ from tidyllm.types.serialization import (
     infer_field_types_from_data,
     infer_type_from_values,
     to_json_dict,
-    to_json_string,
-    transform_argument_type,
+    to_json_bytes,
 )
-from tidyllm.types.source import SourceLike
+from tidyllm.types.source import Source
 
 
 class Color(Enum):
@@ -41,7 +40,7 @@ class TestPydanticSerialization:
     def test_none_value(self):
         """Test None values."""
         assert to_json_dict(None) is None
-        assert to_json_string(None) == "null"
+        assert to_json_bytes(None) == "null"
 
     def test_primitive_types(self):
         """Test primitive types."""
@@ -205,7 +204,7 @@ class TestRoundTrip:
         original = Person(name="Alice", age=30)
         serialized = to_json_dict(original)
         deserialized = from_json_dict(serialized, Person)
-        
+
         assert deserialized == original
 
     def test_table_round_trip(self):
@@ -215,11 +214,11 @@ class TestRoundTrip:
             Person(name="Bob", age=25)
         ]
         original = Table.from_pydantic(people)
-        
+
         serialized = to_json_dict(original)
         # Note: Round-trip to Table[dict] since we can't preserve Person type
         deserialized = from_json_dict(serialized, Table[dict])
-        
+
         assert len(deserialized.rows) == len(original.rows)
         assert deserialized.rows[0]["name"] == "Alice"
         assert deserialized.rows[1]["name"] == "Bob"
@@ -234,7 +233,7 @@ class TestRoundTrip:
             "count": 2,
             "active": True
         }
-        
+
         serialized = to_json_dict(original)
         expected_serialized = {
             "people": [
@@ -247,47 +246,7 @@ class TestRoundTrip:
         assert serialized == expected_serialized
 
 
-class TestTransformArgumentType:
-    """Test the transform_argument_type function."""
-
-    def test_simple_types(self):
-        """Test transformation of simple types."""
-        assert transform_argument_type(str) == str
-        assert transform_argument_type(int) == int
-        assert transform_argument_type(float) == float
-
-    def test_bytes_transformation(self):
-        """Test bytes to Base64Bytes transformation."""
-        from pydantic import Base64Bytes
-        assert transform_argument_type(bytes) == Base64Bytes
-
-    def test_union_transformation(self):
-        """Test Union type transformation."""
-        # Test Union[str, int]
-        union_type = Union[str, int]
-        result = transform_argument_type(union_type)
-        # Should still be a Union but potentially transformed
-        assert hasattr(result, '__origin__')
-
-    def test_nested_union_with_bytes(self):
-        """Test nested Union containing bytes."""
-        from pydantic import Base64Bytes
-        union_type = Union[str, bytes, int]
-        result = transform_argument_type(union_type)
-        # This is complex to test exactly, but should not raise an error
-        assert result is not None
-    
-    def test_sourcelike_annotation_preservation(self):
-        """Test that SourceLike annotations are preserved during transformation."""
-        from typing import get_origin, get_args
-        
-        # SourceLike should be preserved as-is
-        result = transform_argument_type(SourceLike)
-        assert result == SourceLike
-        
-        # Check that it's still an Annotated type
-        assert get_origin(result) is get_origin(SourceLike)
-        assert get_args(result) == get_args(SourceLike)
+# TestTransformArgumentType class removed - function doesn't exist
 
 
 class TestCreateModelFromFieldDefinitions:
@@ -461,7 +420,7 @@ class TestCreateModelFromDataSample:
     def test_empty_data(self):
         """Test with empty data."""
         model_class = create_model_from_data_sample([])
-        
+
         assert model_class.__name__ == "InferredSchema"
         # Should be an empty model
         instance = model_class()
@@ -474,14 +433,14 @@ class TestCreateModelFromDataSample:
             {'name': 'Bob', 'age': 30, 'active': False},
             {'name': 'Charlie', 'age': 35, 'active': True}
         ]
-        
+
         model_class = create_model_from_data_sample(data, "PersonSchema")
-        
+
         assert model_class.__name__ == "PersonSchema"
         assert 'name' in model_class.model_fields
         assert 'age' in model_class.model_fields
         assert 'active' in model_class.model_fields
-        
+
         # Test creating instance
         instance = model_class(name="Test", age=99, active=True)
         assert instance.name == "Test"
@@ -495,9 +454,9 @@ class TestCreateModelFromDataSample:
             Person(name="Bob", age=30),
             Person(name="Charlie", age=35)
         ]
-        
+
         model_class = create_model_from_data_sample(people)
-        
+
         # Should return the original Person class
         assert model_class is Person
 
@@ -506,15 +465,15 @@ class TestCreateModelFromDataSample:
         class User(BaseModel):
             username: str
             email: str
-        
+
         # Mix of Person and User models
         data = [
             Person(name="Alice", age=25),
             User(username="bob", email="bob@example.com")
         ]
-        
+
         model_class = create_model_from_data_sample(data)
-        
+
         # Should create new inferred schema since types are different
         assert model_class.__name__ == "InferredSchema"
         assert model_class is not Person
@@ -523,12 +482,12 @@ class TestCreateModelFromDataSample:
     def test_primitive_data(self):
         """Test with primitive data."""
         data = [1, 2, 3, 4, 5]
-        
+
         model_class = create_model_from_data_sample(data, "NumberSchema")
-        
+
         assert model_class.__name__ == "NumberSchema"
         assert 'value' in model_class.model_fields
-        
+
         # Test creating instance
         instance = model_class(value=42)
         assert instance.value == 42
@@ -540,32 +499,20 @@ class TestCreateModelFromDataSample:
             {'name': 'Bob', 'score': 'N/A'},  # Different type
             {'name': 'Charlie', 'score': 92}
         ]
-        
+
         model_class = create_model_from_data_sample(data)
-        
+
         assert 'name' in model_class.model_fields
         assert 'score' in model_class.model_fields
-        
+
         # Should handle mixed types in score field
 
     def test_custom_model_name(self):
         """Test with custom model name."""
         data = [{'test': 'value'}]
-        
+
         model_class = create_model_from_data_sample(data, "CustomName")
         assert model_class.__name__ == "CustomName"
-
-    def test_transform_types_option(self):
-        """Test with transform_types option."""
-        # This is more of an integration test
-        data = [{'name': 'test', 'value': 42}]
-        
-        model_with_transform = create_model_from_data_sample(data, transform_types=True)
-        model_without_transform = create_model_from_data_sample(data, transform_types=False)
-        
-        # Both should work (difference mainly for bytes/Union types)
-        assert model_with_transform.__name__ == "InferredSchema"
-        assert model_without_transform.__name__ == "InferredSchema"
 
 
 class TestIntegrationDynamicModels:
@@ -642,49 +589,49 @@ class TestIntegrationDynamicModels:
         assert new_user.username == "charlie"
         assert new_user.active is True
 
-    def test_function_schema_with_sourcelike_annotation(self):
+    def test_function_schema_with_source_annotation(self):
         """Test that SourceLike annotations are preserved in function schemas."""
         from tidyllm.function_schema import FunctionDescription
         from typing import get_origin, get_args
 
-        def test_function_with_sourcelike(data: SourceLike, name: str) -> str:
-            """Test function with SourceLike parameter.
-            
+        def test_function_with_source(data: Source, name: str) -> str:
+            """Test function with Source parameter.
+
             Args:
-                data: Source-like data input
+                data: Source data input
                 name: A string name
             """
             return f"Processing {name}"
 
-        desc = FunctionDescription(test_function_with_sourcelike)
+        desc = FunctionDescription(test_function_with_source)
 
         # Should create args model successfully
-        assert desc.args_model.__name__ == "Test_Function_With_SourcelikeArgs"
+        assert desc.args_model.__name__ == "Test_Function_With_SourceArgs"
         assert 'data' in desc.args_model.model_fields
         assert 'name' in desc.args_model.model_fields
 
-        # Check that the data field preserves SourceLike annotation
+        # Check that the data field preserves Source annotation
         data_field = desc.args_model.model_fields['data']
         data_annotation = data_field.annotation
 
-        # The annotation should preserve the structure of SourceLike
+        # The annotation should preserve the structure of Source
         # Debug: print what we actually got
         print(f"DEBUG: data_annotation = {data_annotation}")
-        print(f"DEBUG: SourceLike = {SourceLike}")
-        print(f"DEBUG: data_annotation == SourceLike = {data_annotation == SourceLike}")
+        print(f"DEBUG: Source = {Source}")
+        print(f"DEBUG: data_annotation == Source = {data_annotation == Source}")
 
         # Check that we can reconstruct the original annotation from metadata
         from typing import Annotated
         if data_field.metadata:
             reconstructed = Annotated[data_annotation, *data_field.metadata]
             print(f"DEBUG: reconstructed = {reconstructed}")
-            # Check structural identity - the reconstructed annotation should match SourceLike
-            assert get_origin(reconstructed) is get_origin(SourceLike)
-            assert get_args(reconstructed) == get_args(SourceLike)
+            # Check structural identity - the reconstructed annotation should match Source
+            assert get_origin(reconstructed) is get_origin(Source)
+            assert get_args(reconstructed) == get_args(Source)
         else:
-            # If no metadata, the annotation should be structurally equivalent to SourceLike's args
-            assert get_origin(data_annotation) is get_origin(get_args(SourceLike)[0])
-            assert get_args(data_annotation) == get_args(get_args(SourceLike)[0])
+            # If no metadata, the annotation should be structurally equivalent to Source's args
+            assert get_origin(data_annotation) is get_origin(get_args(Source)[0])
+            assert get_args(data_annotation) == get_args(get_args(Source)[0])
 
         # Should be able to validate with Path objects
         from pathlib import Path
@@ -700,7 +647,7 @@ class TestIntegrationDynamicModels:
                 "name": "test"
             })
             assert validated["name"] == "test"
-            # The data should be converted to a SourceLike-compatible type
+            # The data should be converted to a Source-compatible type
             assert validated["data"] is not None
         finally:
             test_path.unlink(missing_ok=True)

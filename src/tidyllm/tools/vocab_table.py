@@ -10,7 +10,7 @@ from tidyllm.tools.context import ToolContext
 from tidyllm.types.linq import Table
 
 # Table is now an alias for Table
-from tidyllm.types.serialization import from_json_string, to_json_string
+from tidyllm.types.serialization import from_json_string, to_json_bytes
 
 
 def _create_tables(database: Database) -> None:
@@ -84,8 +84,8 @@ def vocab_add(
         (
             word,
             translation,
-            to_json_string(examples),
-            to_json_string(tags),
+            to_json_bytes(examples),
+            to_json_bytes(tags),
         ),
     )
 
@@ -184,10 +184,10 @@ def vocab_update(
         params.append(translation)
     if examples is not None:
         update_parts.append("examples = ?")
-        params.append(to_json_string(examples))
+        params.append(to_json_bytes(examples))
     if tags is not None:
         update_parts.append("tags = ?")
-        params.append(to_json_string(tags))
+        params.append(to_json_bytes(tags))
 
     if not update_parts:
         raise ValueError("No fields to update")

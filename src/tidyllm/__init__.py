@@ -9,7 +9,7 @@ from tidyllm.discover import discover_tools_in_directory, discover_tools_in_pack
 
 # Schema generation and function descriptions
 from tidyllm.function_schema import FunctionDescription
-from tidyllm.registry import REGISTRY, ToolError, register
+from tidyllm.registry import REGISTRY, register
 
 # Data models and serialization
 from tidyllm.types.linq import Enumerable, Table, from_iterable
@@ -25,19 +25,12 @@ except ImportError:
 # Backwards compatibility aliases
 FunctionLibrary = REGISTRY
 
-# Type result for tools
-try:
-    from tidyllm.registry import ToolResult
-except ImportError:
-    ToolResult = None
 
 __all__ = [
     # Core functionality
     "register",
     "REGISTRY",
     "FunctionLibrary",
-    "ToolError",
-    "ToolResult",
     # Schema and function management
     "FunctionDescription",
     # Data models

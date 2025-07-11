@@ -1,13 +1,10 @@
-"""Auto-discovery system for TidyLLM tools."""
+"""Utilities to import Python files from a particular package or directory for automatic registration."""
 
 import importlib
 import importlib.util
 import logging
 import sys
 from pathlib import Path
-
-from tidyllm.function_schema import FunctionDescription
-from tidyllm.registry import REGISTRY
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +35,7 @@ def discover_tools_in_directory(
     recursive: bool = True,
     exclude_patterns: list[str] | None = None,
     package_prefix: str | None = None,
-) -> list[FunctionDescription]:
+):
     """
     Auto-discover tools in a directory by importing Python modules.
 
@@ -75,8 +72,6 @@ def discover_tools_in_directory(
     else:
         python_files = directory.glob(pattern)
 
-    existing_tools = set(REGISTRY.functions)
-
     # Convert to absolute paths for comparison
     discovered_file_paths = set()
     for py_file in python_files:
@@ -101,16 +96,10 @@ def discover_tools_in_directory(
                 f"Failed to import {module_name} from {py_file} during discovery: {e}"
             )
 
-    # Now find all tools in the registry that originated from discovered files
-    discovered_tools = set(REGISTRY.functions) - existing_tools
-    logger.info(f"Auto-discovery completed. Found {len(discovered_tools)} tools from {len(discovered_file_paths)} files")
-    return list(discovered_tools)
+    logger.info(f"Auto-discovery completed. Found {len(discovered_file_paths)} files")
 
 
-def discover_tools_in_package(
-    package_name: str,
-    recursive: bool = True
-) -> list[FunctionDescription]:
+def discover_tools_in_package(package_name: str, recursive: bool = True):
     """
     Auto-discover tools in a Python package.
 

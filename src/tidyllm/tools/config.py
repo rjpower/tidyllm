@@ -27,6 +27,11 @@ class Config(BaseSettings):
         self.config_dir.mkdir(exist_ok=True)
         return self.config_dir / "user.db"
 
+    @property
+    def cache_db(self):
+        """Path to the cache database file."""
+        return Path("./tidyllm.cache")
+
     def ensure_notes_dir(self) -> Path:
         """Ensure notes directory exists and return it."""
         self.notes_dir.mkdir(parents=True, exist_ok=True)

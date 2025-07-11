@@ -1,5 +1,6 @@
 """Google Drive source adapter implementation."""
 
+import base64
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlparse
@@ -9,6 +10,9 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from pydantic import BaseModel, Field
+from pydantic_core import Url
+
+from tidyllm.types.part import PART_REGISTRY, Part
 
 
 class GDriveSource(BaseModel):
@@ -22,11 +26,17 @@ class GDriveSource(BaseModel):
         self._service = None
         self._file_id = None
         self._file_content: bytes | None = None
+        self._mime_type: str = ""
 
     @property
     def path(self):
         parsed = urlparse(self.url)
         return parsed.netloc + parsed.path
+    
+    @property
+    def mime_type(self):
+        self._load_file()
+        return self._mime_type
 
     def _get_credentials(self) -> Credentials:
         """Get Google Drive API credentials."""
@@ -121,12 +131,15 @@ class GDriveSource(BaseModel):
         raise ValueError(f"File not found: {path}")
 
     def _load_file(self) -> bytes:
-        service = self._get_service()
+        if self._file_content is not None:
+            return self._file_content
+        
         if self._file_id is None:
             self._file_id = self._find_file_by_path(self.path)
 
         # Get file metadata to check if it's a Google Docs file
         print(f"Fetching file metadata for Google Drive file: {self.path}")
+        service = self._get_service()
         file_metadata = service.files().get(fileId=self._file_id).execute()
         mime_type = file_metadata.get("mimeType", "")
         file_name = file_metadata.get("name", "unknown")
@@ -134,8 +147,8 @@ class GDriveSource(BaseModel):
 
         print(f"File: {file_name} ({file_size} bytes, {mime_type})")
 
+        # Export Google Docs files as the appropriate format: PDF for documents, openxml for sheets
         if mime_type.startswith("application/vnd.google-apps."):
-            # Export Google Docs files as PDF
             if "document" in mime_type:
                 export_mime_type = "application/pdf"
             elif "spreadsheet" in mime_type:
@@ -151,18 +164,19 @@ class GDriveSource(BaseModel):
             request = service.files().export_media(
                 fileId=self._file_id, mimeType=export_mime_type
             )
+            self._mime_type = export_mime_type
         else:
             # Regular file download
             print("Downloading file from Google Drive...")
             request = service.files().get_media(fileId=self._file_id)
+            self._mime_type = mime_type
 
-        return request.execute()
+        self._file_content = request.execute()
+        return self._file_content # type: ignore
 
     def read(self, size: int = -1) -> bytes:
         """Read data from the Google Drive file."""
-        if self._file_content is None:
-            self._file_content = self._load_file()
-
+        self._file_content = self._load_file()
         if size == -1:
             return self._file_content
         else:
@@ -171,3 +185,10 @@ class GDriveSource(BaseModel):
     def close(self):
         """Close the connection (no-op for Google Drive)."""
         pass
+    
+def _load_part_from_gdrive(url: Url):
+    source = GDriveSource(url=str(url))
+    return Part(mime_type=source.mime_type, data=base64.b64encode(source.read()))
+    
+
+PART_REGISTRY.register_part_creator("gdrive", _load_part_from_gdrive)

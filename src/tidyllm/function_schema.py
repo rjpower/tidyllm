@@ -2,19 +2,28 @@
 
 import asyncio
 import inspect
+import logging
 from collections.abc import Callable, Iterable
 from typing import Any, get_type_hints
 
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
-from tidyllm.docstring import (
-    DocstringInfo,
-    extract_docs_from_string,
-)
+HAS_GRIFFE = False
+try:
+    from tidyllm.docstring import (
+        extract_docs_from_string,
+    )
+
+    HAS_GRIFFE = True
+except ImportError:
+    pass
+
 from tidyllm.types.serialization import (
     create_model_from_field_definitions,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class FunctionSchema(TypedDict):
@@ -28,22 +37,50 @@ class JSONSchema(TypedDict):
     function: FunctionSchema
 
 
-def function_schema_from_args(
-    args_json_schema: dict, name: str, doc: str
-) -> JSONSchema:
-    """Generate OpenAI-compatible tool schema from function using Pydantic models."""
-    parameters_schema = args_json_schema
+def _create_args_model(func: Callable, name: str, doc_text: str) -> type[BaseModel]:
+    """Create a Pydantic model for function arguments.
 
-    schema: JSONSchema = {
-        "type": "function",
-        "function": {
-            "name": name,
-            "description": doc.strip(),
-            "parameters": parameters_schema,
-        },
-    }
+    Args:
+        func: Function to analyze
 
-    return schema
+    Returns:
+        Dynamically created Pydantic model class
+    """
+    sig = inspect.signature(func)
+    get_type_hints(func)
+    if HAS_GRIFFE:
+        doc_params = extract_docs_from_string(doc_text).parameters  # type: ignore
+    else:
+        doc_params = {}
+
+    # Get all parameters (no context filtering needed with contextvar approach)
+    all_params = sig.parameters
+
+    # Always create a unified model - no special casing for single Pydantic models
+    field_definitions = {}
+
+    for param_name, param in all_params.items():
+        # Use the raw annotation from the signature to preserve Annotated types
+        param_type = (
+            param.annotation if param.annotation != inspect.Parameter.empty else Any
+        )
+
+        param_description = doc_params.get(param_name, "")
+
+        if param.default is not inspect.Parameter.empty:
+            field_definitions[param_name] = (
+                param_type,
+                Field(default=param.default, description=param_description),
+            )
+        else:
+            field_definitions[param_name] = (
+                param_type,
+                Field(description=param_description),
+            )
+
+    # Create the dynamic model using the refactored utility
+    model_name = f"{name.title()}Args"
+    return create_model_from_field_definitions(model_name, field_definitions)
 
 
 class FunctionDescription:
@@ -54,7 +91,6 @@ class FunctionDescription:
     name: str
     description: str
     tags: list[str]
-    docstring_info: DocstringInfo
 
     result_type: type
     args_model: type[BaseModel]
@@ -79,6 +115,7 @@ class FunctionDescription:
         """
         self.function = func
         self.name = name or self.function.__name__
+        doc_text = doc_override or (func.__doc__ or f"Function {self.name}")
 
         self.description = description or self.function.__doc__ or ""
         self.tags = tags or []
@@ -88,64 +125,19 @@ class FunctionDescription:
 
         # Extract return type
         hints = get_type_hints(func)
-        self.result_type = hints.get('return', Any)
-
-        # Parse docstring early and cache result
-        doc_text = doc_override or (func.__doc__ or f"Function {self.name}")
-        self.docstring_info = extract_docs_from_string(doc_text)
-
-        # Generate Pydantic model for argument validation
-        self.args_model = self._create_args_model(func)
-
-        # Pydantic handles schema generation robustly
+        self.result_type = hints.get("return", Any)
+        self.args_model = _create_args_model(func, name=self.name, doc_text=doc_text)
         self.args_json_schema = self.args_model.model_json_schema()
 
         # Use parsed docstring info for schema generation
-        self.function_schema = function_schema_from_args(
-            self.args_json_schema,
-            self.name,
-            self.docstring_info.description or doc_text,
-        )
-
-    def _create_args_model(self, func: Callable) -> type[BaseModel]:
-        """Create a Pydantic model for function arguments.
-
-        Args:
-            func: Function to analyze
-
-        Returns:
-            Dynamically created Pydantic model class
-        """
-        sig = inspect.signature(func)
-        get_type_hints(func)
-
-        # Get all parameters (no context filtering needed with contextvar approach)
-        all_params = sig.parameters
-
-        # Always create a unified model - no special casing for single Pydantic models
-        field_definitions = {}
-
-        for param_name, param in all_params.items():
-            # Use the raw annotation from the signature to preserve Annotated types
-            param_type = param.annotation if param.annotation != inspect.Parameter.empty else Any
-
-            # Get parameter description from docstring info
-            param_description = self.docstring_info.parameters.get(param_name, "")
-
-            if param.default is not inspect.Parameter.empty:
-                field_definitions[param_name] = (
-                    param_type,
-                    Field(default=param.default, description=param_description),
-                )
-            else:
-                field_definitions[param_name] = (
-                    param_type,
-                    Field(description=param_description),
-                )
-
-        # Create the dynamic model using the refactored utility
-        model_name = f"{self.name.title()}Args"
-        return create_model_from_field_definitions(model_name, field_definitions)
+        self.function_schema: JSONSchema = {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": doc_text.strip(),
+                "parameters": self.args_json_schema,
+            },
+        }
 
     def arg_model_from_args(
         self, *args: Iterable[Any], **kwargs: dict[str, Any]
@@ -189,6 +181,7 @@ class FunctionDescription:
                 asyncio.get_running_loop()
                 # We're in an async context but want to block - use new thread
                 import concurrent.futures
+
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(asyncio.run, result)
                     return future.result()
@@ -200,11 +193,11 @@ class FunctionDescription:
 
     async def call_async(self, *args, **kwargs) -> Any:
         """Call the function asynchronously.
-        
+
         Args:
             *args: Positional arguments
             **kwargs: Keyword arguments
-            
+
         Returns:
             Function result
         """
@@ -212,3 +205,24 @@ class FunctionDescription:
             return await self.function(*args, **kwargs)
         else:
             return self.function(*args, **kwargs)
+
+    def call_with_json_args(self, arguments: dict) -> Any:
+        """Execute a function call with JSON arguments.
+        
+        Args:
+            arguments: JSON dictionary of arguments
+            
+        Returns:
+            Function result
+        """
+        logger.info(f"Calling function: {self.name} with arguments: {arguments}")
+        
+        call_kwargs = self.validate_and_parse_args(arguments)
+        result = self.function(**call_kwargs)
+
+        if self.is_async:
+            return result
+
+        logger.info(f"Function {self.name} completed successfully")
+        return result
+

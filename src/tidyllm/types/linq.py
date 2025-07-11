@@ -355,7 +355,7 @@ class Enumerable(ABC, Generic[T]):
             index[key] = item
         return index
 
-    def to_table(self) -> "Table":
+    def materialize(self) -> "Table":
         """Compute the full values of this enumerable and return as a fixed table."""
         values = list(self)
         return Table.from_rows(values)
@@ -385,7 +385,7 @@ class Enumerable(ABC, Generic[T]):
 
         def serialize_enumerable(instance: "Enumerable[Any]") -> dict[str, Any]:
             """Serialize Enumerable by materializing to Table."""
-            table = instance.to_table()
+            table = instance.materialize()
             schema = table.table_schema().model_json_schema()
 
             return {"rows": table.rows, "table_schema": schema, "_type": "Table"}
@@ -889,7 +889,7 @@ class Table(SchemaInferringEnumerable[T]):
         """Create empty table."""
         return cls(rows=[], table_schema=None)
 
-    def to_table(self) -> "Table[T]":
+    def materialize(self) -> "Table[T]":
         return self
 
 

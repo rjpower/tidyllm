@@ -336,9 +336,26 @@ class LLMAgent:
                 f"[DEBUG] Executing {tool_call.tool_name} with args: {str(tool_call.tool_args)[:100]}..."
             )
             # Execute and get result
-            result_str = self.function_library.call_with_json_response(
-                tool_call.tool_name, tool_call.tool_args, tool_call.id
-            )
+            func_desc = self.function_library.get_description(tool_call.tool_name)
+            if not func_desc:
+                result_str = json.dumps({"error": f"Tool {tool_call.tool_name} not found"})
+            else:
+                try:
+                    result = func_desc.call_with_json_args(tool_call.tool_args)
+                    
+                    if hasattr(result, "to_message"):
+                        result_str = result.to_message()
+                    elif isinstance(result, BaseModel):
+                        result_str = result.model_dump_json()
+                    else:
+                        result_str = json.dumps(result)
+                except Exception as e:
+                    import traceback
+                    result_str = json.dumps({
+                        "error": str(e),
+                        "type": str(type(e)),
+                        "stack": "\n".join(traceback.format_stack()),
+                    })
 
             print(f"[DEBUG] Tool {tool_call.tool_name} finished.")
             tool_messages.append(

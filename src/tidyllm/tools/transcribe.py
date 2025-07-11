@@ -11,7 +11,7 @@ from tidyllm.context import get_tool_context
 from tidyllm.llm import completion_with_schema
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
-from tidyllm.types.source import SourceLike, read_bytes
+from tidyllm.types.source import Source, read_bytes
 
 
 class TranscribedWord(BaseModel):
@@ -29,7 +29,7 @@ class TranscriptionResult(BaseModel):
 @register()
 @cached_function
 def transcribe_audio(
-    audio_data: SourceLike,
+    audio_data: Source,
     source_language: str | None = None,
     target_language: str = "en",
 ) -> TranscriptionResult:
@@ -44,7 +44,7 @@ def transcribe_audio(
     """
     ctx = get_tool_context()
 
-    audio_data = read_bytes(audio_data)
+    audio_data: bytes = audio_data.read()
     mime_type = filetype.guess_mime(audio_data)
     print(f"Transcribing: {len(audio_data)} bytes of data.")
 

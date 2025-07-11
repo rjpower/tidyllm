@@ -8,10 +8,11 @@ import asyncio
 import hashlib
 import json
 import logging
+import sqlite3
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from functools import wraps
-from typing import Any, Generic, ParamSpec, Protocol, TypeVar
+from typing import Any, Generic, ParamSpec, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel
 
@@ -21,38 +22,87 @@ from tidyllm.types.serialization import from_json_dict
 
 logger = logging.getLogger(__name__)
 
-class DatabaseProtocol(Protocol):
+
+@runtime_checkable
+class CacheDbProtocol(Protocol):
     """Protocol defining the minimal database interface required for caching."""
 
-    def mutate(self, sql: str, params: list[Any] | None = None) -> int:
-        """Execute an INSERT/UPDATE/DELETE statement.
-
-        Args:
-            sql: SQL statement to execute
-            params: Optional parameters for the SQL statement
-
-        Returns:
-            Number of affected rows
-        """
+    def __getitem__(self, key: str) -> str:
+        """Get cached result by key."""
         ...
 
-    def query(self, sql: str, params: list[Any] | None = None) -> Any:
-        """Execute a SELECT statement and return results.
+    def __setitem__(self, key: str, value: str) -> None:
+        """Store result in cache."""
+        ...
 
-        Args:
-            sql: SQL query to execute
-            params: Optional parameters for the SQL query
-
-        Returns:
-            Query results (implementation-specific format)
-        """
+    def __contains__(self, key: str) -> bool:
+        """Check if key exists in cache."""
         ...
 
 
-class CacheContextProtocol(Protocol):
-    """Protocol for cache context that provides database access."""
-    
-    db: DatabaseProtocol
+class CacheContext(Protocol):
+    @property
+    def cache_db(self) -> CacheDbProtocol: ...
+
+
+class DummyAdapter(CacheDbProtocol):
+    def __getitem__(self, key: str):
+        raise KeyError()
+
+    def __setitem__(self, key: str, value: str):
+        return
+
+    def __contains__(self, key: str):
+        return False
+
+
+class SqlAdapter(CacheDbProtocol):
+    def __init__(self, db: sqlite3.Connection, table_name: str = "function_cache"):
+        self._db = db
+        self._table_name = table_name
+        self._setup_schema()
+
+    def _setup_schema(self):
+        """Setup the cache table schema."""
+        cursor = self._db.cursor()
+        cursor.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {self._table_name} (
+                arg_hash TEXT PRIMARY KEY,
+                result TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        self._db.commit()
+
+    def __getitem__(self, key: str) -> str:
+        """Get cached result by argument hash."""
+        cursor = self._db.cursor()
+        cursor.execute(
+            f"SELECT result FROM {self._table_name} WHERE arg_hash = ?", (key,)
+        )
+        row = cursor.fetchone()
+        if row is None:
+            raise KeyError(f"Cache key not found: {key}")
+        return row[0]
+
+    def __setitem__(self, key: str, value: str) -> None:
+        """Store result in cache."""
+        cursor = self._db.cursor()
+        cursor.execute(
+            f"INSERT OR REPLACE INTO {self._table_name} (arg_hash, result) VALUES (?, ?)",
+            (key, value),
+        )
+        self._db.commit()
+
+    def __contains__(self, key: str) -> bool:
+        """Check if key exists in cache."""
+        cursor = self._db.cursor()
+        cursor.execute(
+            f"SELECT 1 FROM {self._table_name} WHERE arg_hash = ? LIMIT 1", (key,)
+        )
+        return cursor.fetchone() is not None
 
 
 R = TypeVar("R")
@@ -82,28 +132,15 @@ class _FunctionCacheHandler(Generic[P, R]):
     """Internal handler for function caching logic."""
 
     func: Callable[P, R]
-    cache_context: CacheContextProtocol
+    cache_db: CacheDbProtocol
     table_name: str
     description: FunctionDescription
 
-    def __init__(self, func: Callable[P, R], cache_context: CacheContextProtocol):
+    def __init__(self, func: Callable[P, R], cache_db: CacheDbProtocol):
         self.func = func
-        self.cache_context = cache_context
+        self.cache_db = cache_db
         self.description = FunctionDescription(func)
         self.table_name = f"{self.description.name}_cache"
-
-        self._ensure_cache_table()
-
-    def _ensure_cache_table(self):
-        """Ensure the cache table exists."""
-        sql = f"""
-            CREATE TABLE IF NOT EXISTS {self.table_name} (
-                arg_hash TEXT PRIMARY KEY,
-                result TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """
-        self.cache_context.db.mutate(sql)
 
     def compute_arg_hash(self, *args: P.args, **kwargs: P.kwargs) -> str:
         """Compute a hash of the function arguments."""
@@ -115,12 +152,9 @@ class _FunctionCacheHandler(Generic[P, R]):
 
     def lookup_cache(self, arg_hash: str) -> CacheResult[R]:
         """Single method to check cache and return result if exists."""
-        sql = f"SELECT result FROM {self.table_name} WHERE arg_hash = ?"
-        cursor = self.cache_context.db.query(sql, [arg_hash])
-
-        row = cursor.first()
-        if row:
-            result_data = json.loads(row.result)
+        if arg_hash in self.cache_db:
+            result_json = self.cache_db[arg_hash]
+            result_data = json.loads(result_json)
             parsed_result = from_json_dict(result_data, self.description.result_type)
             return CacheResult.hit(parsed_result)
 
@@ -132,10 +166,7 @@ class _FunctionCacheHandler(Generic[P, R]):
             result_json = result_data.model_dump_json()
         else:
             result_json = json.dumps(result_data)
-        sql = (
-            f"INSERT OR REPLACE INTO {self.table_name} (arg_hash, result) VALUES (?, ?)"
-        )
-        self.cache_context.db.mutate(sql, [arg_hash, result_json])
+        self.cache_db[arg_hash] = result_json
 
 
 def cached_function(func: Callable[P, R]) -> Callable[P, R]:
@@ -152,12 +183,12 @@ def cached_function(func: Callable[P, R]) -> Callable[P, R]:
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         try:
-            cache_context = get_tool_context()
+            ctx = get_tool_context()
         except RuntimeError:
             # No cache context available, execute function directly
             return func(*args, **kwargs)
 
-        handler = _FunctionCacheHandler(func, cache_context)
+        handler = _FunctionCacheHandler(func, ctx.cache_db)
         arg_hash = handler.compute_arg_hash(*args, **kwargs)
 
         cache_result = handler.lookup_cache(arg_hash)
@@ -192,12 +223,12 @@ def async_cached_function(
     @wraps(func)
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         try:
-            cache_context = get_tool_context()
+            ctx = get_tool_context()
         except RuntimeError:
             # No cache context available, execute function directly
             return await func(*args, **kwargs)
 
-        handler = _FunctionCacheHandler(func, cache_context)
+        handler = _FunctionCacheHandler(func, ctx.cache_db)
         arg_hash = handler.compute_arg_hash(*args, **kwargs)
 
         cache_result = handler.lookup_cache(arg_hash)
