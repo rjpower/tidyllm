@@ -2,7 +2,7 @@
 """Recipe-bot: tools to manage and plan recipes."""
 
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from pydantic import BaseModel, Field
 
@@ -14,7 +14,7 @@ from tidyllm.types.part import (
     ImagePart,
     TextPart,
     is_image_part,
-    is_text_content_part,
+    is_text_part,
 )
 
 
@@ -51,7 +51,7 @@ Be precise with measurements and include all details."""
     user_content = []
 
     for part in input_page:
-        if is_text_content_part(part):
+        if is_text_part(part):
             user_content.append(
                 {
                     "type": "text",
@@ -63,7 +63,7 @@ Be precise with measurements and include all details."""
                 {
                     "type": "image_url",
                     "image_url": {
-                        "url": f"data:image/png;base64,{part.base64_bytes.decode()}",
+                        "url": f"data:image/png;base64,{part.to_base64()}",
                     },
                 }
             )

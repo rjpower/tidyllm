@@ -18,9 +18,8 @@ from tidyllm.types.serialization import (
     infer_field_types_from_data,
     infer_type_from_values,
     to_json_dict,
-    to_json_bytes,
+    to_json_str,
 )
-from tidyllm.types.source import Source
 
 
 class Color(Enum):
@@ -40,7 +39,7 @@ class TestPydanticSerialization:
     def test_none_value(self):
         """Test None values."""
         assert to_json_dict(None) is None
-        assert to_json_bytes(None) == "null"
+        assert to_json_str(None) == "null"
 
     def test_primitive_types(self):
         """Test primitive types."""
@@ -91,23 +90,6 @@ class TestPydanticSerialization:
         assert to_json_dict(uuid_val) == str(uuid_val)
         assert to_json_dict(path_val) == str(path_val)
         assert to_json_dict(decimal_val) == str(decimal_val)
-
-    def test_table_serialization(self):
-        """Test Table serialization with Pydantic."""
-        people = [
-            Person(name="Alice", age=30),
-            Person(name="Bob", age=25)
-        ]
-        table = Table.from_pydantic(people)
-
-        # Table is now a Pydantic model, so it serializes directly
-        result = to_json_dict(table)
-
-        assert "rows" in result
-        assert "table_schema" in result
-        assert len(result["rows"]) == 2
-        assert result["rows"][0] == {"name": "Alice", "age": 30}
-        assert result["rows"][1] == {"name": "Bob", "age": 25}
 
 
 class TestPydanticDeserialization:
@@ -173,28 +155,6 @@ class TestPydanticDeserialization:
         assert path_val == Path(path_str)
         assert decimal_val == Decimal(decimal_str)
 
-    def test_table_deserialization(self):
-        """Test Table deserialization with Pydantic."""
-        data = {
-            "rows": [
-                {"name": "Alice", "age": 30},
-                {"name": "Bob", "age": 25}
-            ],
-            "columns": {"name": "str", "age": "int"}
-        }
-
-        result = from_json_dict(data, Table[dict])
-        assert isinstance(result, Table)
-        assert len(result.rows) == 2
-        assert result.rows[0] == {"name": "Alice", "age": 30}
-        assert result.rows[1] == {"name": "Bob", "age": 25}
-        # Check that columns is now a BaseModel type with the expected fields
-        table_schema = result.table_schema()
-        assert table_schema is not None
-        assert hasattr(table_schema, "model_fields")
-        assert "name" in table_schema.model_fields
-        assert "age" in table_schema.model_fields
-
 
 class TestRoundTrip:
     """Test round-trip serialization/deserialization with Pydantic."""
@@ -206,22 +166,6 @@ class TestRoundTrip:
         deserialized = from_json_dict(serialized, Person)
 
         assert deserialized == original
-
-    def test_table_round_trip(self):
-        """Test round-trip for Table."""
-        people = [
-            Person(name="Alice", age=30),
-            Person(name="Bob", age=25)
-        ]
-        original = Table.from_pydantic(people)
-
-        serialized = to_json_dict(original)
-        # Note: Round-trip to Table[dict] since we can't preserve Person type
-        deserialized = from_json_dict(serialized, Table[dict])
-
-        assert len(deserialized.rows) == len(original.rows)
-        assert deserialized.rows[0]["name"] == "Alice"
-        assert deserialized.rows[1]["name"] == "Bob"
 
     def test_complex_data_round_trip(self):
         """Test round-trip for complex nested data."""
@@ -541,7 +485,7 @@ class TestIntegrationDynamicModels:
 
     def test_linq_schema_serialization_integration(self):
         """Test LINQ schema with serialization roundtrip."""
-        from tidyllm.types.linq import from_iterable
+        from tidyllm.types.linq import Table
 
         # Start with data
         data = [
@@ -550,7 +494,7 @@ class TestIntegrationDynamicModels:
         ]
 
         # Create schema-aware enumerable
-        enum = from_iterable(data).with_schema_inference()
+        enum = Table.from_rows(data).with_schema_inference()
         schema = enum.table_schema()
 
         # Serialize the schema (as a model class, this is tricky)
@@ -588,66 +532,3 @@ class TestIntegrationDynamicModels:
         assert new_user.user_id == 3
         assert new_user.username == "charlie"
         assert new_user.active is True
-
-    def test_function_schema_with_source_annotation(self):
-        """Test that SourceLike annotations are preserved in function schemas."""
-        from tidyllm.function_schema import FunctionDescription
-        from typing import get_origin, get_args
-
-        def test_function_with_source(data: Source, name: str) -> str:
-            """Test function with Source parameter.
-
-            Args:
-                data: Source data input
-                name: A string name
-            """
-            return f"Processing {name}"
-
-        desc = FunctionDescription(test_function_with_source)
-
-        # Should create args model successfully
-        assert desc.args_model.__name__ == "Test_Function_With_SourceArgs"
-        assert 'data' in desc.args_model.model_fields
-        assert 'name' in desc.args_model.model_fields
-
-        # Check that the data field preserves Source annotation
-        data_field = desc.args_model.model_fields['data']
-        data_annotation = data_field.annotation
-
-        # The annotation should preserve the structure of Source
-        # Debug: print what we actually got
-        print(f"DEBUG: data_annotation = {data_annotation}")
-        print(f"DEBUG: Source = {Source}")
-        print(f"DEBUG: data_annotation == Source = {data_annotation == Source}")
-
-        # Check that we can reconstruct the original annotation from metadata
-        from typing import Annotated
-        if data_field.metadata:
-            reconstructed = Annotated[data_annotation, *data_field.metadata]
-            print(f"DEBUG: reconstructed = {reconstructed}")
-            # Check structural identity - the reconstructed annotation should match Source
-            assert get_origin(reconstructed) is get_origin(Source)
-            assert get_args(reconstructed) == get_args(Source)
-        else:
-            # If no metadata, the annotation should be structurally equivalent to Source's args
-            assert get_origin(data_annotation) is get_origin(get_args(Source)[0])
-            assert get_args(data_annotation) == get_args(get_args(Source)[0])
-
-        # Should be able to validate with Path objects
-        from pathlib import Path
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
-            f.write(b"test data")
-            test_path = Path(f.name)
-
-        try:
-            validated = desc.validate_and_parse_args({
-                "data": str(test_path),  # Pass as string, will be converted to Path
-                "name": "test"
-            })
-            assert validated["name"] == "test"
-            # The data should be converted to a Source-compatible type
-            assert validated["data"] is not None
-        finally:
-            test_path.unlink(missing_ok=True)

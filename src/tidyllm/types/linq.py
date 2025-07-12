@@ -12,7 +12,6 @@ from itertools import islice
 from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
-from pydantic_core import core_schema
 
 from tidyllm.types.serialization import create_model_from_data_sample
 
@@ -228,7 +227,7 @@ class Enumerable(ABC, Generic[T]):
     def split(self, n: int = 2) -> list["Enumerable[T]"]:
         """Split enumerable into n independent copies."""
         items = self.to_list()
-        return [from_iterable(items) for _ in range(n)]
+        return [Table.from_rows(items) for _ in range(n)]
 
     def reduce(
         self,
@@ -284,7 +283,7 @@ class Enumerable(ABC, Generic[T]):
                 matching.append(item)
             else:
                 non_matching.append(item)
-        return from_iterable(matching), from_iterable(non_matching)
+        return Table.from_rows(matching), Table.from_rows(non_matching)
 
     def try_select(
         self, selector: Callable[[T], U]
@@ -305,7 +304,7 @@ class Enumerable(ABC, Generic[T]):
                 successes.append(result)
             except Exception as e:
                 errors.append(e)
-        return from_iterable(successes), from_iterable(errors)
+        return Table.from_rows(successes), Table.from_rows(errors)
 
     def with_progress(self, description: str = "Processing") -> "Enumerable[T]":
         """Add Rich progress tracking to enumeration.
@@ -372,43 +371,6 @@ class Enumerable(ABC, Generic[T]):
             Schema-inferring wrapper that can provide type information
         """
         return SchemaInferringEnumerable(self, sample_size)
-
-    @classmethod
-    def __get_pydantic_core_schema__(
-        cls, source_type: Any, handler: Any
-    ) -> core_schema.CoreSchema:
-        """Serialization logic for Enumerable.
-
-        Enumerables are serialized by first materializing them to `Table` form
-        then inferring the underlying model type for the schema.
-        """
-
-        def serialize_enumerable(instance: "Enumerable[Any]") -> dict[str, Any]:
-            """Serialize Enumerable by materializing to Table."""
-            table = instance.materialize()
-            schema = table.table_schema().model_json_schema()
-
-            return {"rows": table.rows, "table_schema": schema, "_type": "Table"}
-
-        def deserialize_enumerable(data: Any) -> Any:
-            """Deserialize to Table or pass through if already an Enumerable."""
-            if isinstance(data, Enumerable):
-                return data
-            if isinstance(data, dict) and "rows" in data:
-                # For now, create Table without schema - it will infer from rows
-                return Table(rows=data["rows"], table_schema=None)
-            return data
-
-        # Create an any schema that accepts Enumerable instances
-        return core_schema.no_info_before_validator_function(
-            deserialize_enumerable,
-            core_schema.any_schema(),
-            serialization=core_schema.plain_serializer_function_ser_schema(
-                serialize_enumerable,
-                info_arg=False,
-                return_schema=core_schema.dict_schema(),
-            ),
-        )
 
 
 class OrderedEnumerable(Enumerable[T]):
@@ -779,6 +741,14 @@ class WindowPredicate(Enumerable[list[T]], Generic[T]):
             yield window
 
 
+class IterableEnumerable(Enumerable[T]):
+    def __init__(self, rows: Iterable[T]):
+        self.rows = rows
+
+    def __iter__(self):
+        yield from self.rows
+
+
 class SchemaInferringEnumerable(Enumerable[T]):
     """Enumerable that infers schema from data samples while preserving lazy evaluation."""
 
@@ -838,20 +808,18 @@ class SchemaInferringEnumerable(Enumerable[T]):
 # Table implementation inheriting from SchemaInferringEnumerable
 class Table(SchemaInferringEnumerable[T]):
     """Table with automatic schema inference and LINQ operations."""
+    rows: list[T]
 
     def __init__(
         self, rows: list[T] | None = None, table_schema: type[BaseModel] | None = None
     ):
-        self.rows: list[T] = rows or []
-
-        source = IterableEnumerable(self.rows)
-        super().__init__(source, sample_size=5)
-
+        self.rows = rows  # type: ignore
         if table_schema is not None:
             self.set_known_schema(table_schema)
 
+        super().__init__(IterableEnumerable(rows))
+
     def __iter__(self) -> Iterator[T]:
-        """Direct iteration over rows (no sampling needed)."""
         return iter(self.rows)
 
     def __len__(self) -> int:
@@ -879,9 +847,8 @@ class Table(SchemaInferringEnumerable[T]):
             return cls.empty()
 
         model_type = type(rows[0])
+        print("Model type", model_type)
         table = cls(rows=rows, table_schema=model_type)
-
-        table.set_known_schema(model_type)
         return table
 
     @classmethod
@@ -891,20 +858,3 @@ class Table(SchemaInferringEnumerable[T]):
 
     def materialize(self) -> "Table[T]":
         return self
-
-
-# Convenience factory functions
-def from_iterable(items: Iterable[T]) -> Enumerable[T]:
-    """Create enumerable from any iterable."""
-    return IterableEnumerable(items)
-
-
-class IterableEnumerable(Enumerable[T]):
-    """Wrapper for standard iterables."""
-
-    def __init__(self, items: Iterable[T]):
-        super().__init__()
-        self.items = items
-
-    def __iter__(self) -> Iterator[T]:
-        return iter(self.items)

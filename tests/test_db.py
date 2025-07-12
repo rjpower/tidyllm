@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from tidyllm.database import Cursor, Database, Row
-from tidyllm.types.serialization import to_json_bytes, from_json_string
+from tidyllm.types.serialization import to_json_str, from_json_string
 
 
 def create_vocab_table(db: Database) -> None:
@@ -97,7 +97,7 @@ class TestDatabase:
         create_vocab_table(memory_db)
         affected = memory_db.mutate(
             "INSERT INTO vocab (word, translation, examples, tags) VALUES (?, ?, ?, ?)",
-            ("hello", "hola", to_json_bytes(["Hello world"]), to_json_bytes(["greetings"]))
+            ("hello", "hola", to_json_str(["Hello world"]), to_json_str(["greetings"])),
         )
         assert affected == 1
 
@@ -107,7 +107,7 @@ class TestDatabase:
         # Insert test data
         memory_db.mutate(
             "INSERT INTO vocab (word, translation, examples, tags) VALUES (?, ?, ?, ?)",
-            ("hello", "hola", to_json_bytes(["Hello world"]), to_json_bytes(["greetings"]))
+            ("hello", "hola", to_json_str(["Hello world"]), to_json_str(["greetings"])),
         )
 
         # Query the data

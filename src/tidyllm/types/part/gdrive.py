@@ -12,7 +12,7 @@ from googleapiclient.discovery import build
 from pydantic import BaseModel, Field
 from pydantic_core import Url
 
-from tidyllm.types.part import PART_REGISTRY, Part
+from tidyllm.types.part.lib import PART_SOURCE_REGISTRY, BasicPart, Part
 
 
 class GDriveSource(BaseModel):
@@ -32,7 +32,7 @@ class GDriveSource(BaseModel):
     def path(self):
         parsed = urlparse(self.url)
         return parsed.netloc + parsed.path
-    
+
     @property
     def mime_type(self):
         self._load_file()
@@ -133,7 +133,7 @@ class GDriveSource(BaseModel):
     def _load_file(self) -> bytes:
         if self._file_content is not None:
             return self._file_content
-        
+
         if self._file_id is None:
             self._file_id = self._find_file_by_path(self.path)
 
@@ -185,10 +185,17 @@ class GDriveSource(BaseModel):
     def close(self):
         """Close the connection (no-op for Google Drive)."""
         pass
-    
-def _load_part_from_gdrive(url: Url):
-    source = GDriveSource(url=str(url))
-    return Part(mime_type=source.mime_type, data=base64.b64encode(source.read()))
-    
 
-PART_REGISTRY.register_part_creator("gdrive", _load_part_from_gdrive)
+
+class GDrivePartSource:
+    """Stream Parts from Google Drive."""
+
+    def __call__(self, url: Url):
+        from tidyllm.types.linq import Table
+
+        source = GDriveSource(url=str(url))
+        part = BasicPart(mime_type=source.mime_type, data=base64.b64encode(source.read()))
+        return Table.from_rows([part])
+
+
+PART_SOURCE_REGISTRY.register_scheme("gdrive", GDrivePartSource())

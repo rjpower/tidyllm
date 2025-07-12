@@ -13,6 +13,8 @@ from pydantic import BaseModel
 
 from tidyllm.context import set_tool_context
 from tidyllm.function_schema import FunctionDescription
+from tidyllm.types.linq import Enumerable
+from tidyllm.types.part import Part
 from tidyllm.types.serialization import to_json_dict
 
 
@@ -57,8 +59,8 @@ def add_cli_options(cli_func: click.Command, func_desc: FunctionDescription) -> 
 
         if field_type is bool:
             option = click.option(option_name, field_name, is_flag=True, help=help_text)
-        elif isclass(get_origin(field_type)) and issubclass(
-            get_origin(field_type), list | tuple
+        elif (origin := get_origin(field_type)) is not None and isclass(origin) and issubclass(
+            origin, list | tuple
         ):
             option = click.option(
                 option_name,
@@ -75,8 +77,36 @@ def add_cli_options(cli_func: click.Command, func_desc: FunctionDescription) -> 
     return cli_func
 
 
+def write_raw_output(result: Any):
+    from tidyllm.types.part import AudioPart, BasicPart, ImagePart, is_audio_part, is_image_part
+    
+    print(type(result))
+    if isinstance(result, bytes):
+        sys.stdout.buffer.write(result)
+    elif isinstance(result, BasicPart):
+        # BasicPart stores base64-encoded data
+        sys.stdout.buffer.write(result.data)
+    elif is_image_part(result):
+        # ImagePart - write PNG bytes  
+        sys.stdout.buffer.write(result.to_bytes("PNG"))
+    elif is_audio_part(result):
+        # AudioPart - write WAV bytes
+        sys.stdout.buffer.write(result.to_wav_bytes())
+    elif isinstance(result, Part):
+        # Fallback for other Part types
+        print(f"Unknown Part type: {type(result)}")
+        sys.stdout.write(str(result))
+    elif isinstance(result, Enumerable):
+        print("Enumable: ", type(result))
+        for row in result:
+            write_raw_output(row)
+    else:
+        click.echo(result)
+
+
 def output_result(result: Any, format: str) -> None:
     """Output result in specified format."""
+    print("Output", type(result))
     if result is None:
         return
     if format == "json":
@@ -85,10 +115,7 @@ def output_result(result: Any, format: str) -> None:
     elif format == "pickle":
         sys.stdout.buffer.write(pickle.dumps(result))
     elif format == "raw":
-        if isinstance(result, bytes):
-            sys.stdout.buffer.write(result)
-        else:
-            click.echo(result)
+        write_raw_output(result)
 
 
 def _generate_cli_from_description(

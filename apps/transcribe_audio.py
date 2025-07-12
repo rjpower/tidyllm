@@ -15,21 +15,19 @@ from rich.console import Console
 
 from tidyllm.adapters.cli import cli_main
 from tidyllm.registry import register
-from tidyllm.tools.audio import (
-    audio_from_source,
-    chunk_by_vad_stream,
-    chunk_to_wav_bytes,
-)
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.transcribe import (
     TranscribedWord,
     TranscriptionResult,
     transcribe_audio,
 )
+from tidyllm.tools.vad import (
+    chunk_by_vad_stream,
+)
 from tidyllm.tools.vocab_table import vocab_add, vocab_search
 from tidyllm.types.duration import Duration
-from tidyllm.types.linq import Enumerable, Table, from_iterable
-from tidyllm.types.source import Source, as_source, read_bytes
+from tidyllm.types.linq import Enumerable, Table
+from tidyllm.types.part import Part
 from tidyllm.ui.selection import select_ui
 
 console = Console()
@@ -59,27 +57,27 @@ class FullPipelineResult(BaseModel):
 
 @register()
 def transcribe_with_vad(
-    audio_source: Source,
+    audio_url: str,
     source_language: str | None = None,
     target_language: str = "en",
 ) -> TranscribeAudioResult:
-    """Transcribe audio from any source with VAD segmentation and extract vocabulary.
+    """Transcribe audio from URL with VAD segmentation and extract vocabulary.
 
     Args:
-        audio_source: Audio source (file path, bytes, URL, etc.)
+        audio_url: Audio URL (file://, audio://, mic://, etc.)
         source_language: Source language (auto-detect if not provided)
         target_language: Target language for translation
 
     Returns:
         TranscribeAudioResult containing transcriptions and metadata
 
-    Example: transcribe_with_vad("speech.mp3", target_language="en")
+    Example: transcribe_with_vad("file://speech.mp3", target_language="en")
     """
-    console.print("[bold blue]Transcribing audio from source[/bold blue]")
+    console.print("[bold blue]Transcribing audio from URL[/bold blue]")
 
     # Step 1: Segment audio using VAD
     console.print("[yellow]Segmenting audio using Voice Activity Detection...[/yellow]")
-    audio_stream = audio_from_source(audio_source)
+    audio_stream = Part.from_url(audio_url)
     segments = chunk_by_vad_stream(
         audio_stream, min_speech_duration=Duration.from_ms(10000)
     )
@@ -89,8 +87,10 @@ def transcribe_with_vad(
         index, segment = indexed_segment
         print(segment.timestamp)
         wav_bytes = chunk_to_wav_bytes(segment)
+        # Convert bytes to Part for transcription
+        wav_part = Part.from_bytes(wav_bytes, "audio/wav")
         transcription_result = transcribe_audio(
-            as_source(wav_bytes),
+            wav_part,
             source_language=source_language,
             target_language=target_language,
         )
@@ -102,7 +102,7 @@ def transcribe_with_vad(
 
     # Process segments with enhanced LINQ pipeline
     successful_transcriptions, failed_transcriptions = (
-        from_iterable(enumerate(segments))
+        Table.from_rows(enumerate(segments))
         .with_progress("Transcribing segments")
         .try_select(transcribe_segment_with_index)
     )
@@ -120,21 +120,24 @@ def transcribe_with_vad(
 
 
 @register()
-def diff_vocab(transcriptions: Source) -> Table[TranscribedWord]:
+def diff_vocab(transcriptions_url: str) -> Table[TranscribedWord]:
     """Find new vocabulary words not in database.
 
     Args:
-        transcription_file: Path to transcription JSON file
+        transcriptions_url: URL to transcription JSON file
 
     Returns:
         Table containing new vocabulary words
 
-    Example: diff_vocab(Path("transcriptions.json"))
+    Example: diff_vocab("file://transcriptions.json")
     """
-    data = TranscribeAudioResult.model_validate_json(read_bytes(transcriptions))
+    # Load transcription data from URL
+    transcription_parts = Part.from_url(transcriptions_url)
+    transcription_part = next(iter(transcription_parts))
+    data = TranscribeAudioResult.model_validate_json(transcription_part.data)
 
     new_words, existing_words = (
-        from_iterable(data.transcriptions)
+        Table.from_rows(data.transcriptions)
         .select_many(lambda transcription: transcription.result.words)
         .where(lambda word: word.word_native and word.word_translated)
         .partition(lambda word: len(vocab_search(word=word.word_native, limit=1)) == 0)
@@ -184,7 +187,7 @@ def export_csv(
 
 @register()
 def full_pipeline(
-    audio_source: Source,
+    audio_url: str,
     source_language: str | None = None,
     target_language: str = "en",
     auto_add: bool = False,
@@ -192,18 +195,17 @@ def full_pipeline(
     """Run complete transcription and vocabulary extraction pipeline.
 
     Args:
-        audio_source: Audio source (file path, bytes, URL, etc.)
+        audio_url: Audio URL (file://, audio://, mic://, etc.)
         source_language: Source language
         target_language: Target language
-        output_dir: Output directory for intermediate files
         auto_add: Automatically add all new words without review
 
     Returns:
         FullPipelineResult containing pipeline statistics
 
-    Example: full_pipeline("speech.mp3", auto_add=True)
+    Example: full_pipeline("file://speech.mp3", auto_add=True)
     """
-    console.print("[bold blue]Running full pipeline on audio source[/bold blue]")
+    console.print("[bold blue]Running full pipeline on audio URL[/bold blue]")
 
     output_dir = Path(tempfile.mkdtemp(prefix="transcribe_"))
 
@@ -214,16 +216,17 @@ def full_pipeline(
     # Step 1: Transcribe audio with segmentation
     console.print("\n[bold]Step 1: Transcribing audio with VAD segmentation[/bold]")
     transcribe_result = transcribe_with_vad(
-        audio_source=audio_source,
+        audio_url=audio_url,
         source_language=source_language,
         target_language=target_language,
     )
 
     # Step 2: Find new vocabulary
     console.print("\n[bold]Step 2: Finding new vocabulary[/bold]")
-    new_words_table = diff_vocab(
-        transcriptions=transcribe_result.model_dump_json().encode("utf-8")
-    )
+    # Save transcription result to temporary file for diff_vocab
+    transcription_file = output_dir / "transcriptions.json"
+    transcription_file.write_text(transcribe_result.model_dump_json())
+    new_words_table = diff_vocab(f"file://{transcription_file}")
 
     # Step 3: Export to CSV
     console.print("\n[bold]Step 3: Exporting to CSV[/bold]")

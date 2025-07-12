@@ -1,5 +1,6 @@
 """FastMCP adapter for TidyLLM registry functions."""
 
+import base64
 import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -12,7 +13,7 @@ from fastmcp.utilities.types import Audio, Image
 from tidyllm.context import set_tool_context
 from tidyllm.registry import REGISTRY
 from tidyllm.tools.context import ToolContext
-from tidyllm.types.part import Part, is_audio_part, is_image_part, is_text_content_part
+from tidyllm.types.part import Part, is_audio_part, is_image_part, is_text_part
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -35,7 +36,7 @@ def _process_parts_in_result(result: Any) -> Any:
         return {k: _process_parts_in_result(v) for k, v in result.items()}
     
     # If it's a list/tuple, process items recursively
-    elif isinstance(result, (list, tuple)):
+    elif isinstance(result, list | tuple):
         processed = [_process_parts_in_result(item) for item in result]
         return type(result)(processed) if isinstance(result, tuple) else processed
     
@@ -111,13 +112,19 @@ def create_fastmcp_server(
 
         part = context.get_ref(url)
         if is_image_part(part):
-            return Image(data=part.data, format=part.mime_type.split("/")[1])
+            return Image(data=part.to_bytes("PNG"), format="png")
         elif is_audio_part(part):
-            return Audio(data=part.data, format=part.mime_type.split("/")[1])
-        elif is_text_content_part(part):
-            return part.data[start:limit].decode()
+            return Audio(data=part.to_wav_bytes(), format="wav")
+        elif is_text_part(part):
+            # For text parts (BasicPart), data is base64-encoded
+            raw_data = base64.b64decode(part.data)
+            return raw_data[start:limit].decode()
 
-        return part.data[start:limit]
+        # Fallback for other Part types
+        if hasattr(part, 'data'):
+            return part.data[start:limit]
+        else:
+            raise ValueError(f"Cannot fetch content for Part type: {type(part)}")
 
     for tool_desc in REGISTRY.functions:
         fn = context_fn(tool_desc.function, context)

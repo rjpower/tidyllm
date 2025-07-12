@@ -14,11 +14,9 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Generic, ParamSpec, Protocol, TypeVar, runtime_checkable
 
-from pydantic import BaseModel
-
 from tidyllm.context import get_tool_context
 from tidyllm.function_schema import FunctionDescription
-from tidyllm.types.serialization import from_json_dict
+from tidyllm.types.serialization import from_json_dict, to_json_str
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +153,7 @@ class _FunctionCacheHandler(Generic[P, R]):
         if arg_hash in self.cache_db:
             result_json = self.cache_db[arg_hash]
             result_data = json.loads(result_json)
+            print("Restoring from cache", self.description.result_type)
             parsed_result = from_json_dict(result_data, self.description.result_type)
             return CacheResult.hit(parsed_result)
 
@@ -162,10 +161,7 @@ class _FunctionCacheHandler(Generic[P, R]):
 
     def store_result(self, arg_hash: str, result_data: R):
         """Store result in cache."""
-        if isinstance(result_data, BaseModel):
-            result_json = result_data.model_dump_json()
-        else:
-            result_json = json.dumps(result_data)
+        result_json = to_json_str(result_data)
         self.cache_db[arg_hash] = result_json
 
 

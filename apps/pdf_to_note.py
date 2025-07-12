@@ -5,11 +5,7 @@ This app extracts pages from PDF files as images and transcribes handwritten not
 using vision models, generating well-formatted markdown notes with frontmatter.
 """
 
-import base64
-import io
-
-import pypdfium2 as pdfium
-from pydantic import Base64Bytes, BaseModel, Field
+from pydantic import BaseModel, Field
 from rich.console import Console
 
 from tidyllm.adapters.cli import cli_main
@@ -18,19 +14,10 @@ from tidyllm.llm import completion_with_schema
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.notes import NoteAddArgs, note_add
-from tidyllm.types.source import Source, read_bytes
+from tidyllm.types.part import Part, PdfPart, is_pdf_part
+from tidyllm.types.part.image import ImagePart
 
 console = Console()
-
-
-class ImageData(BaseModel):
-    """Image data extracted from PDF."""
-
-    page_number: int
-    content: Base64Bytes
-    mime_type: str = "image/jpeg"
-    width: int
-    height: int
 
 
 class TranscriptionResponse(BaseModel):
@@ -43,53 +30,32 @@ class TranscriptionResponse(BaseModel):
 
 @register()
 def extract_pdf_images(
-    pdf_source: Source,
+    pdf_url: str,
     image_width: int = 768,
     image_height: int = 1084,
     jpeg_quality: int = 85,
-) -> list[ImageData]:
+) -> list[ImagePart]:
     """Extract pages from PDF as images.
 
     Args:
-        pdf_source: PDF source (file path, bytes, URL, etc.)
+        pdf_url: PDF URL (file://, gdrive://, https://, etc.)
 
     Returns:
-        List of ImageData objects
+        List of ImagePart objects
     """
     console.print("[yellow]Extracting images from PDF source[/yellow]")
 
-    # Read PDF bytes from source
-    pdf_bytes = read_bytes(pdf_source)
-
-    pdf = pdfium.PdfDocument(pdf_bytes)
-    images = []
-
-    for page_num in range(len(pdf)):
-        page = pdf.get_page(page_num)
-
-        # Render page as bitmap
-        bitmap = page.render(scale=1.0, rotation=0, crop=(0, 0, 0, 0))
-
-        # Convert to PIL Image and resize
-        pil_image = bitmap.to_pil()
-        pil_image = pil_image.resize((image_width, image_height))
-
-        # Convert to JPEG bytes
-        img_bytes = io.BytesIO()
-        pil_image.save(img_bytes, format="JPEG", quality=jpeg_quality)
-        img_bytes.seek(0)
-
-        images.append(
-            ImageData(
-                page_number=page_num + 1,
-                content=base64.b64encode(img_bytes.getvalue()),
-                width=image_width,
-                height=image_height,
-            )
-        )
-
-        console.print(f"[green]Extracted page {page_num + 1}[/green]")
-
+    # Get PDF Part from URL
+    pdf_parts = Part.from_url(pdf_url)
+    pdf_part = next(iter(pdf_parts))  # Get first (and likely only) part
+    
+    # Ensure we have a PdfPart
+    if not is_pdf_part(pdf_part):
+        raise ValueError(f"Expected PDF part, got {type(pdf_part)}")
+    
+    # Extract images using PdfPart
+    images = pdf_part.extract_images(image_width, image_height, jpeg_quality)
+    
     console.print(f"[green]Extracted {len(images)} pages total[/green]")
     return images
 
@@ -148,11 +114,11 @@ Transcribe ALL text visible in the images, maintaining the logical flow and stru
 """
 
 
-def transcribe_images_to_markdown(images: list[ImageData]) -> TranscriptionResponse:
+def transcribe_images_to_markdown(images: list[ImagePart]) -> TranscriptionResponse:
     """Transcribe images using vision model to generate markdown.
 
     Args:
-        images: List of image data from PDF
+        images: List of ImagePart objects from PDF
 
     Returns:
         TranscriptionResponse with title, tags, and content
@@ -166,11 +132,13 @@ def transcribe_images_to_markdown(images: list[ImageData]) -> TranscriptionRespo
     # Create message with images
     image_contents = []
     for img in images:
+        # Convert ImagePart to base64 data URL
+        image_base64 = img.to_base64()
         image_contents.append(
             {
                 "type": "image_url",
                 "image_url": {
-                    "url": f"data:{img.mime_type};base64,{base64.b64encode(img.content)}"
+                    "url": f"data:{img.mime_type};base64,{image_base64}"
                 },
             }
         )
@@ -202,26 +170,26 @@ def transcribe_images_to_markdown(images: list[ImageData]) -> TranscriptionRespo
 
 @register()
 def pdf_to_markdown(
-    pdf_source: Source,
+    pdf_url: str,
     image_width: int = 768,
     image_height: int = 1084,
     jpeg_quality: int = 85,
 ):
-    console.print("[bold blue]Converting PDF to note from source[/bold blue]")
-    images = extract_pdf_images(pdf_source, image_width, image_height, jpeg_quality)
+    console.print("[bold blue]Converting PDF to note from URL[/bold blue]")
+    images = extract_pdf_images(pdf_url, image_width, image_height, jpeg_quality)
     return transcribe_images_to_markdown(images)
 
 
 @register()
 def pdf_to_note(
-    pdf_source: Source,
+    pdf_url: str,
     title: str | None = None,
     tags: tuple[str] = tuple(),
     image_width: int = 768,
     image_height: int = 1084,
     jpeg_quality: int = 85,
 ) -> str:
-    transcription = pdf_to_markdown(pdf_source, image_width, image_height, jpeg_quality)
+    transcription = pdf_to_markdown(pdf_url, image_width, image_height, jpeg_quality)
     final_title = title if title else transcription.title
     final_tags = tags if tags else transcription.tags
     note_path = note_add(

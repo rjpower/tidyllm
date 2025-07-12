@@ -2,7 +2,6 @@
 
 import base64
 
-import filetype
 from pydantic import BaseModel, Field
 
 from tidyllm.adapters.cli import cli_main
@@ -11,7 +10,7 @@ from tidyllm.context import get_tool_context
 from tidyllm.llm import completion_with_schema
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
-from tidyllm.types.source import Source, read_bytes
+from tidyllm.types.part import AudioPart
 
 
 class TranscribedWord(BaseModel):
@@ -29,24 +28,26 @@ class TranscriptionResult(BaseModel):
 @register()
 @cached_function
 def transcribe_audio(
-    audio_data: Source,
+    audio_part: AudioPart,
     source_language: str | None = None,
     target_language: str = "en",
 ) -> TranscriptionResult:
-    """Transcribe audio from bytes using Gemini Flash via litellm.
+    """Transcribe audio from AudioPart using Gemini Flash via litellm.
 
     Args:
-        audio_data: Audio file data as bytes
-        language: Language of the audio (auto-detect if not provided)
-        translate_to: Target language for translation (default: "en")
+        audio_part: AudioPart containing audio data
+        source_language: Language of the audio (auto-detect if not provided)
+        target_language: Target language for translation (default: "en")
 
-    Example usage: transcribe_bytes(audio_bytes, "audio/wav", "es", "en")
+    Example usage: transcribe_audio(audio_part, "es", "en")
     """
     ctx = get_tool_context()
 
-    audio_data: bytes = audio_data.read()
-    mime_type = filetype.guess_mime(audio_data)
-    print(f"Transcribing: {len(audio_data)} bytes of data.")
+    # Get WAV data from AudioPart
+    audio_data = audio_part.to_wav_bytes()
+    mime_type = "audio/wav"
+    
+    print(f"Transcribing: {len(audio_data)} bytes of {mime_type} data.")
 
     # Encode audio data as base64
     audio_base64 = base64.b64encode(audio_data).decode("utf-8")

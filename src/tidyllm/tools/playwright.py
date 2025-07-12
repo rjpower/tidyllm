@@ -1,14 +1,14 @@
 """Web scraping tools using Playwright for fetching HTML and screenshots."""
 
 import asyncio
-import base64
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
 from playwright.async_api import Page, async_playwright
 
 from tidyllm.registry import register
-from tidyllm.types.part import HtmlPart, PngPart
+from tidyllm.types.part import HtmlPart
+from tidyllm.types.part.image import ImagePart
 
 T = TypeVar("T")
 
@@ -42,13 +42,13 @@ async def _fetch_html_async(url: str) -> HtmlPart:
 
     async def extract_content(page: Page) -> HtmlPart:
         content = await page.content()
-        return HtmlPart(mime_type="text/html", data=base64.b64encode(content.encode()))
+        return HtmlPart.from_base64(content.encode(), mime_type="text/html")
 
     return await _fetch(url, extract_content)
 
 
-async def _fetch_screenshot_async(url: str, full_page: bool) -> list[PngPart]:
-    async def take_screenshot(page: Page) -> list[PngPart]:
+async def _fetch_screenshot_async(url: str, full_page: bool) -> list[ImagePart]:
+    async def take_screenshot(page: Page) -> list[ImagePart]:
         # Set viewport width to 1024
         await page.set_viewport_size({"width": 1024, "height": 768})
 
@@ -63,9 +63,7 @@ async def _fetch_screenshot_async(url: str, full_page: bool) -> list[PngPart]:
         width, height = image.size
 
         if height <= 1024:
-            return [
-                PngPart(mime_type="image/png", data=base64.b64encode(screenshot_bytes))
-            ]
+            return [ImagePart.from_bytes(screenshot_bytes, format="PNG")]
 
         # Slice image into 1024px height chunks
         parts = []
@@ -78,9 +76,7 @@ async def _fetch_screenshot_async(url: str, full_page: bool) -> list[PngPart]:
             slice_img.save(slice_buffer, format='PNG')
             slice_bytes = slice_buffer.getvalue()
 
-            parts.append(
-                PngPart(mime_type="image/png", data=base64.b64encode(slice_bytes))
-            )
+            parts.append(ImagePart.from_bytes(slice_bytes, format="PNG"))
 
         return parts
 
@@ -102,7 +98,7 @@ def _run_async(coro):
 
 
 @register()
-def playwright_fetch_screenshot(url: str, full_page: bool = False) -> list[PngPart]:
+def playwright_fetch_screenshot(url: str, full_page: bool = False) -> list[ImagePart]:
     """Take a screenshot of a web page.
 
     Args:

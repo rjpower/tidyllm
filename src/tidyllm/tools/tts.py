@@ -1,18 +1,9 @@
+from enum import Enum
 from typing import Any
 
-from pydantic.types import Base64Bytes
-
-"""Text-to-speech tool using litellm."""
-
-import base64
-from enum import Enum
-
-from pydantic import BaseModel
-
-from tidyllm.adapters.cli import cli_main
-from tidyllm.cache import cached_function
 from tidyllm.registry import register
-from tidyllm.tools.context import ToolContext
+from tidyllm.types.linq import Enumerable, Table
+from tidyllm.types.part import AudioPart
 
 
 class Voice(Enum):
@@ -48,23 +39,13 @@ class Voice(Enum):
     SULAFAT = "Sulafat"
 
 
-class SpeechResult(BaseModel):
-    """Result of TTS generation."""
-    audio_bytes: Base64Bytes
-    content: str
-    voice: Voice
-    provider: str
-    audio_format: str = "mp3"
-
-
 @register()
-@cached_function
 def generate_speech(
     content: str,
     voice: Voice = Voice.ZEPHYR,
     language: str = "",
     model: str = "gemini/gemini-2.5-flash-preview-tts",
-) -> SpeechResult:
+) -> Enumerable[AudioPart]:
     """Generate TTS audio for text using litellm.
 
     Args:
@@ -78,8 +59,6 @@ def generate_speech(
 
     Example usage: generate_speech("Hello world", "en-US-Neural2-C")
     """
-    print(f"Generating speech: {len(content)} characters with voice {voice}")
-
     if language != "":
         content = f"Say the following in {language}: '{content}'"
 
@@ -88,23 +67,11 @@ def generate_speech(
 
     response: Any = litellm.speech(model=model, input=content, voice=voice)
 
-    # Stream to BytesIO instead of file
     import io
 
     audio_buffer = io.BytesIO()
     for chunk in response.iter_bytes():
         audio_buffer.write(chunk)
     audio_bytes = audio_buffer.getvalue()
-    result = SpeechResult(
-        audio_bytes=base64.b64encode(audio_bytes),
-        content=content,
-        voice=voice,
-        provider=model,
-        audio_format="mp3",
-    )
-
-    print(len(result.audio_bytes))
-    return result
-
-if __name__ == "__main__":
-    cli_main(generate_speech, context_cls=ToolContext)
+    audio_part = AudioPart.from_audio_bytes(audio_bytes)
+    return Table.from_pydantic([audio_part])

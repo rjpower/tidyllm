@@ -10,36 +10,32 @@ def test_fetch_html():
     """Test fetching HTML content."""
     result = playwright_fetch_html("https://example.com")
     
-    assert isinstance(result.data, bytes)
-    assert len(result.data) > 0
-    html_content = result.data.decode()
+    assert hasattr(result, 'text')
+    html_content = result.text
     assert "<h1>Example Domain</h1>" in html_content
 
 
 def test_fetch_screenshot():
     """Test taking a screenshot."""
     results = playwright_fetch_screenshot("https://example.com", full_page=False)
-    
+
     assert isinstance(results, list)
     assert len(results) > 0
-    
+
     result = results[0]
-    assert isinstance(result.data, bytes)
-    assert len(result.data) > 0
-    assert result.data[:8] == b'\x89PNG\r\n\x1a\n'  # PNG header
+    png_bytes = result.to_bytes("PNG")
+    assert png_bytes.startswith(b"\x89PNG\r\n\x1a\n")  # Check PNG header
 
 
 def test_fetch_screenshot_full_page():
     """Test taking a full page screenshot."""
     results = playwright_fetch_screenshot("https://example.com", full_page=True)
-    
+
     assert isinstance(results, list)
     assert len(results) > 0
-    
+
     result = results[0]
-    assert isinstance(result.data, bytes)
-    assert len(result.data) > 0
-    assert result.data[:8] == b'\x89PNG\r\n\x1a\n'  # PNG header
+    assert result.to_bytes("PNG")
 
 
 def test_fetch_html_allrecipes():

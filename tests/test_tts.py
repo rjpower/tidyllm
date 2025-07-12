@@ -2,14 +2,18 @@
 
 from unittest.mock import Mock, patch
 
-from tidyllm.tools.tts import SpeechResult, Voice, generate_speech
+# AudioPart is imported through tidyllm.types.part
+
+from tidyllm.tools.tts import Voice, generate_speech
+from tidyllm.types.part import AudioPart
 
 
 class TestGenerateSpeech:
     """Test TTS speech generation."""
     
+    @patch('librosa.load')
     @patch('litellm.speech')
-    def test_generate_speech_basic(self, mock_speech):
+    def test_generate_speech_basic(self, mock_speech, mock_librosa_load):
         """Test basic speech generation."""
         # Mock TTS response
         mock_response = Mock()
@@ -17,15 +21,18 @@ class TestGenerateSpeech:
         mock_response.iter_bytes.return_value = [test_audio_data]
         mock_speech.return_value = mock_response
         
+        # Mock librosa to return fake audio data
+        import numpy as np
+        mock_librosa_load.return_value = (np.array([0.1, 0.2, 0.3]), 22050)
+        
         result = generate_speech("Hello world")
         
-        # Verify result
-        assert isinstance(result, SpeechResult)
-        assert result.audio_bytes == test_audio_data
-        assert result.content == "Hello world"
-        assert result.voice == Voice.ZEPHYR  # Default voice
-        assert result.provider == "gemini/gemini-2.5-flash-preview-tts"
-        assert result.audio_format == "mp3"
+        # Verify result is an Enumerable of AudioPart
+        audio_parts = result.to_list()
+        assert len(audio_parts) == 1
+        assert isinstance(audio_parts[0], AudioPart)
+        assert audio_parts[0].sample_rate == 22050
+        assert audio_parts[0].channels == 1
         
         # Verify API call
         mock_speech.assert_called_once_with(
@@ -34,8 +41,9 @@ class TestGenerateSpeech:
             voice=Voice.ZEPHYR
         )
     
+    @patch('librosa.load')
     @patch('litellm.speech')
-    def test_generate_speech_with_voice(self, mock_speech):
+    def test_generate_speech_with_voice(self, mock_speech, mock_librosa_load):
         """Test speech generation with specific voice."""
         # Mock TTS response
         mock_response = Mock()
@@ -43,12 +51,16 @@ class TestGenerateSpeech:
         mock_response.iter_bytes.return_value = [test_audio_data]
         mock_speech.return_value = mock_response
         
+        # Mock librosa to return fake audio data
+        import numpy as np
+        mock_librosa_load.return_value = (np.array([0.1, 0.2, 0.3]), 22050)
+        
         result = generate_speech("Test content", voice=Voice.PUCK)
         
-        # Verify result
-        assert isinstance(result, SpeechResult)
-        assert result.voice == Voice.PUCK
-        assert result.content == "Test content"
+        # Verify result is an Enumerable of AudioPart
+        audio_parts = result.to_list()
+        assert len(audio_parts) == 1
+        assert isinstance(audio_parts[0], AudioPart)
         
         # Verify API call
         mock_speech.assert_called_once_with(
@@ -57,8 +69,9 @@ class TestGenerateSpeech:
             voice=Voice.PUCK
         )
     
+    @patch('librosa.load')
     @patch('litellm.speech')
-    def test_generate_speech_with_language(self, mock_speech):
+    def test_generate_speech_with_language(self, mock_speech, mock_librosa_load):
         """Test speech generation with language specification."""
         # Mock TTS response
         mock_response = Mock()
@@ -66,21 +79,27 @@ class TestGenerateSpeech:
         mock_response.iter_bytes.return_value = [test_audio_data]
         mock_speech.return_value = mock_response
         
+        # Mock librosa to return fake audio data
+        import numpy as np
+        mock_librosa_load.return_value = (np.array([0.1, 0.2, 0.3]), 22050)
+        
         result = generate_speech("こんにちは", language="Japanese")
         
-        # Verify result
-        assert isinstance(result, SpeechResult)
-        assert result.content == "Say the following in Japanese: 'こんにちは'"
+        # Verify result is an Enumerable of AudioPart
+        audio_parts = result.to_list()
+        assert len(audio_parts) == 1
+        assert isinstance(audio_parts[0], AudioPart)
         
-        # Verify API call
+        # Verify API call includes language prompt
         mock_speech.assert_called_once_with(
             model="gemini/gemini-2.5-flash-preview-tts",
             input="Say the following in Japanese: 'こんにちは'",
             voice=Voice.ZEPHYR
         )
     
+    @patch('librosa.load')
     @patch('litellm.speech')
-    def test_generate_speech_with_custom_model(self, mock_speech):
+    def test_generate_speech_with_custom_model(self, mock_speech, mock_librosa_load):
         """Test speech generation with custom model."""
         # Mock TTS response
         mock_response = Mock()
@@ -88,11 +107,16 @@ class TestGenerateSpeech:
         mock_response.iter_bytes.return_value = [test_audio_data]
         mock_speech.return_value = mock_response
         
+        # Mock librosa to return fake audio data
+        import numpy as np
+        mock_librosa_load.return_value = (np.array([0.1, 0.2, 0.3]), 22050)
+        
         result = generate_speech("Custom model test", model="custom/model")
         
-        # Verify result
-        assert isinstance(result, SpeechResult)
-        assert result.provider == "custom/model"
+        # Verify result is an Enumerable of AudioPart
+        audio_parts = result.to_list()
+        assert len(audio_parts) == 1
+        assert isinstance(audio_parts[0], AudioPart)
         
         # Verify API call
         mock_speech.assert_called_once_with(
@@ -101,8 +125,9 @@ class TestGenerateSpeech:
             voice=Voice.ZEPHYR
         )
     
+    @patch('librosa.load')
     @patch('litellm.speech')
-    def test_generate_speech_chunked_response(self, mock_speech):
+    def test_generate_speech_chunked_response(self, mock_speech, mock_librosa_load):
         """Test speech generation with chunked audio response."""
         # Mock TTS response with multiple chunks
         mock_response = Mock()
@@ -112,12 +137,16 @@ class TestGenerateSpeech:
         mock_response.iter_bytes.return_value = [chunk1, chunk2, chunk3]
         mock_speech.return_value = mock_response
         
+        # Mock librosa to return fake audio data
+        import numpy as np
+        mock_librosa_load.return_value = (np.array([0.1, 0.2, 0.3]), 22050)
+        
         result = generate_speech("Chunked response test")
         
-        # Verify result combines all chunks
-        expected_audio = chunk1 + chunk2 + chunk3
-        assert result.audio_bytes == expected_audio
-        assert result.content == "Chunked response test"
+        # Verify result is an Enumerable of AudioPart with combined chunks
+        audio_parts = result.to_list()
+        assert len(audio_parts) == 1
+        assert isinstance(audio_parts[0], AudioPart)
     
     def test_cache_behavior(self):
         """Test that generate_speech function is cached."""

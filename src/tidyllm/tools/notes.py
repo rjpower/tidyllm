@@ -11,7 +11,7 @@ from tidyllm.adapters.cli import cli_main
 from tidyllm.context import get_tool_context
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
-from tidyllm.types.linq import Enumerable, from_iterable
+from tidyllm.types.linq import Enumerable, Table
 
 
 class Note(BaseModel):
@@ -206,7 +206,7 @@ def note_search(query: str) -> Enumerable[Note]:
 
     # Parse all found files
     return (
-        from_iterable(found_files)
+        Table.from_rows(found_files)
         .select(lambda path: Path(path))
         .where(lambda path: path.exists())
         .select(lambda path: _parse_note_file(path))
@@ -228,7 +228,7 @@ def note_list(tags: list[str] | None = None, limit: int = 50) -> Enumerable[Note
 
     # Find all markdown files
     return (
-        from_iterable(notes_dir.glob("*.md"))
+        Table.from_rows(notes_dir.glob("*.md"))
         .order_by_descending(lambda f: f.stat().st_mtime)
         .take(limit)
         .select(lambda f: _parse_note_file(f))
@@ -281,7 +281,7 @@ def note_recent(limit: int = 10) -> Enumerable[Note]:
 
     # Find all markdown files and sort by modification time
     return (
-        from_iterable(notes_dir.glob("*.md"))
+        Table.from_rows(notes_dir.glob("*.md"))
         .order_by_descending(lambda f: f.stat().st_mtime)
         .take(limit)
         .select(lambda f: _parse_note_file(f))
@@ -298,7 +298,7 @@ def note_tags() -> list[str]:
     notes_dir = ctx.config.ensure_notes_dir()
 
     return (
-        from_iterable(notes_dir.glob("*.md"))
+        Table.from_rows(notes_dir.glob("*.md"))
         .select(lambda f: _parse_note_file(f))
         .select_many(lambda note: note.tags)
         .distinct()

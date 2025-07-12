@@ -24,7 +24,7 @@ from tidyllm.tools.anki import (
 )
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.tts import generate_speech
-from tidyllm.types.linq import Table, from_iterable
+from tidyllm.types.linq import Table
 from tidyllm.ui.selection import select_ui
 
 console = Console()
@@ -303,7 +303,7 @@ def add_from_csv(
         csv_rows = list(csv.DictReader(f))
 
     # Parse all rows with error handling using LINQ
-    successful_results, failed_results = from_iterable(csv_rows).try_select(
+    successful_results, failed_results = Table.from_rows(csv_rows).try_select(
         _parse_csv_row
     )
 
@@ -384,7 +384,7 @@ Return a JSON object with vocabulary items:
 
     # Convert vocabulary items to Table[AddCardRequest] using LINQ
     card_requests = (
-        from_iterable(extraction_result.items)
+        Table.from_rows(extraction_result.items)
         .select(
             lambda item: _vocab_item_to_card_request(
                 item, source_language, target_language
@@ -442,8 +442,7 @@ def review_and_add(
         return _generate_audio_files(req.term_en, req.term_ja, output_dir=output_dir)
 
     cards, failed_results = (
-        from_iterable(enumerate(card_requests))
-        .with_progress("Processing selected cards")
+        card_requests.with_progress("Processing selected cards")
         .select(_infer_missing_fields)
         .try_select(_generate_audio)
     )

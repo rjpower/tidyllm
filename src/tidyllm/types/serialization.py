@@ -40,7 +40,7 @@ def to_json_dict(obj: Serializable) -> dict:
     return adapter.dump_python(obj, mode="json")
 
 
-def to_json_bytes(obj: Serializable) -> str:
+def to_json_str(obj: Serializable) -> str:
     """Convert any object to JSON string using Pydantic."""
     if isinstance(obj, BaseModel):
         return obj.model_dump_json()
