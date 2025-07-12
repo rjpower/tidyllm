@@ -79,7 +79,7 @@ def add_cli_options(cli_func: click.Command, func_desc: FunctionDescription) -> 
 
 def write_raw_output(result: Any):
     from tidyllm.types.part import AudioPart, BasicPart, ImagePart, is_audio_part, is_image_part
-    
+
     print(type(result))
     if isinstance(result, bytes):
         sys.stdout.buffer.write(result)
@@ -87,11 +87,11 @@ def write_raw_output(result: Any):
         # BasicPart stores base64-encoded data
         sys.stdout.buffer.write(result.data)
     elif is_image_part(result):
-        # ImagePart - write PNG bytes  
+        # ImagePart - write PNG bytes
         sys.stdout.buffer.write(result.to_bytes("PNG"))
     elif is_audio_part(result):
         # AudioPart - write WAV bytes
-        sys.stdout.buffer.write(result.to_wav_bytes())
+        sys.stdout.buffer.write(result.to_bytes())
     elif isinstance(result, Part):
         # Fallback for other Part types
         print(f"Unknown Part type: {type(result)}")

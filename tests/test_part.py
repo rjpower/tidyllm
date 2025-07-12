@@ -65,7 +65,7 @@ class TestAudioPart:
             assert audio_part.sample_rate == 16000
             assert audio_part.channels == 1
             assert audio_part.duration > 0
-            assert len(audio_part.to_wav_bytes()) > 0
+            assert len(audio_part.to_bytes()) > 0
 
     def test_audiopart_stereo(self, tool_context):
         """Test AudioPart with stereo audio."""
@@ -76,7 +76,7 @@ class TestAudioPart:
 
             assert audio_part.channels == 2
             assert audio_part.sample_rate == 44100
-            assert len(audio_part.to_wav_bytes()) > 0
+            assert len(audio_part.to_bytes()) > 0
 
     def test_audiopart_serialization(self, tool_context):
         """Test AudioPart serialization and round-trip."""

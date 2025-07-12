@@ -180,15 +180,15 @@ def _generate_audio_files(
     """
     # Generate English audio
     audio_en_path = output_dir / f"{term_en.replace(' ', '_')}_en.mp3"
-    en_result = generate_speech(content=term_en, language="English")
+    en_result = list(generate_speech(content=term_en, language="English"))[0]
     with open(audio_en_path, "wb") as f:
-        f.write(en_result.audio_bytes)
+        f.write(en_result.to_bytes(format="mp3"))
 
     # Generate Japanese audio
     audio_ja_path = output_dir / f"{term_ja.replace(' ', '_')}_ja.mp3"
-    ja_result = generate_speech(content=term_ja, language="Japanese")
+    ja_result = list(generate_speech(content=term_ja, language="Japanese"))[0]
     with open(audio_ja_path, "wb") as f:
-        f.write(ja_result.audio_bytes)
+        f.write(ja_result.to_bytes(format="mp3"))
 
     return audio_en_path, audio_ja_path
 
@@ -233,21 +233,9 @@ def add_card(
     complete_request = _infer_missing_fields(request)
 
     console.print("[yellow]Generating TTS audio...[/yellow]")
-
-    en_result = generate_speech(
-        content=complete_request.sentence_en, language="English"
+    audio_en_path, audio_ja_path = _generate_audio_files(
+        complete_request.term_en, complete_request.term_ja, output_dir
     )
-    ja_result = generate_speech(
-        content=complete_request.sentence_ja, language="Japanese"
-    )
-
-    audio_ja_path = output_dir / f"{complete_request.term_ja.replace(' ', '_')}_ja.mp3"
-    audio_en_path = output_dir / f"{complete_request.term_en.replace(' ', '_')}_en.mp3"
-    with open(audio_en_path, "wb") as f:
-        f.write(en_result.audio_bytes)
-
-    with open(audio_ja_path, "wb") as f:
-        f.write(ja_result.audio_bytes)
 
     console.print(f"Generated audio files: EN: {audio_en_path}, JA: {audio_ja_path}")
     console.print("[yellow]Creating Anki card...[/yellow]")
@@ -394,7 +382,7 @@ Return a JSON object with vocabulary items:
     )
 
     review_and_add(
-        Table.from_pydantic(card_requests),
+        Table.from_rows(card_requests),
         deck_name,
         output_dir,
         interactive=interactive,
@@ -403,7 +391,7 @@ Return a JSON object with vocabulary items:
 
 @register()
 def review_and_add(
-    card_requests: Table,
+    card_requests: Table[AddCardRequest],
     deck_name: str = "Japanese Vocabulary",
     output_dir: Path | None = None,
     interactive: bool = True,

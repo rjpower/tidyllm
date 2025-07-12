@@ -44,9 +44,9 @@ def transcribe_audio(
     ctx = get_tool_context()
 
     # Get WAV data from AudioPart
-    audio_data = audio_part.to_wav_bytes()
+    audio_data = audio_part.to_bytes()
     mime_type = "audio/wav"
-    
+
     print(f"Transcribing: {len(audio_data)} bytes of {mime_type} data.")
 
     # Encode audio data as base64

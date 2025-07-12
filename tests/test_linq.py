@@ -284,44 +284,18 @@ class TestTable:
         assert table[0] == data[0]
         assert table[1] == data[1]
 
-    def test_table_creation_from_pydantic(self):
+    def test_table_creation_from_rows(self):
         """Test creating table from Pydantic models."""
         users = [
             User(name='Alice', age=25),
             User(name='Bob', age=30, active=False)
         ]
 
-        table = Table.from_pydantic(users)
+        table = Table.from_rows(users)
         assert len(table) == 2
         assert table[0].name == 'Alice'
         assert table[1].active is False
 
-    def test_table_schema(self):
-        """Test table schema method."""
-        users = [
-            User(name='Alice', age=25),
-            User(name='Bob', age=30)
-        ]
-
-        table = Table.from_pydantic(users)
-        schema = table.table_schema()
-
-        # Should return the User type since all rows are User instances
-        assert schema is User
-
-    def test_table_schema_with_dicts(self):
-        """Test table schema with dictionary data."""
-        data = [
-            {'product': 'Widget', 'price': 10.99, 'stock': 50},
-            {'product': 'Gadget', 'price': 25.50, 'stock': 30}
-        ]
-
-        table = Table.from_rows(data)
-        schema = table.table_schema()
-
-        assert 'product' in schema.model_fields
-        assert 'price' in schema.model_fields
-        assert 'stock' in schema.model_fields
 
     def test_table_linq_operations(self):
         """Test that Table supports LINQ operations."""
@@ -349,14 +323,6 @@ class TestTable:
 
         assert isinstance(table, Table)
         assert list(table) == data
-
-    def test_empty_table_schema(self):
-        """Test schema for empty table."""
-        table = Table.empty()
-        schema = table.table_schema()
-
-        assert schema.__name__ == "InferredSchema"
-        assert schema.model_json_schema()["properties"] == {}
 
 
 class TestAdvancedLINQ:
@@ -495,9 +461,7 @@ class TestIntegration:
             User(name='Charlie', age=35, active=True)
         ]
 
-        table = Table.from_pydantic(users)
-        original_schema = table.table_schema()
-        assert original_schema is User
+        table = Table.from_rows(users)
 
         # Transform through LINQ
         transformed = (table
@@ -515,11 +479,6 @@ class TestIntegration:
 
         # Convert back to table
         result_table = transformed.materialize()
-        final_schema = result_table.table_schema()
-
-        # Schemas should be compatible
-        assert 'username' in final_schema.model_fields
-        assert 'age_group' in final_schema.model_fields
 
         # Data should be correct
         results = list(result_table)

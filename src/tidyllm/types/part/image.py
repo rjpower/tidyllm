@@ -228,7 +228,7 @@ class ImageFileSource:
                 return self._load_image_file(path, params)
 
         raise ValueError(f"Path {path} not in allowed directories")
-    
+
     def from_dict(self, d: dict) -> Part:
         """ImageFileSource doesn't support from_dict - only URL loading."""
         raise NotImplementedError("ImageFileSource only supports from_url, not from_dict")
@@ -268,7 +268,7 @@ class ImageFileSource:
         if "format" in params:
             image_part = image_part.convert_format(params["format"])
 
-        return Table.from_pydantic([image_part])
+        return Table.from_rows([image_part])
 
 
 # Register ImagePart with the Part registry

@@ -1,9 +1,14 @@
+import io
 from enum import Enum
 from typing import Any
+
+import litellm
 
 from tidyllm.registry import register
 from tidyllm.types.linq import Enumerable, Table
 from tidyllm.types.part import AudioPart
+
+litellm.suppress_debug_info = True
 
 
 class Voice(Enum):
@@ -62,16 +67,12 @@ def generate_speech(
     if language != "":
         content = f"Say the following in {language}: '{content}'"
 
-    # Generate speech using litellm
-    import litellm
-
+    print(model, content, voice)
     response: Any = litellm.speech(model=model, input=content, voice=voice)
-
-    import io
 
     audio_buffer = io.BytesIO()
     for chunk in response.iter_bytes():
         audio_buffer.write(chunk)
     audio_bytes = audio_buffer.getvalue()
     audio_part = AudioPart.from_audio_bytes(audio_bytes)
-    return Table.from_pydantic([audio_part])
+    return Table.from_rows([audio_part])

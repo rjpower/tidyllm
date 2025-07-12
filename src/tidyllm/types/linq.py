@@ -9,9 +9,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Iterator
 from functools import reduce
 from itertools import islice
-from typing import Any, Generic, TypeVar
+from typing import Annotated, Any, Generic, TypeVar
 
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel, PlainSerializer, WithJsonSchema
 
 from tidyllm.types.serialization import create_model_from_data_sample
 
@@ -805,19 +805,9 @@ class SchemaInferringEnumerable(Enumerable[T]):
             yield from self._cached_iterator
 
 
-# Table implementation inheriting from SchemaInferringEnumerable
-class Table(SchemaInferringEnumerable[T]):
+class Table(BaseModel, Enumerable[T]):
     """Table with automatic schema inference and LINQ operations."""
     rows: list[T]
-
-    def __init__(
-        self, rows: list[T] | None = None, table_schema: type[BaseModel] | None = None
-    ):
-        self.rows = rows  # type: ignore
-        if table_schema is not None:
-            self.set_known_schema(table_schema)
-
-        super().__init__(IterableEnumerable(rows))
 
     def __iter__(self) -> Iterator[T]:
         return iter(self.rows)
@@ -838,23 +828,18 @@ class Table(SchemaInferringEnumerable[T]):
         cls, rows: list[T], table_schema: type[BaseModel] | None = None
     ) -> "Table[T]":
         """Create table from rows."""
-        return cls(rows=rows, table_schema=table_schema)
-
-    @classmethod
-    def from_pydantic(cls, rows: list[BaseModel]) -> "Table[Any]":
-        """Create table from Pydantic models with schema optimization."""
-        if not rows:
-            return cls.empty()
-
-        model_type = type(rows[0])
-        print("Model type", model_type)
-        table = cls(rows=rows, table_schema=model_type)
+        table = cls(rows=rows)
         return table
 
     @classmethod
     def empty(cls) -> "Table[Any]":
         """Create empty table."""
-        return cls(rows=[], table_schema=None)
+        return cls(rows=[])
 
     def materialize(self) -> "Table[T]":
         return self
+
+
+def from_iterable(items: Iterable[T]) -> Table[T]:
+    """Create a Table from any iterable."""
+    return Table.from_rows(list(items))

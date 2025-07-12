@@ -47,7 +47,7 @@ class Part(BaseModel):
             b64_prefix, payload = b64.split(",", maxsplit=1)
             assert b64_prefix == "base64"
             part = PART_SOURCE_REGISTRY.from_dict({"mime_type": mime_type, "data": payload})
-            return Table.from_pydantic([part])
+            return Table.from_rows([part])
 
         return PART_SOURCE_REGISTRY.from_url(url)
 
@@ -194,12 +194,12 @@ class LocalFilePartSource:
                     # Fall back to BasicPart for unregistered types
                     part = BasicPart(mime_type=mime_type, data=base64.b64encode(data))
 
-                return Table.from_pydantic([part])
+                return Table.from_rows([part])
 
         raise ValueError(
             f"URL path {path} not found in allowed set of directories {self._allowed_dirs}"
         )
-    
+
     def from_dict(self, d: dict) -> "Part":
         """LocalFilePartSource doesn't support from_dict - only URL loading.""" 
         raise NotImplementedError("LocalFilePartSource only supports from_url, not from_dict")
@@ -215,5 +215,3 @@ PART_SOURCE_REGISTRY.register_mimetype("text/css", basic_part_source)
 PART_SOURCE_REGISTRY.register_mimetype("text/javascript", basic_part_source)
 PART_SOURCE_REGISTRY.register_mimetype("application/json", basic_part_source)
 PART_SOURCE_REGISTRY.register_mimetype("application/pdf", basic_part_source)
-
-

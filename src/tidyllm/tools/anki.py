@@ -397,7 +397,7 @@ def anki_query(query: str, limit: int = 100, deck_name: str | None = None) -> Ta
                     deck_name=deck_name,
                 )
             )
-        return Table.from_pydantic(cards)
+        return Table.from_rows(cards)
 
 
 @register()
@@ -438,7 +438,7 @@ def anki_list() -> Table:
                 )
             )
 
-    return Table.from_pydantic(decks)
+    return Table.from_rows(decks)
 
 
 if __name__ == "__main__":

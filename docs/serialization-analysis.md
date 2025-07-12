@@ -62,7 +62,7 @@ class Table(BaseModel, Generic[T]):
         return self.rows[index]
     
     @classmethod
-    def from_pydantic(cls, rows: list[BaseModel]) -> 'Table[BaseModel]':
+    def from_rows(cls, rows: list[BaseModel]) -> 'Table[BaseModel]':
         if not rows:
             return cls(rows=[], columns={})
         
@@ -281,7 +281,7 @@ args = SearchArgs.model_validate({"query": "test", "limit": "5"})
 ```python
 # Multiple systems fighting each other
 def some_tool(args: ToolArgs) -> Table:
-    result = Table.from_pydantic([...])
+    result = Table.from_rows([...])
     
     # Custom serialization
     json_data = to_json_value(result)  # Goes through registry
@@ -296,7 +296,7 @@ def some_tool(args: ToolArgs) -> Table:
 ```python
 # Single, consistent system
 def some_tool(args: ToolArgs) -> Table:
-    result = Table.from_pydantic([...])
+    result = Table.from_rows([...])
     
     # Direct Pydantic serialization
     json_data = result.model_dump_json()

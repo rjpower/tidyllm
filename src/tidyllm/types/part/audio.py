@@ -62,27 +62,25 @@ class AudioPart(Part):
         if not hasattr(self, "_audio_data"):
             self._audio_data = np.array([], dtype=np.float32)
 
-    def to_wav_bytes(self) -> bytes:
-        """Convert numpy array to WAV bytes."""
-        # If no audio data stored, return empty bytes
-        if not hasattr(self, "_audio_data") or self._audio_data.size == 0:
-            return b""
-
-        # Convert to (samples, channels) format for soundfile
+    def to_bytes(self, format="wav") -> bytes:
+        """Convert to the given file format and return the audio data as bytes."""
         if self._audio_data.ndim == 1:
             audio_for_sf = self._audio_data.reshape(-1, 1)
         else:
             audio_for_sf = self._audio_data.T
 
-        # Use BytesIO to avoid temp files
         buffer = io.BytesIO()
-        sf.write(buffer, audio_for_sf, self.sample_rate, format="WAV", subtype="PCM_16")
+        sf.write(
+            buffer,
+            audio_for_sf,
+            self.sample_rate,
+            format=format.upper(),
+        )
         buffer.seek(0)
         return buffer.read()
 
-    def to_base64(self) -> str:
-        """Convert to base64-encoded WAV data for serialization."""
-        return base64.b64encode(self.to_wav_bytes()).decode()
+    def to_base64(self, format="wav") -> str:
+        return base64.b64encode(self.to_bytes(format)).decode()
 
     @classmethod
     def from_array(

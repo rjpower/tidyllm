@@ -166,10 +166,10 @@ The `Enumerable[T]` class provides LINQ-style operations with deferred evaluatio
 
 ### Core Operations
 ```python
-from tidyllm.linq import from_iterable
+from tidyllm.linq import Table
 
 # Create enumerable from any iterable
-data = from_iterable([1, 2, 3, 4, 5])
+data = Table.from_rows([1, 2, 3, 4, 5])
 
 # Transform data
 result = (data

@@ -150,7 +150,7 @@ def vocab_search(
             )
         )
 
-    return Table.from_pydantic(items)
+    return Table.from_rows(items)
 
 
 @register()

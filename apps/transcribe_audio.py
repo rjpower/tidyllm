@@ -145,7 +145,7 @@ def diff_vocab(transcriptions_url: str) -> Table[TranscribedWord]:
 
     new_words = list(new_words)
     console.print(f"[green]Found {len(new_words)} new words[/green]")
-    return Table.from_pydantic(new_words)
+    return Table.from_rows(new_words)
 
 
 @register()

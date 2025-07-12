@@ -114,7 +114,7 @@ def create_fastmcp_server(
         if is_image_part(part):
             return Image(data=part.to_bytes("PNG"), format="png")
         elif is_audio_part(part):
-            return Audio(data=part.to_wav_bytes(), format="wav")
+            return Audio(data=part.to_bytes(), format="wav")
         elif is_text_part(part):
             # For text parts (BasicPart), data is base64-encoded
             raw_data = base64.b64decode(part.data)

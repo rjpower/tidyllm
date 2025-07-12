@@ -9,7 +9,6 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from tidyllm.types.linq import Table
 from tidyllm.types.serialization import (
     create_model_from_data_sample,
     create_model_from_field_definitions,
@@ -483,52 +482,4 @@ class TestIntegrationDynamicModels:
         assert validated["name"] == "Alice"
         assert validated["age"] == 30
 
-    def test_linq_schema_serialization_integration(self):
-        """Test LINQ schema with serialization roundtrip."""
-        from tidyllm.types.linq import Table
 
-        # Start with data
-        data = [
-            {'product': 'Widget', 'price': 10.99, 'in_stock': True},
-            {'product': 'Gadget', 'price': 25.50, 'in_stock': False}
-        ]
-
-        # Create schema-aware enumerable
-        enum = Table.from_rows(data).with_schema_inference()
-        schema = enum.table_schema()
-
-        # Serialize the schema (as a model class, this is tricky)
-        # Instead, test creating instances from the schema
-        instance = schema(product="Test", price=99.99, in_stock=True)
-
-        # Serialize the instance
-        serialized = to_json_dict(instance)
-        assert serialized == {"product": "Test", "price": 99.99, "in_stock": True}
-
-        # Deserialize back
-        deserialized = from_json_dict(serialized, schema)
-        assert deserialized.product == "Test"
-        assert deserialized.price == 99.99
-        assert deserialized.in_stock is True
-
-    def test_table_dynamic_schema_roundtrip(self):
-        """Test Table with dynamic schema in serialization roundtrip."""
-        # Create table with inferred schema
-        data = [
-            {'user_id': 1, 'username': 'alice', 'active': True},
-            {'user_id': 2, 'username': 'bob', 'active': False}
-        ]
-
-        table = Table.from_rows(data)
-        schema = table.table_schema()
-
-        # Schema should be dynamically created
-        assert 'user_id' in schema.model_fields
-        assert 'username' in schema.model_fields
-        assert 'active' in schema.model_fields
-
-        # Create instance from schema
-        new_user = schema(user_id=3, username="charlie", active=True)
-        assert new_user.user_id == 3
-        assert new_user.username == "charlie"
-        assert new_user.active is True
