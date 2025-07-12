@@ -11,22 +11,21 @@ from typing import TypeGuard
 from tidyllm.types.part.audio import AudioPart
 from tidyllm.types.part.gdrive import GDriveSource
 from tidyllm.types.part.image import ImagePart
-from tidyllm.types.part.pdf import PdfPart
 
 # Import core Part infrastructure
 from tidyllm.types.part.lib import (
     PART_SOURCE_REGISTRY,
     BasicPart,
-    BasicPartSource,
+    BasicPartLoader,
     HtmlPart,
     JpegPart,
     LocalFilePartSource,
     Part,
-    PartSource,
     PartSourceRegistry,
     PngPart,
     TextPart,
 )
+from tidyllm.types.part.pdf import PdfPart
 
 
 # Type guard functions with proper TypeGuard annotations
@@ -59,11 +58,10 @@ __all__ = [
     # Core infrastructure
     "Part",
     "BasicPart", 
-    "PartSource",
     "PartSourceRegistry",
     "PART_SOURCE_REGISTRY",
     "LocalFilePartSource",
-    "BasicPartSource",
+    "BasicPartLoader",
     
     # Type aliases for basic parts
     "TextPart",

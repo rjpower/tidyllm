@@ -25,7 +25,6 @@ import filetype
 from pydantic import (
     Base64Bytes,
     BaseModel,
-    model_validator,
 )
 from pydantic_core import Url
 
@@ -46,22 +45,21 @@ class Part(BaseModel):
             mime_type, b64 = url.path.split(";", maxsplit=1)
             b64_prefix, payload = b64.split(",", maxsplit=1)
             assert b64_prefix == "base64"
-            part = PART_SOURCE_REGISTRY.from_dict({"mime_type": mime_type, "data": payload})
+            data_bytes = base64.b64decode(payload)
+            part = PART_SOURCE_REGISTRY.from_bytes(mime_type, data_bytes)
             return Table.from_rows([part])
 
         return PART_SOURCE_REGISTRY.from_url(url)
 
     @classmethod
-    def from_value(cls, value: Any) -> Any:
-        """Validate Part input: str | Url | {"mimetype": ..., "data": ...}"""
-        if isinstance(value, dict):
-            return PART_SOURCE_REGISTRY.from_dict(value)
+    def from_bytes(cls, mimetype: str, data: bytes) -> "Part":
+        """Create Part from mimetype and raw bytes."""
+        return PART_SOURCE_REGISTRY.from_bytes(mimetype, data)
 
-        if isinstance(value, str):
-            value = Url(value)
-
-        assert isinstance(value, Url), f"Unknown value type for Part {value}."
-        return cls.from_url(value)
+    @classmethod
+    def from_json(cls, data: dict) -> "Part":
+        """Create Part from JSON dictionary (serialized Part)."""
+        return PART_SOURCE_REGISTRY.from_json(data)
 
     @classmethod
     def __get_pydantic_json_schema__(cls, core_schema, handler):
@@ -109,90 +107,92 @@ PngPart = BasicPart
 JpegPart = BasicPart
 
 
-class BasicPartSource:
-    """PartSource for basic data types."""
-
-    def from_url(self, url: Url) -> "Enumerable[Part]":
-        """BasicPartSource doesn't support URL loading - only dictionary creation."""
-        raise NotImplementedError("BasicPartSource only supports from_dict, not from_url")
-
-    def from_dict(self, d: dict) -> Part:
-        """Create BasicPart from dictionary."""
-        return BasicPart(**d)
-
-
-class PartSource(Protocol):
+class UrlLoader(Protocol):
     """Protocol for sources that can stream Parts."""
 
-    def from_url(self, url: Url) -> "Enumerable[Part]": ...
-
-    def from_dict(self, dict: dict) -> "Part": ...
+    def __call__(self, url: Url) -> Enumerable[Part]: ...
 
 
-class PartSourceRegistry(dict[str, PartSource]):
+class MimeLoader(Protocol):
+    def from_json(self, d: dict[str, Any]) -> Part:
+        """Load a Part from a serialized dictionary (e.g. Pydantic representation)."""
+        raise NotImplementedError
+
+    def from_bytes(self, mime_type: str, data: bytes) -> Part:
+        """If supported, load `Part` from the specified data."""
+        raise NotImplementedError
+
+
+class PartSourceRegistry:
     """Registry mapping URL schemes to PartSource implementations."""
+    _url_loaders: dict[str, UrlLoader] = {}
+    _mime_loaders: dict[str, MimeLoader] = {}
 
-    def register_scheme(self, scheme: str, source: PartSource):
-        """Register a PartSource for a URL scheme."""
-        self[scheme] = source
+    def register_scheme(self, scheme: str, loader: UrlLoader):
+        self._url_loaders[scheme] = loader
 
-    def register_mimetype(self, mimetype: str, source: PartSource):
-        self[mimetype] = source
+    def register_mimetype(self, mimetype: str, loader: MimeLoader):
+        self._mime_loaders[mimetype] = loader
 
     def from_url(self, url: Url) -> "Enumerable[Part]":
         """Create a Part stream from a URL."""
-        if url.scheme not in self:
+        if url.scheme not in self._url_loaders:
             raise KeyError(f"Unregistered URL scheme: {url.scheme}")
-        return self[url.scheme].from_url(url)
+        return self._url_loaders[url.scheme](url)
 
-    def from_dict(self, d: dict) -> "Part":
-        mime_type = d["mime_type"]
-
-        # Try exact match first
-        if mime_type in self:
-            return self[mime_type].from_dict(d)
-
-        # If no exact match, try base mime type (strip parameters)
+    def _find_loader(self, mime_type: str) -> MimeLoader | None:
+        if mime_type in self._mime_loaders:
+            return self._mime_loaders[mime_type]
         base_mime_type = mime_type.split(";")[0]
-        if base_mime_type in self:
-            return self[base_mime_type].from_dict(d)
+        if base_mime_type in self._mime_loaders:
+            return self._mime_loaders[base_mime_type]
 
-        # No handler found - fall back to BasicPart
-        data_str = d.get("data", "")
-        if isinstance(data_str, str):
-            data_bytes = data_str.encode() if data_str else b""
-        else:
-            data_bytes = data_str
+        return None
 
-        return BasicPart.model_construct(mime_type=mime_type, data=data_bytes)
+    def from_bytes(self, mime_type: str, data: bytes) -> "Part":
+        """Create a Part from mimetype and raw bytes."""
+        loader = self._find_loader(mime_type)
+        if loader:
+            return loader.from_bytes(mime_type, data)
+
+        return BasicPart.from_base64(base64.b64encode(data), mime_type)
+
+    def from_json(self, d: dict) -> "Part":
+        mime_type = d["mime_type"]
+        loader = self._find_loader(mime_type)
+        if loader:
+            return loader.from_json(d)
+        return BasicPart.model_validate(d)
 
 
 PART_SOURCE_REGISTRY = PartSourceRegistry()
+
+
+class BasicPartLoader:
+    """MimeLoader for basic data types."""
+
+    def from_json(self, d: dict[str, Any]) -> Part:
+        """Create BasicPart from JSON dictionary."""
+        return BasicPart.model_validate(d)
+
+    def from_bytes(self, mime_type: str, data: bytes) -> Part:
+        """Create BasicPart from raw bytes."""
+        return BasicPart.from_base64(data, mime_type)
 
 
 class LocalFilePartSource:
     def __init__(self, allowed_dirs: list[Path]):
         self._allowed_dirs = [dir.resolve() for dir in allowed_dirs]
 
-    def from_url(self, url: Url) -> "Enumerable[Part]":
+    def __call__(self, url: Url) -> "Enumerable[Part]":
         path = Path(url.path).resolve()
         for dir in self._allowed_dirs:
             if path.is_relative_to(dir):
                 data = path.read_bytes()
                 mime_type = filetype.guess_mime(data) or "application/octet-stream"
 
-                # Check if there's a specific handler for this mime type
-                base_mime = mime_type.split(";")[0]
-                if base_mime in PART_SOURCE_REGISTRY:
-                    # Let the specific handler create the part
-                    part_dict = {
-                        "mime_type": mime_type,
-                        "data": base64.b64encode(data).decode(),
-                    }
-                    part = PART_SOURCE_REGISTRY.from_dict(part_dict)
-                else:
-                    # Fall back to BasicPart for unregistered types
-                    part = BasicPart(mime_type=mime_type, data=base64.b64encode(data))
+                # Use registry to create appropriate Part type
+                part = PART_SOURCE_REGISTRY.from_bytes(mime_type, data)
 
                 return Table.from_rows([part])
 
@@ -200,18 +200,13 @@ class LocalFilePartSource:
             f"URL path {path} not found in allowed set of directories {self._allowed_dirs}"
         )
 
-    def from_dict(self, d: dict) -> "Part":
-        """LocalFilePartSource doesn't support from_dict - only URL loading.""" 
-        raise NotImplementedError("LocalFilePartSource only supports from_url, not from_dict")
-
 
 PART_SOURCE_REGISTRY.register_scheme("file", LocalFilePartSource([Path(".")]))
 
-# Register BasicPartSource for common mime types
-basic_part_source = BasicPartSource()
-PART_SOURCE_REGISTRY.register_mimetype("text/plain", basic_part_source)
-PART_SOURCE_REGISTRY.register_mimetype("text/html", basic_part_source)
-PART_SOURCE_REGISTRY.register_mimetype("text/css", basic_part_source)
-PART_SOURCE_REGISTRY.register_mimetype("text/javascript", basic_part_source)
-PART_SOURCE_REGISTRY.register_mimetype("application/json", basic_part_source)
-PART_SOURCE_REGISTRY.register_mimetype("application/pdf", basic_part_source)
+# Register BasicPartLoader for common mime types
+basic_part_loader = BasicPartLoader()
+PART_SOURCE_REGISTRY.register_mimetype("text/plain", basic_part_loader)
+PART_SOURCE_REGISTRY.register_mimetype("text/html", basic_part_loader)
+PART_SOURCE_REGISTRY.register_mimetype("text/css", basic_part_loader)
+PART_SOURCE_REGISTRY.register_mimetype("text/javascript", basic_part_loader)
+PART_SOURCE_REGISTRY.register_mimetype("application/json", basic_part_loader)

@@ -78,24 +78,20 @@ def add_cli_options(cli_func: click.Command, func_desc: FunctionDescription) -> 
 
 
 def write_raw_output(result: Any):
-    from tidyllm.types.part import AudioPart, BasicPart, ImagePart, is_audio_part, is_image_part
+    from tidyllm.types.part import BasicPart, is_audio_part, is_image_part
 
     print(type(result))
     if isinstance(result, bytes):
         sys.stdout.buffer.write(result)
-    elif isinstance(result, BasicPart):
-        # BasicPart stores base64-encoded data
-        sys.stdout.buffer.write(result.data)
-    elif is_image_part(result):
-        # ImagePart - write PNG bytes
-        sys.stdout.buffer.write(result.to_bytes("PNG"))
-    elif is_audio_part(result):
-        # AudioPart - write WAV bytes
-        sys.stdout.buffer.write(result.to_bytes())
     elif isinstance(result, Part):
-        # Fallback for other Part types
-        print(f"Unknown Part type: {type(result)}")
-        sys.stdout.write(str(result))
+        if is_image_part(result):
+            # ImagePart - write PNG bytes
+            sys.stdout.buffer.write(result.to_bytes("PNG"))
+        elif is_audio_part(result):
+            # AudioPart - write WAV bytes
+            sys.stdout.buffer.write(result.to_bytes())
+        else:
+            sys.stdout.write(str(result))
     elif isinstance(result, Enumerable):
         print("Enumable: ", type(result))
         for row in result:

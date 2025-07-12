@@ -484,3 +484,36 @@ class TestIntegration:
         results = list(result_table)
         assert len(results) == 2  # Only Alice and Charlie (active users)
         assert all(r['username'] in ['alice', 'charlie'] for r in results)
+
+
+class TestEnumerablePydanticIntegration:
+    """Test Enumerable integration with Pydantic models."""
+
+    def test_enumerable_in_pydantic_model(self):
+        """Test that Enumerable can be used as a field in Pydantic models."""
+        from tidyllm.types.linq import Enumerable
+        
+        class TestModel(BaseModel):
+            data: Enumerable[str]
+            count: int
+        
+        # Test schema generation
+        schema = TestModel.model_json_schema()
+        assert 'data' in schema['properties']
+        data_schema = schema['properties']['data']
+        assert data_schema['type'] == 'array'
+        assert data_schema['title'] == 'Enumerable'
+        assert 'items' in data_schema
+
+    def test_enumerable_with_typed_items(self):
+        """Test Enumerable with specific item types in Pydantic schema."""
+        from tidyllm.types.linq import Enumerable
+        
+        class ModelWithUsers(BaseModel):
+            users: Enumerable[User]
+        
+        # Should generate schema without errors
+        schema = ModelWithUsers.model_json_schema()
+        assert 'users' in schema['properties']
+        users_schema = schema['properties']['users']
+        assert users_schema['type'] == 'array'

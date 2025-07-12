@@ -1,6 +1,5 @@
 """Google Drive source adapter implementation."""
 
-import base64
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlparse
@@ -12,7 +11,7 @@ from googleapiclient.discovery import build
 from pydantic import BaseModel, Field
 from pydantic_core import Url
 
-from tidyllm.types.part.lib import PART_SOURCE_REGISTRY, BasicPart, Part
+from tidyllm.types.part.lib import PART_SOURCE_REGISTRY
 
 
 class GDriveSource(BaseModel):
@@ -190,11 +189,11 @@ class GDriveSource(BaseModel):
 class GDrivePartSource:
     """Stream Parts from Google Drive."""
 
-    def __call__(self, url: Url):
+    def from_url(self, url: Url):
         from tidyllm.types.linq import Table
 
         source = GDriveSource(url=str(url))
-        part = BasicPart(mime_type=source.mime_type, data=base64.b64encode(source.read()))
+        part = PART_SOURCE_REGISTRY.from_bytes(source.mime_type, source.read())
         return Table.from_rows([part])
 
 

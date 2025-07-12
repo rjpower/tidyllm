@@ -17,11 +17,6 @@ MIN_SILENCE_DURATION = Duration.from_ms(250)
 SPEECH_THRESHOLD = 0.7
 DEFAULT_CHUNK_DURATION = Duration.from_ms(1000)
 
-warnings.filterwarnings("ignore", category=SyntaxWarning, module="pydub")
-warnings.filterwarnings("ignore", module="sunau")
-warnings.filterwarnings("ignore", module="audiooop")
-warnings.filterwarnings("ignore", module="aifc")
-
 def _load_vad_model():
     """Load the silero VAD model."""
     import torch

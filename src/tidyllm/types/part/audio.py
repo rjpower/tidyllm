@@ -4,6 +4,7 @@ import base64
 import io
 import queue
 import time
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,10 @@ from tidyllm.types.duration import Duration
 from tidyllm.types.linq import Enumerable, Table
 from tidyllm.types.part.lib import PART_SOURCE_REGISTRY, Part
 
-# Top-level audio format utility functions
+warnings.filterwarnings("ignore", category=SyntaxWarning, module="pydub")
+warnings.filterwarnings("ignore", module="sunau")
+warnings.filterwarnings("ignore", module="audiooop")
+warnings.filterwarnings("ignore", module="aifc")
 
 
 def resample_audio(data: np.ndarray, from_rate: int, to_rate: int) -> np.ndarray:
@@ -169,21 +173,22 @@ class AudioPart(Part):
         )
 
 
-class AudioPartSource:
-    """PartSource implementation that returns AudioPart instances for audio mime types."""
+class AudioPartLoader:
+    """MimeLoader for audio types."""
 
-    def from_dict(self, d: dict) -> Part:
-        """Create AudioPart from dictionary representation."""
-        mime_type = d["mime_type"]
-        data_bytes = base64.b64decode(d["data"])
+    def from_json(self, d: dict[str, Any]) -> Part:
+        """Create AudioPart from JSON dictionary."""
+        return AudioPart.model_validate(d)
 
+    def from_bytes(self, mime_type: str, data: bytes) -> Part:
+        """Create AudioPart from raw bytes."""
         # Parse metadata from mime_type
         timestamp = 0.0
         if "timestamp=" in mime_type:
             timestamp_str = mime_type.split("timestamp=")[1].split(";")[0]
             timestamp = float(timestamp_str)
 
-        return AudioPart.from_audio_bytes(data_bytes, timestamp=timestamp)
+        return AudioPart.from_audio_bytes(data, timestamp=timestamp)
 
 
 class AudioFileSource:
@@ -259,6 +264,22 @@ class AudioFileSource:
                 yield audio_part
 
         return Table.from_rows(file_generator())
+
+    def from_url(self, url: Url) -> Enumerable[Part]:
+        """AudioFileSource supports from_url via __call__."""
+        return self.__call__(url)
+
+    def from_dict(self, d: dict) -> Part:
+        """AudioFileSource doesn't support from_dict - only URL loading."""
+        raise NotImplementedError(
+            "AudioFileSource only supports from_url, not from_dict"
+        )
+
+    def from_data(self, mimetype: str, data: bytes) -> Part:
+        """AudioFileSource doesn't support from_data - only URL loading."""
+        raise NotImplementedError(
+            "AudioFileSource only supports from_url, not from_data"
+        )
 
 
 class MicrophoneSource:
@@ -359,12 +380,28 @@ class MicrophoneSource:
 
         return Table.from_rows(mic_generator())
 
+    def from_url(self, url: Url) -> Enumerable[Part]:
+        """MicrophoneSource supports from_url via __call__."""
+        return self.__call__(url)
+
+    def from_dict(self, d: dict) -> Part:
+        """MicrophoneSource doesn't support from_dict - only URL loading."""
+        raise NotImplementedError(
+            "MicrophoneSource only supports from_url, not from_dict"
+        )
+
+    def from_data(self, mimetype: str, data: bytes) -> Part:
+        """MicrophoneSource doesn't support from_data - only URL loading."""
+        raise NotImplementedError(
+            "MicrophoneSource only supports from_url, not from_data"
+        )
+
 
 PART_SOURCE_REGISTRY.register_scheme("audio", AudioFileSource([Path(".")]))
 PART_SOURCE_REGISTRY.register_scheme("mic", MicrophoneSource())
 
-audio_part_source = AudioPartSource()
-PART_SOURCE_REGISTRY.register_mimetype("audio/wav", audio_part_source)
-PART_SOURCE_REGISTRY.register_mimetype("audio/pcm", audio_part_source)
-PART_SOURCE_REGISTRY.register_mimetype("audio/mp3", audio_part_source)
-PART_SOURCE_REGISTRY.register_mimetype("audio/ogg", audio_part_source)
+audio_part_loader = AudioPartLoader()
+PART_SOURCE_REGISTRY.register_mimetype("audio/wav", audio_part_loader)
+PART_SOURCE_REGISTRY.register_mimetype("audio/pcm", audio_part_loader)
+PART_SOURCE_REGISTRY.register_mimetype("audio/mp3", audio_part_loader)
+PART_SOURCE_REGISTRY.register_mimetype("audio/ogg", audio_part_loader)

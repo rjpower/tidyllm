@@ -14,7 +14,7 @@ from tidyllm.llm import completion_with_schema
 from tidyllm.registry import register
 from tidyllm.tools.context import ToolContext
 from tidyllm.tools.notes import NoteAddArgs, note_add
-from tidyllm.types.part import Part, PdfPart, is_pdf_part
+from tidyllm.types.part import Part, is_pdf_part
 from tidyllm.types.part.image import ImagePart
 
 console = Console()

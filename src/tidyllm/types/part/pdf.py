@@ -3,8 +3,10 @@
 import base64
 import io
 from pathlib import Path
+from typing import Any
 
 import pypdfium2 as pdfium
+from pydantic import Base64Bytes, PrivateAttr
 from pydantic_core import Url
 
 from tidyllm.types.linq import Enumerable, Table
@@ -18,31 +20,30 @@ class PdfPart(Part):
     A PDF is also an Enumerable over the underlying images extracted from its pages.
     """
 
+    data: Base64Bytes
     page_count: int
+    _pdf_doc: pdfium.PdfDocument | None = PrivateAttr(default=None)
 
     def model_post_init(self, __context) -> None:
-        """Post-initialization to set up PDF data."""
-        if not hasattr(self, "_pdf_bytes"):
-            self._pdf_bytes = b""
-        if not hasattr(self, "_pdf_doc"):
-            self._pdf_doc = None
+        """Post-initialization to set up PDF document."""
+        self._pdf_doc = None
 
     @classmethod
-    def from_bytes(cls, pdf_bytes: bytes) -> "PdfPart":
+    def from_bytes(cls, mimetype: str, data: bytes) -> "PdfPart":
         """Create PdfPart from PDF bytes."""
         # Load PDF to get page count
-        pdf_doc = pdfium.PdfDocument(pdf_bytes)
+        pdf_doc = pdfium.PdfDocument(data)
         page_count = len(pdf_doc)
 
         # Create mime_type with metadata
         mime_type = f"application/pdf;pages={page_count}"
 
-        # Create instance with model_construct to bypass validation
-        instance = cls.model_construct(
+        # Create instance with base64 encoded data
+        instance = cls(
             mime_type=mime_type,
+            data=base64.b64encode(data),
             page_count=page_count,
         )
-        instance._pdf_bytes = pdf_bytes
         instance._pdf_doc = pdf_doc
 
         return instance
@@ -51,13 +52,8 @@ class PdfPart(Part):
     def pdf_document(self) -> pdfium.PdfDocument:
         """Access to pypdfium2 PDF document."""
         if self._pdf_doc is None:
-            self._pdf_doc = pdfium.PdfDocument(self._pdf_bytes)
+            self._pdf_doc = pdfium.PdfDocument(self.data)
         return self._pdf_doc
-
-    @property
-    def bytes(self) -> bytes:
-        """Get raw PDF bytes."""
-        return self._pdf_bytes
 
     def extract_images(
         self,
@@ -113,22 +109,25 @@ class PdfPart(Part):
         return f"PDF ({self.page_count} pages)"
 
 
-class PdfPartSource:
-    """PartSource implementation that returns PdfPart instances for PDF mime types."""
-    
-    def from_dict(self, d: dict) -> Part:
-        """Create PdfPart from dictionary representation."""
-        data_bytes = base64.b64decode(d["data"])
-        return PdfPart.from_bytes(data_bytes)
+class PdfPartLoader:
+    """MimeLoader for PDF types."""
+
+    def from_json(self, d: dict[str, Any]) -> Part:
+        """Create PdfPart from JSON dictionary."""
+        return PdfPart.model_validate(d)
+
+    def from_bytes(self, mime_type: str, data: bytes) -> Part:
+        """Create PdfPart from raw bytes."""
+        return PdfPart.from_bytes(mime_type, data)
 
 
-class PdfFileSource:
+class PdfFileLoader:
     """Stream PDF Parts from file sources."""
 
     def __init__(self, allowed_dirs: list[Path] | None = None):
         self.allowed_dirs = allowed_dirs or [Path(".")]
 
-    def from_url(self, url: Url) -> Enumerable[Part]:
+    def __call__(self, url: Url) -> Enumerable[Part]:
         """Stream PDF Parts from file URL."""
         path = Path(url.path)
 
@@ -142,19 +141,15 @@ class PdfFileSource:
 
         raise ValueError(f"Path {path} not in allowed directories")
 
-    def from_dict(self, d: dict) -> Part:
-        """PdfFileSource doesn't support from_dict - only URL loading."""
-        raise NotImplementedError("PdfFileSource only supports from_url, not from_dict")
-
     def _load_pdf_file(self, path: Path) -> Enumerable[Part]:
         """Load PDF file as PdfPart."""
         pdf_bytes = path.read_bytes()
-        pdf_part = PdfPart.from_bytes(pdf_bytes)
+        pdf_part = PdfPart.from_bytes("application/pdf", pdf_bytes)
         return Table.from_rows([pdf_part])
 
 
 # Register PdfPart with the Part registry
-PART_SOURCE_REGISTRY.register_scheme("pdf", PdfFileSource([Path(".")]))
+PART_SOURCE_REGISTRY.register_scheme("pdf", PdfFileLoader([Path(".")]))
 
-pdf_part_source = PdfPartSource()
-PART_SOURCE_REGISTRY.register_mimetype("application/pdf", pdf_part_source)
+pdf_part_loader = PdfPartLoader()
+PART_SOURCE_REGISTRY.register_mimetype("application/pdf", pdf_part_loader)

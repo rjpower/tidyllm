@@ -104,3 +104,37 @@ def test_pdf_part_linq_operations():
     sizes = image_parts.select(lambda img: (img.width, img.height)).to_list()
     assert len(sizes) == count
     assert all(isinstance(size, tuple) and len(size) == 2 for size in sizes)
+
+
+def test_pdf_part_serialization():
+    """Test PdfPart serialization and deserialization."""
+    pdf_path = Path("docs/tidyllm-spec.pdf")
+    if not pdf_path.exists():
+        pytest.skip("Test PDF file not found")
+    
+    # Create PdfPart from raw bytes
+    pdf_data = pdf_path.read_bytes()
+    pdf_part = PdfPart.from_bytes("application/pdf", pdf_data)
+    
+    # Test serialization
+    serialized = pdf_part.model_dump()
+    assert "mime_type" in serialized
+    assert "data" in serialized
+    assert "page_count" in serialized
+    assert "_pdf_doc" not in serialized  # Private attribute should be excluded
+    
+    # Test deserialization
+    pdf_part_2 = PdfPart.model_validate(serialized)
+    assert pdf_part_2.page_count == pdf_part.page_count
+    assert pdf_part_2.mime_type == pdf_part.mime_type
+    
+    # Test that PDF document can be accessed after deserialization
+    doc = pdf_part_2.pdf_document
+    assert doc is not None
+    assert len(doc) == pdf_part_2.page_count
+    
+    # Test JSON round-trip
+    json_str = pdf_part.model_dump_json()
+    pdf_part_3 = PdfPart.model_validate_json(json_str)
+    assert pdf_part_3.page_count == pdf_part.page_count
+    assert pdf_part_3.mime_type == pdf_part.mime_type

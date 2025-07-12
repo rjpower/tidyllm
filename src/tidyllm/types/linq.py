@@ -9,9 +9,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Iterator
 from functools import reduce
 from itertools import islice
-from typing import Annotated, Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
-from pydantic import AfterValidator, BaseModel, PlainSerializer, WithJsonSchema
+from pydantic import BaseModel
 
 from tidyllm.types.serialization import create_model_from_data_sample
 
@@ -371,6 +371,37 @@ class Enumerable(ABC, Generic[T]):
             Schema-inferring wrapper that can provide type information
         """
         return SchemaInferringEnumerable(self, sample_size)
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type, handler):
+        """
+        Generate core schema for Enumerable that materializes to list.
+        """
+        from pydantic_core import core_schema
+        # Get the type argument if available
+        args = getattr(source_type, '__args__', ())
+        if args:
+            item_type = args[0]
+            item_schema = handler.generate_schema(item_type)
+        else:
+            # Default to Any if no type argument
+            item_schema = core_schema.any_schema()
+        
+        # Return list schema with the item type
+        return core_schema.list_schema(item_schema)
+    
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        """
+        Customize schema to show Enumerable materializes to array for JSON schema.
+        """
+        # Return a generic array schema since Enumerable can contain any type
+        return {
+            "type": "array",
+            "items": {"type": "object"},
+            "title": "Enumerable",
+            "description": "Enumerable that materializes to an array of items"
+        }
 
 
 class OrderedEnumerable(Enumerable[T]):

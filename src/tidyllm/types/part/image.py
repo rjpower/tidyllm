@@ -192,20 +192,21 @@ class ImagePart(Part):
         return f"Image ({self.width}x{self.height}, {self.format}, {self.mode})"
 
 
-class ImagePartSource:
-    """PartSource implementation that returns ImagePart instances for image mime types."""
+class ImagePartLoader:
+    """MimeLoader for image types."""
 
-    def from_dict(self, d: dict) -> Part:
-        """Create ImagePart from dictionary representation."""
-        mime_type = d["mime_type"]
-        data_bytes = base64.b64decode(d["data"])
+    def from_json(self, d: dict[str, Any]) -> Part:
+        """Create ImagePart from JSON dictionary."""
+        return ImagePart.model_validate(d)
 
+    def from_bytes(self, mime_type: str, data: bytes) -> Part:
+        """Create ImagePart from raw bytes."""
         # Parse format from mime_type
         format = "PNG"
         if "/" in mime_type:
             format = mime_type.split("/")[1].split(";")[0].upper()
 
-        return ImagePart.from_bytes(data_bytes, format=format)
+        return ImagePart.from_bytes(data, format=format)
 
 
 class ImageFileSource:
@@ -232,6 +233,10 @@ class ImageFileSource:
     def from_dict(self, d: dict) -> Part:
         """ImageFileSource doesn't support from_dict - only URL loading."""
         raise NotImplementedError("ImageFileSource only supports from_url, not from_dict")
+
+    def from_data(self, mimetype: str, data: bytes) -> Part:
+        """ImageFileSource doesn't support from_data - only URL loading."""
+        raise NotImplementedError("ImageFileSource only supports from_url, not from_data")
 
     def _parse_query_params(self, query: str | None) -> dict[str, Any]:
         """Parse URL query parameters."""
@@ -274,11 +279,11 @@ class ImageFileSource:
 # Register ImagePart with the Part registry
 PART_SOURCE_REGISTRY.register_scheme("image", ImageFileSource([Path(".")]))
 
-image_part_source = ImagePartSource()
-PART_SOURCE_REGISTRY.register_mimetype("image/png", image_part_source)
-PART_SOURCE_REGISTRY.register_mimetype("image/jpeg", image_part_source)
-PART_SOURCE_REGISTRY.register_mimetype("image/jpg", image_part_source)
-PART_SOURCE_REGISTRY.register_mimetype("image/gif", image_part_source)
-PART_SOURCE_REGISTRY.register_mimetype("image/webp", image_part_source)
-PART_SOURCE_REGISTRY.register_mimetype("image/bmp", image_part_source)
-PART_SOURCE_REGISTRY.register_mimetype("image/tiff", image_part_source)
+image_part_loader = ImagePartLoader()
+PART_SOURCE_REGISTRY.register_mimetype("image/png", image_part_loader)
+PART_SOURCE_REGISTRY.register_mimetype("image/jpeg", image_part_loader)
+PART_SOURCE_REGISTRY.register_mimetype("image/jpg", image_part_loader)
+PART_SOURCE_REGISTRY.register_mimetype("image/gif", image_part_loader)
+PART_SOURCE_REGISTRY.register_mimetype("image/webp", image_part_loader)
+PART_SOURCE_REGISTRY.register_mimetype("image/bmp", image_part_loader)
+PART_SOURCE_REGISTRY.register_mimetype("image/tiff", image_part_loader)
